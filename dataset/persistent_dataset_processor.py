@@ -9,7 +9,9 @@ from typing import (
     TypeVar,
     Protocol,
     TypeAlias,
-    Literal, Type, )
+    Literal,
+    Type,
+)
 
 import atomics
 import polars as pl
@@ -22,6 +24,8 @@ MapElementsStrategy: TypeAlias = Literal["thread_local", "threading"] | None
 class DatasetProcessor(Protocol[ID]):
     def fill(self, row_value_generator: Callable[[ID], tuple[ID, *tuple[Any, ...]]]):
         pass
+
+    size: int
 
 
 class DataSetFromDataManager(DatasetProcessor[ID]):

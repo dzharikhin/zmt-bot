@@ -1,14 +1,113 @@
 import pathlib
+from typing import TypeAlias
 
 import librosa
 import numpy as np
 from librosa import feature
 from soundfile import SoundFile
 
+AudioFeaturesType: TypeAlias = tuple[
+    str,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+]
+
 
 def extract_features_for_mp3(
     *, track_id: str, mp3_path: pathlib.Path
-) -> tuple[str, np.ndarray]:
+) -> AudioFeaturesType:
     with SoundFile(mp3_path) as wav:
         audio, sr = librosa.load(wav, sr=None)
 
@@ -55,12 +154,12 @@ def extract_features_for_mp3(
 
         return (
             track_id,
-            feature_row,
+            *tuple(feature_row),
         )
 
 
 if __name__ == "__main__":
-    track = pathlib.Path("../genre/snippets/0VvR2aTYtAsqLTpaBPbfsw.mp3")
+    track = pathlib.Path("0VvR2aTYtAsqLTpaBPbfsw.mp3")
 
-    track_id, row = extract_features_for_mp3(track_id=track.stem, mp3_path=track)
-    print(track_id)
+    row = extract_features_for_mp3(track_id=track.stem, mp3_path=track)
+    print(row)
