@@ -55,9 +55,9 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
             lambda a, b: a.or_(b),
             [pl.col(column[0]).is_null() for column in self._polars_row_schema[1:]],
         )
-        mapper = lru_cache(maxsize=int(self.size * self.cache_fraction))(
-            lambda row_id: self._transform_tuple_to_dict(row_value_generator(row_id))
-        )
+        mapper = functools.partial(self._transform_tuple_to_dict, row_value_generator)
+        if self.cache_fraction > 0:
+            mapper = lru_cache(maxsize=int(self.size * self.cache_fraction))(mapper)
         map_elements_kwargs = (
             {"strategy": self._map_elements_call_strategy}
             if self._map_elements_call_strategy
@@ -65,14 +65,20 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
         )
 
         def batch_mapper(df: pl.DataFrame) -> pl.DataFrame:
-            return df.with_columns(
-                pl.col(self._polars_row_schema[0][0])
-                .map_elements(
-                    mapper,
-                    pl.Struct(dict(self._polars_row_schema)),
-                    **map_elements_kwargs,
+            id_col_name = self._polars_row_schema[0][0]
+            generated_data_col_name = "generated_row_data_as_struct"
+            return (
+                df.with_columns(
+                    pl.col(id_col_name)
+                    .map_elements(
+                        mapper,
+                        pl.Struct(dict(self._polars_row_schema)),
+                        **map_elements_kwargs,
+                    )
+                    .alias(generated_data_col_name)
                 )
-                .struct.unnest()
+                .with_columns(pl.col(generated_data_col_name).struct.unnest())
+                .drop(generated_data_col_name)
             )
 
         additional_data = self._df.filter(any_value_column_is_null).map_batches(
@@ -105,8 +111,10 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
 
     def _transform_tuple_to_dict(
         self,
-        result_tuple: tuple[ID, *tuple[Any, ...]],
+        row_generator: Callable[[ID], tuple[ID, *tuple[Any, ...]]],
+        row_id: ID,
     ) -> dict[str:ID, str:Any]:
+        result_tuple = row_generator(row_id)
         result = {}
         fails = {}
         for i, schema in enumerate(self.row_schema):
