@@ -66,12 +66,13 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
             if self._map_elements_call_strategy
             else {}
         )
+        id_col_name = self._polars_row_schema[0][0]
+        generated_data_col_name = "generated_row_data_as_struct"
 
-        def batch_mapper(df: pl.DataFrame) -> pl.DataFrame:
-            id_col_name = self._polars_row_schema[0][0]
-            generated_data_col_name = "generated_row_data_as_struct"
-            return (
-                df.with_columns(
+        def process_unprocessed_rows_in_batch(df: pl.DataFrame) -> pl.DataFrame:
+            additional_data = (
+                df.filter(any_value_column_is_null)
+                .with_columns(
                     pl.col(id_col_name)
                     .map_elements(
                         mapper,
@@ -83,12 +84,10 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
                 .with_columns(pl.col(generated_data_col_name).struct.unnest())
                 .drop(generated_data_col_name)
             )
+            return df.update(additional_data, on=self.row_schema[0][0], how="left")
 
-        additional_data = self._df.filter(any_value_column_is_null).map_batches(
-            batch_mapper, streamable=True
-        )
-        self._df = self._df.update(
-            additional_data, on=self.row_schema[0][0], how="left"
+        self._df = self._df.map_batches(
+            process_unprocessed_rows_in_batch, streamable=True
         )
 
     def __enter__(self) -> DatasetProcessor[ID]:
@@ -101,6 +100,7 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
                 f"{self._persist_path.name}.result"
             )
             try:
+                # print(self._df.explain(streaming=True))
                 self._df.sink_csv(tmp_file, maintain_order=False)
             except:
                 if self._persist_path.exists():
@@ -113,6 +113,7 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
                 raise
             finally:
                 shutil.copy(tmp_file, self._persist_path)
+                print(f"{tmp_file} copied to {self._persist_path}")
 
     def _init_df(self, index_generator: Generator[ID, None, None]) -> LazyFrame:
         schema_as_dict = dict(self._polars_row_schema)
