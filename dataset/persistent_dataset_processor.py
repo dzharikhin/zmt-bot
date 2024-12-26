@@ -95,22 +95,24 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        try:
-            with tempfile.TemporaryDirectory() as tmp_dir:
-                tmp_file = pathlib.Path(tmp_dir).joinpath(
-                    f"{self._persist_path.name}.result"
-                )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            print(f"Using {tmp_dir} as tempdir for collecting results")
+            tmp_file = pathlib.Path(tmp_dir).joinpath(
+                f"{self._persist_path.name}.result"
+            )
+            try:
                 self._df.sink_csv(tmp_file, maintain_order=False)
+            except:
+                if self._persist_path.exists():
+                    shutil.copy(
+                        self._persist_path,
+                        self._persist_path.parent.joinpath(
+                            f"{self._persist_path.name}.{datetime.timestamp(datetime.now())}.bak"
+                        ),
+                    )
+                raise
+            finally:
                 shutil.copy(tmp_file, self._persist_path)
-        except:
-            if self._persist_path.exists():
-                shutil.copy(
-                    self._persist_path,
-                    self._persist_path.parent.joinpath(
-                        f"{self._persist_path.name}.{datetime.timestamp(datetime.now())}.bak"
-                    ),
-                )
-            raise
 
     def _init_df(self, index_generator: Generator[ID, None, None]) -> LazyFrame:
         schema_as_dict = dict(self._polars_row_schema)
@@ -123,6 +125,7 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
             existing_data_df = pl.LazyFrame(empty_data, schema=schema_as_dict)
 
         with tempfile.TemporaryDirectory() as tmp_dir:
+            print(f"Using {tmp_dir} as tempdir for data initialization")
             index_buffer_file_path = pathlib.Path(tmp_dir).joinpath("index_buffer")
             with index_buffer_file_path.open(mode="wt") as index_buffer_file:
                 writer = csv.writer(index_buffer_file)
