@@ -3,7 +3,6 @@ import functools
 import pathlib
 import shutil
 import tempfile
-import time
 from datetime import datetime
 from functools import lru_cache
 from typing import (
@@ -20,7 +19,6 @@ from typing import (
 import atomics
 import polars as pl
 from polars import LazyFrame
-from polars.lazyframe.in_process import InProcessQuery
 
 ID = TypeVar("ID", int, str)
 MapElementsStrategy: TypeAlias = Literal["thread_local", "threading"] | None
@@ -45,7 +43,6 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
         batch_size: int = 1000,
         map_elements_call_strategy: MapElementsStrategy = None,
         cache_fraction: float = 0,
-        polling_interval_seconds: float = 1.0,
     ):
         self._persist_path = csv_path
         self.row_schema = row_schema
@@ -58,8 +55,6 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
         self._map_elements_call_strategy = map_elements_call_strategy
         self._intermediate_results_dir = intermediate_results_dir
         self._batch_size = batch_size
-        self._polling_interval_seconds = polling_interval_seconds
-        self._tasks: dict[int, InProcessQuery] = {}
         self._df = self._init_df(index_generator)
 
     def fill(self, row_value_generator: Callable[[ID], tuple[ID, *tuple[Any, ...]]]):
@@ -99,26 +94,13 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
             process_unprocessed_rows_in_batch, streamable=True
         )
         batches_num = int(self.size / self._batch_size) + 1
-        self._tasks.update(
-            {
-                i: self._df.slice(i * self._batch_size, self._batch_size).collect(
-                    streaming=True, background=True
-                )
-                for i in range(batches_num)
-            }
-        )
-        task_num = len(self._tasks)
-        print(f"starting to poll {task_num} slices")
-        while self._tasks:
-            for i, task in list(self._tasks.items()):
-                if (df := task.fetch()) is not None:
-                    sink_file_name = self._build_slice_name(i)
-                    df.write_csv(sink_file_name, include_header=False)
-                    print(f"{sink_file_name} is ready, removing from polling")
-                    del self._tasks[i]
-            time.sleep(self._polling_interval_seconds)
-
-        print(f"all {task_num} slices are complete")
+        for i in range(batches_num):
+            slice_df = self._df.slice(i * self._batch_size, self._batch_size)
+            sink_file_name = self._build_slice_name(i)
+            slice_df.collect(streaming=True).write_csv(
+                sink_file_name, include_header=False
+            )
+            print(f"{sink_file_name} is ready: {slice_df.explain()}")
 
     def __enter__(self) -> DatasetProcessor[ID]:
         return self
@@ -130,10 +112,6 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
                 self._persist_path,
                 self._persist_path.parent.joinpath(backup_name),
             )
-        if self._tasks:
-            for i, task in list(self._tasks.items()):
-                task.cancel()
-                del self._tasks[i]
         self._merge_intermediate_results()
 
     def _init_df(self, index_generator: Generator[ID, None, None]) -> LazyFrame:
@@ -232,7 +210,7 @@ if __name__ == "__main__":
                 f.name for f in pathlib.Path("data").iterdir() if f.is_file()
             ),
             intermediate_results_dir=pathlib.Path(tmp),
-            batch_size=2,
+            batch_size=10,
             cache_fraction=0,
         ) as ds,
     ):
