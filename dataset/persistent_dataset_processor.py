@@ -1,4 +1,3 @@
-import asyncio
 import csv
 import functools
 import pathlib
@@ -94,39 +93,26 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
         self._df = self._df.map_batches(
             process_unprocessed_rows_in_batch, streamable=True
         )
-
-        async def write_slice(df: pl.LazyFrame, index: int):
-            result = await df.collect_async()
-            sink_file_name = self._build_slice_name(index)
-            result.write_csv(sink_file_name, include_header=False)
-            print(f"{sink_file_name} is ready: {df.explain()}")
-
         batches_num = int(self.size / self._batch_size) + 1
-        slices = [
-            write_slice(self._df.slice(i * self._batch_size, self._batch_size), i)
-            for i in range(batches_num)
-        ]
-        asyncio.get_event_loop().run_until_complete(asyncio.gather(*slices))
+        for i in range(batches_num):
+            slice_df = self._df.slice(i * self._batch_size, self._batch_size)
+            sink_file_name = self._build_slice_name(i)
+            slice_df.collect(streaming=True).write_csv(
+                sink_file_name, include_header=False
+            )
+            print(f"{sink_file_name} is ready: {slice_df.explain()}")
 
     def __enter__(self) -> DatasetProcessor[ID]:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_val and self._persist_path.exists():
+            backup_name = f"{self._persist_path.name}.{int(datetime.timestamp(datetime.now()))}.bak"
             shutil.copy(
                 self._persist_path,
-                self._persist_path.parent.joinpath(
-                    f"{self._persist_path.name}.{int(datetime.timestamp(datetime.now()))}.bak"
-                ),
+                self._persist_path.parent.joinpath(backup_name),
             )
-        glob_expr = str(self._build_slice_name("*"))
-        pl.scan_csv(
-            glob_expr,
-            schema=dict(self._polars_row_schema),
-            raise_if_empty=False,
-            has_header=False,
-        ).sink_csv(self._persist_path)
-        print(f"{glob_expr} is sinked to {self._persist_path}")
+        self._merge_intermediate_results()
 
     def _init_df(self, index_generator: Generator[ID, None, None]) -> LazyFrame:
         schema_as_dict = dict(self._polars_row_schema)
@@ -159,8 +145,7 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
         )
         data_file = pathlib.Path(self._intermediate_results_dir).joinpath("merged")
         whole_data_df.sink_csv(data_file)
-        shutil.copy(data_file, self._persist_path)
-        return pl.scan_csv(self._persist_path, schema=schema_as_dict)
+        return pl.scan_csv(data_file, schema=schema_as_dict)
 
     def _transform_tuple_to_dict(
         self,
@@ -190,6 +175,22 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
 
     def _build_slice_name(self, index):
         return self._intermediate_results_dir.joinpath(f"slice_{index}.csv")
+
+    def _merge_intermediate_results(self):
+        glob_expr = self._build_slice_name("*")
+        intermediate_results = [
+            f for f in self._intermediate_results_dir.glob(glob_expr.name)
+        ]
+        if not intermediate_results:
+            print(f"No intermediate results for {glob_expr}. Just exiting")
+            return
+        pl.scan_csv(
+            glob_expr,
+            schema=dict(self._polars_row_schema),
+            raise_if_empty=False,
+            has_header=False,
+        ).collect(streaming=True).write_csv(self._persist_path)
+        print(f"{glob_expr} is sinked to {self._persist_path}")
 
 
 if __name__ == "__main__":
