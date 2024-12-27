@@ -1,3 +1,4 @@
+import asyncio
 import csv
 import functools
 import pathlib
@@ -39,8 +40,10 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
         *,
         row_schema: tuple[tuple[str, Type[ID]], *tuple[tuple[str, Type[Any]], ...]],
         index_generator: Generator[ID, None, None],
+        intermediate_results_dir: pathlib.Path,
+        batch_size: int = 1000,
         map_elements_call_strategy: MapElementsStrategy = None,
-        cache_fraction: float = 0.3,
+        cache_fraction: float = 0,
     ):
         self._persist_path = csv_path
         self.row_schema = row_schema
@@ -51,6 +54,8 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
         self.size = 0
         self.cache_fraction = cache_fraction
         self._map_elements_call_strategy = map_elements_call_strategy
+        self._intermediate_results_dir = intermediate_results_dir
+        self._batch_size = batch_size
         self._df = self._init_df(index_generator)
 
     def fill(self, row_value_generator: Callable[[ID], tuple[ID, *tuple[Any, ...]]]):
@@ -66,12 +71,13 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
             if self._map_elements_call_strategy
             else {}
         )
+        id_col_name = self._polars_row_schema[0][0]
+        generated_data_col_name = "generated_row_data_as_struct"
 
-        def batch_mapper(df: pl.DataFrame) -> pl.DataFrame:
-            id_col_name = self._polars_row_schema[0][0]
-            generated_data_col_name = "generated_row_data_as_struct"
-            return (
-                df.with_columns(
+        def process_unprocessed_rows_in_batch(df: pl.DataFrame) -> pl.DataFrame:
+            additional_data = (
+                df.filter(any_value_column_is_null)
+                .with_columns(
                     pl.col(id_col_name)
                     .map_elements(
                         mapper,
@@ -83,36 +89,44 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
                 .with_columns(pl.col(generated_data_col_name).struct.unnest())
                 .drop(generated_data_col_name)
             )
+            return df.update(additional_data, on=id_col_name, how="left")
 
-        additional_data = self._df.filter(any_value_column_is_null).map_batches(
-            batch_mapper, streamable=True
+        self._df = self._df.map_batches(
+            process_unprocessed_rows_in_batch, streamable=True
         )
-        self._df = self._df.update(
-            additional_data, on=self.row_schema[0][0], how="left"
-        )
+
+        async def write_slice(df: pl.LazyFrame, index: int):
+            result = await df.collect_async()
+            sink_file_name = self._build_slice_name(index)
+            result.write_csv(sink_file_name, include_header=False)
+            print(f"{sink_file_name} is ready: {df.explain()}")
+
+        batches_num = int(self.size / self._batch_size) + 1
+        slices = [
+            write_slice(self._df.slice(i * self._batch_size, self._batch_size), i)
+            for i in range(batches_num)
+        ]
+        asyncio.get_event_loop().run_until_complete(asyncio.gather(*slices))
 
     def __enter__(self) -> DatasetProcessor[ID]:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            print(f"Using {tmp_dir} as tempdir for collecting results")
-            tmp_file = pathlib.Path(tmp_dir).joinpath(
-                f"{self._persist_path.name}.result"
+        if exc_val and self._persist_path.exists():
+            shutil.copy(
+                self._persist_path,
+                self._persist_path.parent.joinpath(
+                    f"{self._persist_path.name}.{int(datetime.timestamp(datetime.now()))}.bak"
+                ),
             )
-            try:
-                self._df.sink_csv(tmp_file, maintain_order=False)
-            except:
-                if self._persist_path.exists():
-                    shutil.copy(
-                        self._persist_path,
-                        self._persist_path.parent.joinpath(
-                            f"{self._persist_path.name}.{datetime.timestamp(datetime.now())}.bak"
-                        ),
-                    )
-                raise
-            finally:
-                shutil.copy(tmp_file, self._persist_path)
+        glob_expr = str(self._build_slice_name("*"))
+        pl.scan_csv(
+            glob_expr,
+            schema=dict(self._polars_row_schema),
+            raise_if_empty=False,
+            has_header=False,
+        ).sink_csv(self._persist_path)
+        print(f"{glob_expr} is sinked to {self._persist_path}")
 
     def _init_df(self, index_generator: Generator[ID, None, None]) -> LazyFrame:
         schema_as_dict = dict(self._polars_row_schema)
@@ -121,29 +135,31 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
         if self._persist_path.exists() and self._persist_path.stat().st_size > 0:
             existing_data_df = pl.scan_csv(self._persist_path, schema=schema_as_dict)
         else:
-            empty_data = {name: None for name, _ in self._polars_row_schema}
-            existing_data_df = pl.LazyFrame(empty_data, schema=schema_as_dict)
+            existing_data_df = pl.LazyFrame([], schema=schema_as_dict)
 
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            print(f"Using {tmp_dir} as tempdir for data initialization")
-            index_buffer_file_path = pathlib.Path(tmp_dir).joinpath("index_buffer")
-            with index_buffer_file_path.open(mode="wt") as index_buffer_file:
-                writer = csv.writer(index_buffer_file)
-                for index_value in index_generator:
-                    self.size += 1
-                    writer.writerow(
-                        [index_value] + [None] * (len(self._polars_row_schema) - 1)
-                    )
+        print(
+            f"Using {self._intermediate_results_dir} as tempdir for data initialization"
+        )
+        index_buffer_file_path = pathlib.Path(self._intermediate_results_dir).joinpath(
+            "index_buffer"
+        )
+        with index_buffer_file_path.open(mode="wt") as index_buffer_file:
+            writer = csv.writer(index_buffer_file)
+            for index_value in index_generator:
+                self.size += 1
+                writer.writerow(
+                    [index_value] + [None] * (len(self._polars_row_schema) - 1)
+                )
 
-            whole_data_df = pl.scan_csv(
-                index_buffer_file_path, schema=schema_as_dict, has_header=False
-            )
-            whole_data_df = whole_data_df.update(
-                existing_data_df, on=index_column_name, how="left", include_nulls=True
-            )
-            data_file = pathlib.Path(tmp_dir).joinpath("merged")
-            whole_data_df.sink_csv(data_file)
-            shutil.copy(data_file, self._persist_path)
+        whole_data_df = pl.scan_csv(
+            index_buffer_file_path, schema=schema_as_dict, has_header=False
+        )
+        whole_data_df = whole_data_df.update(
+            existing_data_df, on=index_column_name, how="left", include_nulls=True
+        )
+        data_file = pathlib.Path(self._intermediate_results_dir).joinpath("merged")
+        whole_data_df.sink_csv(data_file)
+        shutil.copy(data_file, self._persist_path)
         return pl.scan_csv(self._persist_path, schema=schema_as_dict)
 
     def _transform_tuple_to_dict(
@@ -172,21 +188,31 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
             )
         return result
 
+    def _build_slice_name(self, index):
+        return self._intermediate_results_dir.joinpath(f"slice_{index}.csv")
+
 
 if __name__ == "__main__":
     path = pathlib.Path("snippet-dataset.csv")
     counter = atomics.atomic(width=4, atype=atomics.INT)
-    with DataSetFromDataManager(
-        path,
-        row_schema=(
-            ("track_id", str),
-            ("col1", float),
-            ("col2", float),
-            ("col3", float),
-        ),
-        index_generator=(f.name for f in pathlib.Path("data").iterdir() if f.is_file()),
-        cache_fraction=1,
-    ) as ds:
+    with (
+        tempfile.TemporaryDirectory() as tmp,
+        DataSetFromDataManager(
+            path,
+            row_schema=(
+                ("track_id", str),
+                ("col1", float),
+                ("col2", float),
+                ("col3", float),
+            ),
+            index_generator=(
+                f.name for f in pathlib.Path("data").iterdir() if f.is_file()
+            ),
+            intermediate_results_dir=pathlib.Path(tmp),
+            batch_size=10,
+            cache_fraction=0,
+        ) as ds,
+    ):
 
         def generate_value(row_id: str) -> tuple[str, float, float, float]:
             done = counter.fetch_inc() + 1
@@ -199,5 +225,4 @@ if __name__ == "__main__":
             )
 
         ds.fill(generate_value)
-
-    print(f"totally processed: {counter.load()}/{ds.size}")
+    print(f"totally called generation: {counter.load()}/{ds.size}")
