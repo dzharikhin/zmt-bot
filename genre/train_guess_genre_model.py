@@ -48,7 +48,6 @@ def main(*, genre_dataset_path: pathlib.Path, snippets_dir: pathlib.Path):
     print(accuracy_score(y_test, predicted))
 
 
-
 if __name__ == "__main__":
     main(
         genre_dataset_path=pathlib.Path("csv/songs.csv"),
