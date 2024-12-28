@@ -16,19 +16,16 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 
-dataset_path = pathlib.Path("features_to_genres_dataset.csv")
-fails_path = pathlib.Path(f"{dataset_path.stem}-Processing_failed.csv")
-counter = atomics.atomic(width=4, atype=atomics.INT)
 
-snippets_path = pathlib.Path("/home/jrx/snippets")
-
-if __name__ == "__main__":
-
+def prepare_audio_features_dataset(results_dir: pathlib.Path, audio_dir: pathlib.Path) -> pathlib.Path:
+    counter = atomics.atomic(width=4, atype=atomics.INT)
+    dataset_path = results_dir.joinpath("audio_features_dataset.csv")
+    fails_path = results_dir.joinpath(f"{dataset_path.stem}-processing_failed.csv")
     with tempfile.TemporaryDirectory() as tmp:
         dataset_manager = DataSetFromDataManager(
             dataset_path,
             row_schema=(("track_id", str), *[(f"f{i}", float) for i in range(1, 95)]),
-            index_generator=(f.stem for f in snippets_path.iterdir() if f.is_file()),
+            index_generator=(f.stem for f in audio_dir.iterdir() if f.is_file()),
             intermediate_results_dir=pathlib.Path(tmp),
             batch_size=1000,
         )
@@ -38,11 +35,11 @@ if __name__ == "__main__":
                 try:
                     row = extract_features_for_mp3(
                         track_id=row_id,
-                        mp3_path=snippets_path.joinpath(f"{row_id}.mp3"),
+                        mp3_path=audio_dir.joinpath(f"{row_id}.mp3"),
                     )
                 except LibsndfileError as e:
-                    with fails_path.open(mode="a") as fails:
-                        csv.writer(fails).writerow([row_id, str(e)])
+                    with fails_path.open(mode="a") as fail_file:
+                        csv.writer(fail_file).writerow([row_id, str(e)])
                     logging.warning(
                         f"failed to get features for {row_id},added to fail log, returning stub: {e}"
                     )
@@ -50,11 +47,18 @@ if __name__ == "__main__":
 
                 done = counter.fetch_inc() + 1
                 if done % 100 == 0:
-                    logging.info(f"{done}/{ds.size}")
+                    logging.info(f"feature generation calls/dataset_size stat: {done}/{ds.size}")
                 return row
 
             ds.fill(generate_features)
-            logging.info(f"totally processed: {counter.load()}/{ds.size}")
+            logging.info(f"total feature generation calls/dataset_size stat: {counter.load()}/{ds.size}")
     with fails_path.open(mode="rt") as fails:
         failed_row_ids = {row[0] for row in csv.reader(fails)}
     dataset_manager.remove_failures_in_place(failed_row_ids)
+    return dataset_path
+
+
+if __name__ == "__main__":
+    prepare_audio_features_dataset(
+        pathlib.Path("."), pathlib.Path("/home/jrx/snippets")
+    )
