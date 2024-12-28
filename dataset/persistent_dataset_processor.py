@@ -118,8 +118,9 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
     def remove_failures_in_place(self, failed_row_ids: Collection[ID]):
         tmp_file = self._intermediate_results_dir.joinpath("cleared_data")
         schema = self._polars_row_schema[0]
+        drop_ids = list(failed_row_ids)
         pl.scan_csv(self._persist_path).filter(
-            pl.col(schema[0]).is_in(list(failed_row_ids)).not_()
+            pl.col(schema[0]).is_in(drop_ids).not_()
         ).sink_csv(tmp_file)
         shutil.copy(tmp_file, self._persist_path)
 

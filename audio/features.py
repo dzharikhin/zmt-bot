@@ -1,5 +1,5 @@
 import pathlib
-from typing import TypeAlias
+from typing import TypeAlias, cast
 
 import librosa
 import numpy as np
@@ -152,10 +152,7 @@ def extract_features_for_mp3(
             )
         )
 
-        return (
-            track_id,
-            *tuple(feature_row),
-        )
+        return cast(AudioFeaturesType, (track_id, *tuple(feature_row)))
 
 
 if __name__ == "__main__":
