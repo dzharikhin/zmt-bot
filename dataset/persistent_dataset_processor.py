@@ -167,7 +167,7 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
         fails = {}
         for i, schema in enumerate(self.row_schema):
             element = result_tuple[i]
-            if isinstance(element, schema[1]):
+            if isinstance(element, schema[1]) or (i > 0 and element is None):
                 result[schema[0]] = element
             else:
                 fails[i] = (schema, element)
