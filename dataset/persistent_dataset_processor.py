@@ -14,6 +14,7 @@ from typing import (
     TypeAlias,
     Literal,
     Type,
+    Collection,
 )
 
 import atomics
@@ -114,6 +115,14 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
             )
         self._merge_intermediate_results()
 
+    def remove_failures_in_place(self, failed_row_ids: Collection[ID]):
+        tmp_file = self._intermediate_results_dir.joinpath("cleared_data")
+        schema = self._polars_row_schema[0]
+        pl.scan_csv(self._persist_path).filter(
+            pl.col(schema[0]).is_in(list(failed_row_ids)).not_()
+        ).sink_csv(tmp_file)
+        shutil.copy(tmp_file, self._persist_path)
+
     def _init_df(self, index_generator: Generator[ID, None, None]) -> LazyFrame:
         schema_as_dict = dict(self._polars_row_schema)
         index_column_name = self._polars_row_schema[0][0]
@@ -196,9 +205,8 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
 if __name__ == "__main__":
     path = pathlib.Path("snippet-dataset.csv")
     counter = atomics.atomic(width=4, atype=atomics.INT)
-    with (
-        tempfile.TemporaryDirectory() as tmp,
-        DataSetFromDataManager(
+    with tempfile.TemporaryDirectory() as tmp:
+        dataset_manager = DataSetFromDataManager(
             path,
             row_schema=(
                 ("track_id", str),
@@ -212,18 +220,19 @@ if __name__ == "__main__":
             intermediate_results_dir=pathlib.Path(tmp),
             batch_size=10,
             cache_fraction=0,
-        ) as ds,
-    ):
+        )
+        with dataset_manager as ds:
 
-        def generate_value(row_id: str) -> tuple[str, float, float, float]:
-            done = counter.fetch_inc() + 1
-            print(f"{done}/{ds.size}: {row_id}")
-            return (
-                row_id,
-                1.0,
-                2.0,
-                3.0,
-            )
+            def generate_value(row_id: str) -> tuple[str, float, float, float]:
+                done = counter.fetch_inc() + 1
+                print(f"{done}/{ds.size}: {row_id}")
+                return (
+                    row_id,
+                    1.0,
+                    2.0,
+                    3.0,
+                )
 
-        ds.fill(generate_value)
-    print(f"totally called generation: {counter.load()}/{ds.size}")
+            ds.fill(generate_value)
+            print(f"totally called generation: {counter.load()}/{ds.size}")
+        dataset_manager.remove_failures_in_place({"2.mp3"})
