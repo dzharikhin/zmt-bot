@@ -60,5 +60,5 @@ def prepare_audio_features_dataset(results_dir: pathlib.Path, audio_dir: pathlib
 
 if __name__ == "__main__":
     prepare_audio_features_dataset(
-        pathlib.Path("."), pathlib.Path("/home/jrx/snippets")
+        pathlib.Path("csv"), pathlib.Path("/home/jrx/snippets")
     )
