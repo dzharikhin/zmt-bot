@@ -17,7 +17,9 @@ logging.basicConfig(
 )
 
 
-def prepare_audio_features_dataset(results_dir: pathlib.Path, audio_dir: pathlib.Path) -> pathlib.Path:
+def prepare_audio_features_dataset(
+    results_dir: pathlib.Path, audio_dir: pathlib.Path
+) -> pathlib.Path:
     counter = atomics.atomic(width=4, atype=atomics.INT)
     dataset_path = results_dir.joinpath("audio_features_dataset.csv")
     fails_path = results_dir.joinpath(f"{dataset_path.stem}-processing_failed.csv")
@@ -47,11 +49,15 @@ def prepare_audio_features_dataset(results_dir: pathlib.Path, audio_dir: pathlib
 
                 done = counter.fetch_inc() + 1
                 if done % 100 == 0:
-                    logging.info(f"feature generation calls/dataset_size stat: {done}/{ds.size}")
+                    logging.info(
+                        f"feature generation calls/dataset_size stat: {done}/{ds.size}"
+                    )
                 return row
 
             ds.fill(generate_features)
-            logging.info(f"total feature generation calls/dataset_size stat: {counter.load()}/{ds.size}")
+            logging.info(
+                f"total feature generation calls/dataset_size stat: {counter.load()}/{ds.size}"
+            )
         with fails_path.open(mode="rt") as fails:
             failed_row_ids = {row[0] for row in csv.reader(fails)}
         dataset_manager.remove_failures_in_place(failed_row_ids)
