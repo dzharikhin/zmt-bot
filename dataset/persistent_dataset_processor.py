@@ -98,7 +98,7 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
         for i in range(batches_num):
             slice_df = self._df.slice(i * self._batch_size, self._batch_size)
             sink_file_name = self._build_slice_name(i)
-            slice_df.collect(streaming=True).write_csv(
+            slice_df.sink_csv(
                 sink_file_name, include_header=False
             )
             print(f"{sink_file_name} is ready: {slice_df.explain()}")
@@ -199,7 +199,7 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
             schema=dict(self._polars_row_schema),
             raise_if_empty=False,
             has_header=False,
-        ).collect(streaming=True).write_csv(self._persist_path)
+        ).sink_csv(self._persist_path)
         print(f"{glob_expr} is sinked to {self._persist_path}")
 
 
