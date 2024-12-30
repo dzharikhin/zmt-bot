@@ -43,7 +43,7 @@ def prepare_audio_features_dataset(results_dir: pathlib.Path, audio_dir: pathlib
                     logging.warning(
                         f"failed to get features for {row_id},added to fail log, returning stub: {e}"
                     )
-                    return cast(AudioFeaturesType, tuple([row_id] + [None] * 94))
+                    row = cast(AudioFeaturesType, tuple([row_id] + [None] * 94))
 
                 done = counter.fetch_inc() + 1
                 if done % 100 == 0:
@@ -52,9 +52,9 @@ def prepare_audio_features_dataset(results_dir: pathlib.Path, audio_dir: pathlib
 
             ds.fill(generate_features)
             logging.info(f"total feature generation calls/dataset_size stat: {counter.load()}/{ds.size}")
-    with fails_path.open(mode="rt") as fails:
-        failed_row_ids = {row[0] for row in csv.reader(fails)}
-    dataset_manager.remove_failures_in_place(failed_row_ids)
+        with fails_path.open(mode="rt") as fails:
+            failed_row_ids = {row[0] for row in csv.reader(fails)}
+        dataset_manager.remove_failures_in_place(failed_row_ids)
     return dataset_path
 
 
