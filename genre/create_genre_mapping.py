@@ -11,7 +11,9 @@ def main(*, genre_dataset_path: pathlib.Path, mapping_path: pathlib.Path):
         pl.col(GENRE_COLUMN_NAME)
     ).agg(pl.col(f"{ID_COLUMN_NAME}")).with_columns(
         pl.col(ID_COLUMN_NAME).list.join(";")
-    ).collect().sort(by=pl.col(GENRE_COLUMN_NAME)).write_csv(
+    ).collect().sort(
+        by=pl.col(GENRE_COLUMN_NAME)
+    ).write_csv(
         mapping_path
     )
 
