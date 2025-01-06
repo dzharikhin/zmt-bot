@@ -3,9 +3,12 @@ import pathlib
 import numpy
 import polars as pl
 import xgboost as xgb
+from sklearn.inspection import permutation_importance
 from sklearn.metrics import classification_report, accuracy_score
 from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.multiclass import OneVsRestClassifier
 from sklearn.preprocessing import StandardScaler
+from sklearn.svm import LinearSVC
 
 GENRE_COLUMN_NAME = "genre_name"
 GENRE_ENCODED_COLUMN_NAME = "genre_name_encoded"
@@ -27,18 +30,11 @@ def main(
     genre_dataset = genre_dataset.select(
         pl.col("spotify_id"), pl.col(GENRE_COLUMN_NAME)
     ).filter(pl.col(GENRE_COLUMN_NAME).is_in(meaningful_genres_data))
-    genre_dataset_sample = genre_dataset
-    has_unique_genres = True
-    while has_unique_genres:
-        print("plus one try to select sample with non unique genre examples")
-        genre_dataset_sample = genre_dataset.collect().sample(10000, shuffle=True)
-        has_unique_genres = (
-            genre_dataset_sample.group_by(pl.col(GENRE_COLUMN_NAME))
-            .len(name="len")
-            .get_column("len")
-            .eq(1)
-            .any()
-        )
+    genre_sample = meaningful_genres_data.sample(fraction=0.1, shuffle=True)
+    print(f"{genre_sample=}")
+    genre_dataset_sample = genre_dataset.filter(
+        pl.col(GENRE_COLUMN_NAME).is_in(genre_sample)
+    )
 
     encoded_genre_data = genre_dataset_sample.lazy().with_columns(
         (pl.col(GENRE_COLUMN_NAME).rank("dense") - 1).alias(GENRE_ENCODED_COLUMN_NAME)
@@ -68,36 +64,76 @@ def main(
     print(f"{X=}")
     y = data.select(pl.col(GENRE_ENCODED_COLUMN_NAME)).collect()
     print(f"{y=}")
-    model = xgb.XGBClassifier(
-        # eval_metric="mlogloss",
-        # tree_method="hist",
-        # early_stopping_rounds=3,
-        objective="multi:softprob",
-        # n_estimators=500,
-        # max_depth = 9,
-    )
+    # model = xgb.XGBClassifier(
+    #     verbosity=3,
+    #     eval_metric="mlogloss",
+    #     tree_method="hist",
+    #     # early_stopping_rounds=3,
+    #     objective="multi:softprob",
+    #     # n_estimators=5000,
+    #     # max_depth = 30,
+    # )
+    model = OneVsRestClassifier(LinearSVC(random_state=42), verbose=True)
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.3, random_state=42, stratify=y
     )
-    scaler = StandardScaler()
-    X_train = scaler.fit_transform(X_train)
-    X_test = scaler.fit_transform(X_test)
+    # scaler = StandardScaler()
+    # X_train = scaler.fit_transform(X_train)
+    # X_test = scaler.fit_transform(X_test)
 
-    # cv_scores = cross_val_score(model, X_train, y_train, cv=5)  # Using 5-fold cross-validation
-    # print(f'Cross-Validation Scores: {cv_scores}')
-    # print(f'Mean Cross-Validation Score: {numpy.mean(cv_scores):.2f}')
-    print("Fitting")
+    # cv_scores = cross_val_score(
+    #     model, X_train, y_train, cv=5
+    # )
+    # print(f"Cross-Validation Scores: {cv_scores}")
+    # print(f"Mean Cross-Validation Score: {numpy.mean(cv_scores):.2f}")
+    # print("Fitting")
     model.fit(X_train, y_train)
-    print(model.score(X_test, y_test))
+
     y_predicted = model.predict(X_test)
-    print(f"Accuracy: {accuracy_score(y_test, y_predicted):.2f}")
-    print(
-        classification_report(
-            y_test,
-            y_predicted,
-            target_names=mapping.get_column(GENRE_COLUMN_NAME).to_list(),
-        )
+    print(f"Average accuracy: {accuracy_score(y_test, y_predicted):.2f}")
+    print("Detailed report:")
+    report = classification_report(
+        y_test,
+        y_predicted,
+        target_names=mapping.get_column(GENRE_COLUMN_NAME).to_list(),
+        output_dict=True,
+        zero_division=0.0,
     )
+
+    not_learned_genres = []
+    for genre, data in sorted(
+        filter(lambda t: isinstance(t[1], dict), report.items()),
+        key=lambda t: t[1]["precision"],
+        reverse=True,
+    ):
+        if data["precision"] < 0.5:
+            not_learned_genres.append(genre)
+            continue
+        print(
+            f"{genre}: {data["precision"]}, supported by {int (data["support"])} examples"
+        )
+    print(f"Not learned for {len(not_learned_genres)} genres: {not_learned_genres}")
+
+    result = permutation_importance(
+        model,
+        X_test.to_pandas(),
+        y_test.to_pandas(),
+        # scoring="neg_log_loss",
+        scoring="top_k_accuracy",
+        n_repeats=10,
+        random_state=42,
+    )
+
+    importance_by_feature = sorted(
+        pl.DataFrame(
+            [list(result.importances_mean)], orient="row", schema=X_test.schema
+        )
+        .rows(named=True)[0]
+        .items(),
+        key=lambda row: row[1],
+        reverse=True,
+    )
+    print(importance_by_feature)
 
 
 if __name__ == "__main__":
