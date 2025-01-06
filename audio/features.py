@@ -102,6 +102,7 @@ AudioFeaturesType: TypeAlias = tuple[
     float,
     float,
     float,
+    float,
 ]
 
 
@@ -138,6 +139,9 @@ def extract_features_for_mp3(
         tonnetz = librosa.feature.tonnetz(y=audio, sr=sr)
         tonnetz_mean = np.mean(tonnetz.T, axis=0)
 
+        onset_env = librosa.onset.onset_strength(y=audio, sr=sr)
+        tempo = feature.tempo(y=audio, sr=sr, onset_envelope=onset_env)
+
         feature_row = np.concatenate(
             (
                 mfccs_mean,
@@ -149,6 +153,7 @@ def extract_features_for_mp3(
                 spectral_bandwidth_mean,
                 spectral_flatness_mean,
                 tonnetz_mean,
+                tempo,
             )
         )
 
