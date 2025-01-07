@@ -2,7 +2,7 @@ import pathlib
 from typing import cast
 
 import polars as pl
-from sklearn.cluster import HDBSCAN
+from sklearn.cluster import HDBSCAN, DBSCAN, KMeans, OPTICS, AffinityPropagation
 from sklearn.preprocessing import StandardScaler
 
 GENRE_COLUMN_NAME = "genre_name"
@@ -43,25 +43,22 @@ def main(
 
     scaler = StandardScaler()
     X = scaler.fit_transform(X)
-    cluster_labels = HDBSCAN().fit_predict(X)
+    print("Fitting")
+    # cluster_labels = HDBSCAN(n_jobs=-1).fit_predict(X)
+    # cluster_labels = DBSCAN(min_samples=100, n_jobs=-1, eps=0.9).fit_predict(X)
+    cluster_labels = KMeans(n_clusters=30, verbose=2).fit_predict(X)
+    # cluster_labels = OPTICS(min_samples=100, n_jobs=-1).fit_predict(X)
+    # cluster_labels = AffinityPropagation(preference=-50).fit_predict(X)
     print(f"clusters: {set(list(cluster_labels))}")
-    y = cast(pl.DataFrame, y).insert_column(
-        1, pl.Series("cluster", cluster_labels)
-    )
+    y = cast(pl.DataFrame, y).insert_column(1, pl.Series("cluster", cluster_labels))
     y.group_by("cluster").agg(pl.col(GENRE_COLUMN_NAME).unique()).with_columns(
         pl.col(GENRE_COLUMN_NAME).list.join(";")
-    ).write_csv(
-        clustered_genres_dataset_path
-    )
-
-    # # Number of clusters in labels, ignoring noise if present.
-    # n_clusters_ = len(set(labels)) - (1 if -1 in labels else 0)
-    # n_noise_ = list(labels).count(-1)
+    ).write_csv(clustered_genres_dataset_path)
 
 
 if __name__ == "__main__":
     main(
         genre_dataset_path=pathlib.Path("csv/songs.csv.prepared"),
         audio_features_dataset_path=pathlib.Path("csv/audio_features_dataset.csv"),
-        clustered_genres_dataset_path=pathlib.Path("csv/clustered_genres.csv")
+        clustered_genres_dataset_path=pathlib.Path("csv/clustered_genres.csv"),
     )
