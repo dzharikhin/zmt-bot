@@ -7,7 +7,11 @@ from typing import cast
 import atomics
 from soundfile import LibsndfileError
 
-from audio.features import extract_features_for_mp3, AudioFeaturesType
+from audio.features import (
+    extract_features_for_mp3,
+    AudioFeaturesType,
+    AUDIO_FEATURE_SCHEMA,
+)
 from dataset.persistent_dataset_processor import DataSetFromDataManager
 
 logging.basicConfig(
@@ -26,7 +30,7 @@ def prepare_audio_features_dataset(
     with tempfile.TemporaryDirectory() as tmp:
         dataset_manager = DataSetFromDataManager(
             dataset_path,
-            row_schema=(("track_id", str), *[(f"f{i}", float) for i in range(1, 95)]),
+            row_schema=AUDIO_FEATURE_SCHEMA,
             index_generator=(f.stem for f in audio_dir.iterdir() if f.is_file()),
             intermediate_results_dir=pathlib.Path(tmp),
             batch_size=1000,
