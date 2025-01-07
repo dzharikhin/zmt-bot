@@ -105,6 +105,20 @@ AudioFeaturesType: TypeAlias = tuple[
     float,
 ]
 
+AUDIO_FEATURE_SCHEMA = [
+    ("track_id", str),
+    *((f"mfcc_mean{i + 1}", float) for i in range(64)),
+    *((f"chroma_mean{i + 1}", float) for i in range(12)),
+    *((f"spectral_contrast_mean{i + 1}", float) for i in range(7)),
+    ("zcr_mean", float),
+    ("rmse_mean", float),
+    ("spectral_centroid_mean", float),
+    ("spectral_bandwidth_mean", float),
+    ("spectral_flatness_mean", float),
+    *((f"tonnetz_mean{i + 1}", float) for i in range(6)),
+    ("tempo", float),
+]
+
 
 def extract_features_for_mp3(
     *, track_id: str, mp3_path: pathlib.Path
