@@ -81,9 +81,7 @@ def main(
     X_train = scaler.fit_transform(X_train)
     X_test = scaler.fit_transform(X_test)
 
-    cv_scores = cross_val_score(
-        model, X_train, y_train, cv=5
-    )
+    cv_scores = cross_val_score(model, X_train, y_train, cv=5)
     print(f"Cross-Validation Scores: {cv_scores}")
     print(f"Mean Cross-Validation Score: {numpy.mean(cv_scores):.2f}")
     print("Fitting")
@@ -102,7 +100,7 @@ def main(
 
     not_learned_genres = []
     for genre, data in sorted(
-        filter(lambda t: isinstance(t[1], dict), report.items()),
+        filter(lambda t: isinstance(t[1], dict) and t[0] not in ["macro avg", "weighted avg"], report.items()),
         key=lambda t: t[1]["precision"],
         reverse=True,
     ):
@@ -112,7 +110,9 @@ def main(
         print(
             f"{genre}: {data["precision"]}, supported by {int (data["support"])} examples"
         )
-    print(f"Not learned for {len(not_learned_genres)}/{genre_sample.shape[0]} genres: {not_learned_genres}")
+    print(
+        f"Not learned for {len(not_learned_genres)}/{genre_sample.shape[0]} genres: {not_learned_genres}"
+    )
 
     result = permutation_importance(
         model,
