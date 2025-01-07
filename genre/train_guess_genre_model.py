@@ -100,7 +100,11 @@ def main(
 
     not_learned_genres = []
     for genre, data in sorted(
-        filter(lambda t: isinstance(t[1], dict) and t[0] not in ["macro avg", "weighted avg"], report.items()),
+        filter(
+            lambda t: isinstance(t[1], dict)
+            and t[0] not in ["macro avg", "weighted avg"],
+            report.items(),
+        ),
         key=lambda t: t[1]["precision"],
         reverse=True,
     ):

@@ -1,1 +1,7 @@
-https://github.com/trebi/music-genres-dataset
+- `songs.csv` - raw dataset from https://github.com/trebi/music-genres-dataset
+- `songs.csv.prepared` - deduplicated, csv format-fixed data, for which sample was successfully downloaded(see tags `data-genre-*`). Built with [download_genre_snippets.py](../download_genre_snippets.py)
+- `audio_features_dataset.csv`- audio features extracted for downloaded samples. Built with [prepare_features_dataset.py](../prepare_features_dataset.py)
+- `audio_features_dataset-processing_failed.csv`- sample ids failed to extract features from. Built with [prepare_features_dataset.py](../prepare_features_dataset.py)
+- `songs.grouped_by_genre.csv` - `songs.csv.prepared` grouped by genre_name to be able to listen examples of genre. Built with [create_genre_mapping.py](../create_genre_mapping.py)
+- `clustered_genres.csv` - `songs.csv.prepared` ML-clustered then manually corrected. Built with [create_genre_clusterization.py](../create_genre_clusterization.py)
+- `songs-processed.csv` - `songs.csv.prepared` enriched with clustered genre column
