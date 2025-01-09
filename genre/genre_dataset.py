@@ -15,7 +15,7 @@ class Dataset:
 
     def __init__(self, csv: pathlib.Path, persist_per_update: bool = False):
         self.csv = csv
-        self.result_path = csv.parent.joinpath(f"{csv.name}.prepared")
+        self.result_path = csv.parent.joinpath(f"{csv.stem}-prepared{csv.suffix}")
         self.dataframe: DataFrame = self._create_dataset()
         self.dataframe = shuffle(self.dataframe)
         self.persist_per_update = persist_per_update
