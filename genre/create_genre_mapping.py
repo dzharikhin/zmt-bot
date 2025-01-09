@@ -109,7 +109,6 @@ MANUAL_GENRE_MAPPING = {
     },
     "alternative rock": {
         "alternative pop rock",
-        "alternative rock",
         "rap rock",
         "nu metal",
         "alternative metal",
