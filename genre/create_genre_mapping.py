@@ -4,13 +4,30 @@ from collections import defaultdict
 import polars as pl
 
 GENRE_COLUMN_NAME = "genre_name"
-ID_COLUMN_NAME = "spotify_id"
+ID_COLUMN_NAME = "track_id"
 
-MANUAL_GENRE_CLUSTERING = {
-    "abstract": {"abstractro"},
+# genres grouped by not sound criteria
+MIXED_GENRES = {
+    "abstract",
+    "abstractro",
+    "dance",
+    "adult standards",
+    "acousmatic",
+    "ambient",
+    "anime score",
+    "anime cv",
+    "anime",
+    "afrikaans",
+    "accordeon",
+    "a cappella",
+    "aussietronica",
+    "avant-garde",
+}
+
+# fixing and enhancing automapping
+MANUAL_GENRE_MAPPING = {
     "hip hop": {
-        "abstract beats",
-        "alternative hip hop",
+        # "abstract beats",
         "chip hop",
         "deep hip hop",
         "deep underground hip hop",
@@ -24,10 +41,8 @@ MANUAL_GENRE_CLUSTERING = {
         "dirty south rap",
         "dirty texas rap",
         "gangster rap",
-        ""
     },
     "accordeon": {
-        "accordeon",
         "accordion",
     },
     "house": {
@@ -79,6 +94,7 @@ MANUAL_GENRE_CLUSTERING = {
     },
     "techno": {
         "acid techno",
+        "aggrotech",
     },
     "pop": {
         "acoustic pop",
@@ -87,20 +103,56 @@ MANUAL_GENRE_CLUSTERING = {
         "arena pop",
         "britpop",
         "folk-pop",
-
+        "anthem worship",
+        "austropop",
+        "axe",
     },
-    "rock": {
+    "alternative rock": {
         "alternative pop rock",
         "alternative rock",
-        "alternative roots rock",
+        "rap rock",
+        "nu metal",
+        "alternative metal",
+    },
+    "rock": {
+        "alt-indie rock",
+        "alternative",
+        "anti-folk",
+        "art rock",
+        "australian alternative rock",
     },
     "indie": {
         "irish indie",
-    }
+        "alternative ccm",
+        "austindie",
+    },
+    "afrobeat": {
+        "afrobeats",
+    },
+    "country": {
+        "americana",
+    },
+    "blues": {
+        "acoustic blues",
+    },
+    "beats": {
+        "ambeat",
+    },
+    "punk": {
+        "anarcho-punk",
+    },
+    "andean folk": {"andean"},
+    "emo": {"anthem emo"},
+    "latin": {
+        "azonto",
+        "azontobeats",
+    },
 }
 
-VARIATIONS = {
-    "alternative": True,
+GENRE_VARIATIONS = {
+    "album": False,
+    "alternative": False,
+    "alt-": False,
     "deep": True,
     "abstract": False,
     "underground": False,
@@ -121,11 +173,14 @@ VARIATIONS = {
     "geek": False,
     "garage": False,
     "experimental": True,
+    "avant-garde": False,
 }
-GEOGRAPHY = {
+
+GEOGRAPHY_LABELS = {
     "african",
     "albanian",
     "albuquerque",
+    "appalachian",
     "arab",
     "argentine",
     "armenian",
@@ -167,6 +222,7 @@ GEOGRAPHY = {
     "israeli",
     "j-",
     "japanese",
+    "k-",
     "kiwi",
     "korean",
     "kurdish",
@@ -236,7 +292,7 @@ def _collapse_genre_geography(unique_genres: list[str]) -> dict[str, set[str]]:
         variation, distinct = next(
             (
                 (var, distinct)
-                for var, distinct in VARIATIONS.items()
+                for var, distinct in GENRE_VARIATIONS.items()
                 if genre.startswith(var if var.endswith("-") else f"{var} ")
             ),
             (None, None),
@@ -244,7 +300,14 @@ def _collapse_genre_geography(unique_genres: list[str]) -> dict[str, set[str]]:
         if variation:
             genre = genre.replace(variation, "").strip()
 
-        geo = next((geo for geo in GEOGRAPHY if genre.startswith(geo if geo.endswith("-") else f"{geo} ")), None)
+        geo = next(
+            (
+                geo
+                for geo in GEOGRAPHY_LABELS
+                if genre.startswith(geo if geo.endswith("-") else f"{geo} ")
+            ),
+            None,
+        )
         if geo:
             genre = genre.replace(geo, "").strip()
         if (
@@ -256,7 +319,9 @@ def _collapse_genre_geography(unique_genres: list[str]) -> dict[str, set[str]]:
     return mapping
 
 
-def _merge_mapping(mapping: dict[str, set[str]], overriding_mapping: dict[str, set[str]]) -> dict[str, set[str]]:
+def _merge_mapping(
+    mapping: dict[str, set[str]], overriding_mapping: dict[str, set[str]]
+) -> dict[str, set[str]]:
     merged = {}
     for genre, raw_genres in mapping.items():
         if overriding_mappings := overriding_mapping.get(genre):
@@ -276,7 +341,12 @@ def _merge_mapping(mapping: dict[str, set[str]], overriding_mapping: dict[str, s
     return merged
 
 
-def main(*, genre_dataset_path: pathlib.Path, mapping_path: pathlib.Path):
+def group_genres(
+    *,
+    genre_dataset_path: pathlib.Path,
+    grouped_by_genre_path: pathlib.Path,
+    mapped_genre_dataset_path: pathlib.Path,
+):
     genre_dataset = pl.scan_csv(genre_dataset_path)
     # meaningful_genres_data = (
     #     genre_dataset.group_by(pl.col(GENRE_COLUMN_NAME))
@@ -285,9 +355,7 @@ def main(*, genre_dataset_path: pathlib.Path, mapping_path: pathlib.Path):
     #     .select(pl.col(GENRE_COLUMN_NAME))
     #     .collect()
     # )
-    # genre_dataset = genre_dataset.select(
-    #     pl.col("spotify_id"), pl.col(GENRE_COLUMN_NAME)
-    # ).filter(pl.col(GENRE_COLUMN_NAME).is_in(meaningful_genres_data))
+    # genre_dataset = genre_dataset.filter(pl.col(GENRE_COLUMN_NAME).is_in(meaningful_genres_data))
     unique_genres: list[str] = (
         genre_dataset.select(pl.col(GENRE_COLUMN_NAME))
         .unique()
@@ -295,7 +363,9 @@ def main(*, genre_dataset_path: pathlib.Path, mapping_path: pathlib.Path):
         .get_column(GENRE_COLUMN_NAME)
         .to_list()
     )
-    merged_mapping = _merge_mapping(_collapse_genre_geography(unique_genres), MANUAL_GENRE_CLUSTERING)
+    merged_mapping = _merge_mapping(
+        _collapse_genre_geography(unique_genres), MANUAL_GENRE_MAPPING
+    )
     print(f"{merged_mapping=}")
     inverse_mapping = {
         specific_name: common_name
@@ -312,6 +382,8 @@ def main(*, genre_dataset_path: pathlib.Path, mapping_path: pathlib.Path):
         .alias(f"{GENRE_COLUMN_NAME}_mapped")
     ).with_columns(
         pl.col(f"{GENRE_COLUMN_NAME}_mapped").alias(GENRE_COLUMN_NAME)
+    ).filter(
+        pl.col(GENRE_COLUMN_NAME).is_in(list(MIXED_GENRES)).not_()
     ).select(
         pl.col(ID_COLUMN_NAME), pl.col(GENRE_COLUMN_NAME)
     ).group_by(
@@ -323,12 +395,17 @@ def main(*, genre_dataset_path: pathlib.Path, mapping_path: pathlib.Path):
     ).collect().sort(
         by=pl.col(GENRE_COLUMN_NAME)
     ).write_csv(
-        mapping_path
+        grouped_by_genre_path
     )
 
 
 if __name__ == "__main__":
-    main(
-        genre_dataset_path=pathlib.Path("csv/songs.csv.prepared"),
-        mapping_path=pathlib.Path("csv/songs.grouped_by_genre.csv"),
+    group_genres(
+        genre_dataset_path=pathlib.Path("csv/songs-genre_filtered.csv"),
+        grouped_by_genre_path=pathlib.Path(
+            "csv/songs-genre_filtered-grouped_by_genre.csv"
+        ),
+        mapped_genre_dataset_path=pathlib.Path(
+            "csv/songs-genre_filtered-mapped_genres.csv"
+        ),
     )
