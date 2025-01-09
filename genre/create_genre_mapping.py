@@ -22,60 +22,76 @@ MIXED_GENRES = {
     "a cappella",
     "aussietronica",
     "avant-garde",
+    "barnemusikk",
+    "bass music",
+    "bass trip",
+    "bassline",
+    "beach music",
+    "beats",
+    "bemani",
+    "big beat",
+    "bmore",
+    "brill building pop",
+    "broken beat",
 }
 
 # fixing and enhancing automapping
 MANUAL_GENRE_MAPPING = {
     "hip hop": {
-        # "abstract beats",
+        "bounce",
+        "chicano rap",
         "chip hop",
         "deep hip hop",
         "deep underground hip hop",
+        "dirty south rap",
+        "dirty texas rap",
+        "gangster rap",
         "hardcore hip hop",
         "hip hop quebecois",
         "hip hop tuga",
         "outer hip hop",
-        "underground latin hip hop",
         "rap",
-        "chicano rap",
-        "dirty south rap",
-        "dirty texas rap",
-        "gangster rap",
+        "underground latin hip hop",
+    },
+    "trap": {
+        "bass trap",
     },
     "accordeon": {
         "accordion",
     },
     "house": {
         "acid house",
+        "balearic",
+        "ballroom",
         "chicago house",
         "deep house",
         "deep tech house",
         "disco house",
-        "euro house",
-        "funk house",
-        "groove house",
-        "melodic euro house",
-        "progressive house",
-        "soul house",
-        "tech house",
-        "tropical house",
-        "vocal house",
         "disco house",
         "dutch house",
         "electro house",
+        "euro house",
         "fidget house",
         "filter house",
         "float house",
+        "funk house",
         "funky tech house",
+        "groove house",
         "hip house",
         "kwaito house",
+        "melodic euro house",
         "minimal tech house",
         "nordic house",
         "pop house",
         "progressive electro house",
+        "progressive house",
+        "soul house",
+        "tech house",
         "tech house",
         "tribal house",
         "tropical house",
+        "tropical house",
+        "vocal house",
         "vocal house",
     },
     "progressive": {
@@ -90,6 +106,7 @@ MANUAL_GENRE_MAPPING = {
         "hard house",
     },
     "trance": {
+        "bubble trance",
         "progressive house",
     },
     "techno": {
@@ -99,19 +116,23 @@ MANUAL_GENRE_MAPPING = {
     "pop": {
         "acoustic pop",
         "alternative pop",
+        "anthem worship",
         "antiviral pop",
         "arena pop",
-        "britpop",
-        "folk-pop",
-        "anthem worship",
         "austropop",
         "axe",
+        "bow pop",
+        "boy band",
+        "britpop",
+        "bubblegum dance",
+        "bubblegum pop",
+        "folk-pop",
     },
     "alternative rock": {
-        "alternative pop rock",
-        "rap rock",
-        "nu metal",
         "alternative metal",
+        "alternative pop rock",
+        "nu metal",
+        "rap rock",
     },
     "rock": {
         "alt-indie rock",
@@ -120,10 +141,22 @@ MANUAL_GENRE_MAPPING = {
         "art rock",
         "australian alternative rock",
     },
+    "black metal": {
+        "black death",
+        "black sludge",
+        "black thrash",
+    },
+    "post black metal": {
+        "blackgaze",
+    },
+    "death metal": {
+        "brutal death metal",
+        "brutal deathcore",
+    },
     "indie": {
-        "irish indie",
         "alternative ccm",
         "austindie",
+        "irish indie",
     },
     "afrobeat": {
         "afrobeats",
@@ -133,6 +166,9 @@ MANUAL_GENRE_MAPPING = {
     },
     "blues": {
         "acoustic blues",
+        "bluegrass",
+        "blues-rock guitar",
+        "blues-rock",
     },
     "beats": {
         "ambeat",
@@ -145,34 +181,77 @@ MANUAL_GENRE_MAPPING = {
     "latin": {
         "azonto",
         "azontobeats",
+        "banda",
+    },
+    "bangla folk": {
+        "bangla"
+    },
+    # initial `a capella` genre is mixed
+    "acapella": {
+        "barbershop"
+    },
+    "barnemusikk": {
+        "barnmusik",
+    },
+    "baroque": {
+        "baroque ensemble",
+    },
+    "jazz": {
+        "bebop",
+        "big band",
+    },
+    "belorus folk": {
+        "belorush"
+    },
+    "kenyan folk": {
+        "benga"
+    },
+    "punjab folk": {
+        "bhangra"
+    },
+    "cuban folk": {
+      "bolero"
+    },
+    "bossa nova": {
+        "bossa nova jazz",
+    },
+    "brass": {
+        "brass band",
+        "brass ensemble",
+    },
+    "brazilian folk": {
+        "brega",
+    },
+    "dubstep": {
+        "brostep",
     },
 }
 
 GENRE_VARIATIONS = {
-    "album": False,
-    "alternative": False,
-    "alt-": False,
-    "deep": True,
     "abstract": False,
-    "underground": False,
-    "old school": False,
-    "lounge": False,
-    "traditional": False,
-    "modern": False,
-    "hardcore": True,
-    "classic": False,
-    "atmospheric": False,
+    "album": False,
+    "alt-": False,
+    "alternative": False,
     "ambient": False,
-    "vocal": False,
-    "vintage": False,
-    "retro": False,
-    "regional": False,
-    "melodic": False,
-    "hard": True,
-    "geek": False,
-    "garage": False,
-    "experimental": True,
+    "atmospheric": False,
     "avant-garde": False,
+    "classic": False,
+    "deep": True,
+    "experimental": True,
+    "garage": False,
+    "geek": False,
+    "hard": True,
+    "hardcore": True,
+    "lounge": False,
+    "melodic": False,
+    "modern": False,
+    "old school": False,
+    "regional": False,
+    "retro": False,
+    "traditional": False,
+    "underground": False,
+    "vintage": False,
+    "vocal": False,
 }
 
 GEOGRAPHY_LABELS = {
@@ -186,9 +265,12 @@ GEOGRAPHY_LABELS = {
     "athens",
     "australian",
     "austrian",
+    "basque",
     "bay area",
     "belgian",
+    "boston",
     "brazilian",
+    "breton",
     "british",
     "brooklyn",
     "bulgarian",
