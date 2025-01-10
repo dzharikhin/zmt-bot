@@ -58,6 +58,7 @@ MIXED_GENRES = {
     "drama",
     "drill and bass",
     "drone",
+    "e6fi",
 }
 
 # fixing and enhancing automapping
@@ -215,12 +216,8 @@ MANUAL_GENRE_MAPPING = {
         "dream pop",
         "dreamo",
     },
-    "hardcore rock": {
-        "chaotic hardcore"
-    },
-    "alternative rock": {
-        "-australian alternative rock"
-    },
+    "hardcore rock": {"chaotic hardcore"},
+    "alternative rock": {"-australian alternative rock"},
     "black metal": {
         "black death",
         "black sludge",
@@ -249,12 +246,7 @@ MANUAL_GENRE_MAPPING = {
     "afrobeat": {
         "afrobeats",
     },
-    "country": {
-        "americana",
-        "commons",
-        "country road",
-        "cowboy western"
-    },
+    "country": {"americana", "commons", "country road", "cowboy western"},
     "blues": {
         "acoustic blues",
         "bluegrass",
@@ -275,12 +267,8 @@ MANUAL_GENRE_MAPPING = {
         "dance punk",
         "wave",
     },
-    "andean folk": {
-        "andean"
-    },
-    "emo": {
-        "anthem emo"
-    },
+    "andean folk": {"andean"},
+    "emo": {"anthem emo"},
     "latin": {
         "azonto",
         "azontobeats",
@@ -288,13 +276,9 @@ MANUAL_GENRE_MAPPING = {
         "choro",
         "cubaton",
     },
-    "bangla folk": {
-        "bangla"
-    },
+    "bangla folk": {"bangla"},
     # initial `a capella` genre is mixed
-    "acapella": {
-        "barbershop"
-    },
+    "acapella": {"barbershop"},
     "barnemusikk": {
         "barnmusik",
     },
@@ -308,15 +292,9 @@ MANUAL_GENRE_MAPPING = {
         "cool jazz",
         "dixieland",
     },
-    "belorus folk": {
-        "belorush"
-    },
-    "kenyan folk": {
-        "benga"
-    },
-    "punjab folk": {
-        "bhangra"
-    },
+    "belorus folk": {"belorush"},
+    "kenyan folk": {"benga"},
+    "punjab folk": {"bhangra"},
     "cuban folk": {
         "bolero",
     },
@@ -333,14 +311,11 @@ MANUAL_GENRE_MAPPING = {
         "cinematic dubstep",
         "dubstep product",
         "dubsteppe",
-
     },
     "flamenco": {
         "cante flamenco",
     },
-    "indian folk": {
-        "carnatic"
-    },
+    "indian folk": {"carnatic"},
     "scottish folk": {
         "ceilidh",
     },
@@ -399,14 +374,10 @@ MANUAL_GENRE_MAPPING = {
     "indonesian folk": {
         "dangdut",
     },
-    "dance punk": {
-        "danspunk",
-        "dance-punk"
-    },
+    "dance punk": {"danspunk", "dance-punk"},
     "drum and bass": {
         "darkstep",
         "drumfunk",
-
     },
     "sahara folk": {
         "desert blues",
@@ -623,18 +594,25 @@ def _merge_mapping(
         elif genre in merged and not override_mappings:
             del merged[genre]
 
-    keys_in_values = set(merged.keys()) & reduce(lambda a, b: a.union(b), list(merged.values()))
+    keys_in_values = set(merged.keys()) & reduce(
+        lambda a, b: a.union(b), list(merged.values())
+    )
     if keys_in_values:
         value_index = {}
         for key, vals in merged.items():
             for val in vals:
                 old_key = value_index.pop(val, None)
                 if old_key:
-                    print(f"<{val}> is duplicates in keys <{old_key}> and <{key}>", file=sys.stderr)
+                    print(
+                        f"<{val}> is duplicates in keys <{old_key}> and <{key}>",
+                        file=sys.stderr,
+                    )
                 value_index[val] = key
         for key in sorted(keys_in_values, key=lambda x: len(x), reverse=True):
             mapping_key = value_index[key]
-            print(f"Key <{key}> is present as value in <{mapping_key}>. Merging {merged[key]} in <{mapping_key}>")
+            print(
+                f"Key <{key}> is present as value in <{mapping_key}>. Merging {merged[key]} in <{mapping_key}>"
+            )
             merged[mapping_key].update(merged[key])
             del merged[key]
     return merged
