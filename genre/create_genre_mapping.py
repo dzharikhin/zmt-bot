@@ -99,6 +99,8 @@ MIXED_GENRES = {
     "invasion",
     "jam band",
     "jazztronica",
+    "kids dance party",
+    "kindermusik",
 }
 
 # fixing and enhancing automapping
@@ -262,6 +264,7 @@ MANUAL_GENRE_MAPPING = {
         "idol pop",
         "indie anthem-folk",
         "italo dance",
+        "karneval",
     },
     "ccm": {
         "-alternative ccm",
@@ -328,6 +331,7 @@ MANUAL_GENRE_MAPPING = {
         "freakbeat",
         "gothic post-punk",
         "instrumental post rock",
+        "kraut rock",
     },
     "hardcore rock": {
         "chaotic hardcore",
@@ -417,6 +421,8 @@ MANUAL_GENRE_MAPPING = {
         "choro",
         "cubaton",
         "hiplife",
+        "kizomba",
+        "kuduro",
     },
     "electro latin": {
         "electro bailando",
@@ -620,6 +626,13 @@ MANUAL_GENRE_MAPPING = {
     },
     "israeli folk": {
         "judaica",
+        "klezmer",
+    },
+    "croatian folk": {
+        "klapa",
+    },
+    "haitian folk": {
+        "kompa",
     },
     "folk": {
         "folkmusik",
@@ -712,6 +725,7 @@ GEOGRAPHY_LABELS = {
     "j-",
     "japanese",
     "k-",
+    "kc",
     "kiwi",
     "korean",
     "kurdish",
