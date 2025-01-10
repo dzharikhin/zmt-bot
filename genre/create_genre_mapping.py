@@ -75,7 +75,12 @@ MIXED_GENRES = {
     "escape room",
     "eurovision",
     "experimental",
-    "",
+    "fake",
+    "fingerstyle",
+    "free improvisation",
+    "funky",
+    "fusion",
+    "future ambient",
 }
 
 # fixing and enhancing automapping
@@ -96,6 +101,13 @@ MANUAL_GENRE_MAPPING = {
         "rap",
         "underground latin hip hop",
         "crunk",
+        "flick hop",
+        "flow",
+        "fluxwork",
+        "football",
+        "fourth world",
+        "francoton",
+        "g funk",
     },
     "trap": {
         "bass trap",
@@ -161,6 +173,9 @@ MANUAL_GENRE_MAPPING = {
         "progressive house",
         "chill-out trance",
     },
+    "psytrance": {
+        "full on",
+    },
     "techno": {
         "acid techno",
         "aggrotech",
@@ -205,18 +220,24 @@ MANUAL_GENRE_MAPPING = {
         "electropowerpop",
         "etherpop",
         "europop",
+        "folk pop",
     },
     "ccm": {
         "-alternative ccm",
     },
-    "alternative": {
+    "alternative rock": {
+        "-australian alternative rock",
         "alternative metal",
         "alternative pop rock",
         "rap rock",
+        "funk metal",
     },
     "metal": {
         "-alternative metal",
         "cyber metal",
+        "fallen angel",
+        "folk metal",
+        "funeral doom",
     },
     "pop rock": {
         "-alternative pop rock",
@@ -231,6 +252,8 @@ MANUAL_GENRE_MAPPING = {
         "corrosion",
         "dance rock",
         "downshift",
+        "folk punk",
+        "folk rock",
     },
     "post rock": {
         "crossover prog",
@@ -240,12 +263,12 @@ MANUAL_GENRE_MAPPING = {
         "ethereal wave",
         "experimental psych",
         "experimental rock",
+        "freakbeat",
     },
     "hardcore rock": {
         "chaotic hardcore",
         "electronicore",
     },
-    "alternative rock": {"-australian alternative rock"},
     "black metal": {
         "black death",
         "black sludge",
@@ -294,6 +317,7 @@ MANUAL_GENRE_MAPPING = {
         "anarcho-punk",
         "crack rock steady",
         "crust punk",
+        "fast melodic punk",
     },
     "post punk rock": {
         "dance punk",
@@ -328,6 +352,7 @@ MANUAL_GENRE_MAPPING = {
         "post-bop",
         "cool jazz",
         "dixieland",
+        "free jazz",
     },
     "belorus folk": {"belorush"},
     "kenyan folk": {"benga"},
@@ -340,6 +365,7 @@ MANUAL_GENRE_MAPPING = {
     },
     "brazilian folk": {
         "brega",
+        "forro",
     },
     "dubstep": {
         "brostep",
@@ -349,6 +375,7 @@ MANUAL_GENRE_MAPPING = {
         "dubstep product",
         "dubsteppe",
         "experimental dubstep",
+        "filthstep",
     },
     "flamenco": {
         "cante flamenco",
@@ -365,6 +392,7 @@ MANUAL_GENRE_MAPPING = {
     },
     "argentine folk": {
         "chamame",
+        "folklore argentino",
     },
     "chanson": {
         "chanson quebecois",
@@ -441,6 +469,15 @@ MANUAL_GENRE_MAPPING = {
     },
     "balkan folk": {
         "entehno",
+    },
+    "portuguese folk": {
+        "fado",
+    },
+    "german folk": {
+        "fussball",
+    },
+    "folk": {
+        "folkmusik",
     },
     # to remove
     "classical": None,
@@ -536,6 +573,7 @@ GEOGRAPHY_LABELS = {
     "latvian",
     "swedish",
     "detroit",
+    "faroese",
     "finnish",
     "french",
     "greek",
