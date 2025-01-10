@@ -105,6 +105,15 @@ MIXED_GENRES = {
     "lo star",
     "lo-fi",
     "lowercase",
+    "mashup",
+    "melancholia",
+    "metropopolis",
+    "minimal",
+    "movie tunes",
+    "musica para ninos",
+    "musiikkia lapsille",
+    "musique pour enfants",
+    "muziek voor kinderen",
 }
 
 # fixing and enhancing automapping
@@ -177,6 +186,7 @@ MANUAL_GENRE_MAPPING = {
         "-greek house",
         "groove room",
         "-hard house",
+        "melbourne bounce",
     },
     "progressive": {
         "dark progressive house",
@@ -218,11 +228,15 @@ MANUAL_GENRE_MAPPING = {
         "acid techno",
         "dub techno",
     },
+    "minimal techno": {
+        "minimal melodic techno",
+    },
     "industrial": {
         "aggrotech",
         "ebm",
         "electro-industrial",
         "grave wave",
+        "minimal wave",
     },
     "pop": {
         "acoustic pop",
@@ -298,6 +312,7 @@ MANUAL_GENRE_MAPPING = {
         "groove metal",
         "hatecore",
         "jazz metal",
+        "metal guitar",
     },
     "pop rock": {
         "-alternative pop rock",
@@ -327,6 +342,7 @@ MANUAL_GENRE_MAPPING = {
         "jangle rock",
         "lift kit",
         "madchester",
+        "mod revival",
     },
     "stoner rock": {
         "-hard stoner rock",
@@ -343,6 +359,7 @@ MANUAL_GENRE_MAPPING = {
         "gothic post-punk",
         "instrumental post rock",
         "kraut rock",
+        "math pop",
     },
     "hardcore rock": {
         "chaotic hardcore",
@@ -493,6 +510,8 @@ MANUAL_GENRE_MAPPING = {
     "brazilian folk": {
         "brega",
         "forro",
+        "mpb",
+        "musica nativista",
     },
     "dubstep": {
         "brostep",
@@ -565,6 +584,7 @@ MANUAL_GENRE_MAPPING = {
         "brass band",
         "brass ensemble",
         "marching band",
+        "military band",
     },
     "dominican folk": {
         "cornetas y tambores",
@@ -665,6 +685,12 @@ MANUAL_GENRE_MAPPING = {
     },
     "hungarian folk": {
         "magyar",
+    },
+    "metalcore": {
+        "melodic metalcore",
+    },
+    "cabo verde folk": {
+        "morna",
     },
     "folk": {
         "folkmusik",
