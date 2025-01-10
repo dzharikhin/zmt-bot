@@ -101,6 +101,10 @@ MIXED_GENRES = {
     "jazztronica",
     "kids dance party",
     "kindermusik",
+    "library music",
+    "lo star",
+    "lo-fi",
+    "lowercase",
 }
 
 # fixing and enhancing automapping
@@ -265,6 +269,11 @@ MANUAL_GENRE_MAPPING = {
         "indie anthem-folk",
         "italo dance",
         "karneval",
+        "lds",
+        "levenslied",
+        "lilith",
+        "louvor",
+        "lovers rock",
     },
     "ccm": {
         "-alternative ccm",
@@ -316,6 +325,8 @@ MANUAL_GENRE_MAPPING = {
         "indorock",
         "jangle pop",
         "jangle rock",
+        "lift kit",
+        "madchester",
     },
     "stoner rock": {
         "-hard stoner rock",
@@ -423,6 +434,7 @@ MANUAL_GENRE_MAPPING = {
         "hiplife",
         "kizomba",
         "kuduro",
+        "makossa",
     },
     "electro latin": {
         "electro bailando",
@@ -493,6 +505,10 @@ MANUAL_GENRE_MAPPING = {
         "filthstep",
         "ghoststep",
     },
+    "liquid": {
+        "liquid bass",
+        "liquid funk",
+    },
     "flamenco": {
         "cante flamenco",
     },
@@ -548,6 +564,7 @@ MANUAL_GENRE_MAPPING = {
         "brass",
         "brass band",
         "brass ensemble",
+        "marching band",
     },
     "dominican folk": {
         "cornetas y tambores",
@@ -633,6 +650,21 @@ MANUAL_GENRE_MAPPING = {
     },
     "haitian folk": {
         "kompa",
+    },
+    "greek folk": {
+        "laiko",
+    },
+    "lithuanian folk": {
+        "lithumania",
+    },
+    "thai folk": {
+        "luk thung",
+    },
+    "maghreb folk": {
+        "maghreb",
+    },
+    "hungarian folk": {
+        "magyar",
     },
     "folk": {
         "folkmusik",
@@ -740,6 +772,9 @@ GEOGRAPHY_LABELS = {
     "greek",
     "hungarian",
     "italian",
+    "leeds",
+    "louisiana",
+    "louisville",
     "malaysian",
     "memphis",
     "mexican",
