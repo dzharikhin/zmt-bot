@@ -1,12 +1,14 @@
 import pathlib
+import sys
 from collections import defaultdict
+from functools import reduce
 
 import polars as pl
 
 GENRE_COLUMN_NAME = "genre_name"
 ID_COLUMN_NAME = "track_id"
 
-# genres grouped by not sound criteria
+# genres grouped by not sound criteria or sounding very non-uniform
 MIXED_GENRES = {
     "abstract",
     "abstractro",
@@ -33,6 +35,29 @@ MIXED_GENRES = {
     "bmore",
     "brill building pop",
     "broken beat",
+    "cantautor",
+    "chamber psych",
+    "children's music",
+    "classical",
+    "college a cappella",
+    "comedy",
+    "comic",
+    "complextro",
+    "composition",
+    "compositional ambient",
+    "core",
+    "coverchill",
+    "dansband",
+    "danseband",
+    "dansktop",
+    "dance band",
+    "demoscene",
+    "destroy techno",
+    "digital hardcore",
+    "doujin",
+    "drama",
+    "drill and bass",
+    "drone",
 }
 
 # fixing and enhancing automapping
@@ -42,7 +67,7 @@ MANUAL_GENRE_MAPPING = {
         "chicano rap",
         "chip hop",
         "deep hip hop",
-        "deep underground hip hop",
+        "underground hip hop",
         "dirty south rap",
         "dirty texas rap",
         "gangster rap",
@@ -52,9 +77,11 @@ MANUAL_GENRE_MAPPING = {
         "outer hip hop",
         "rap",
         "underground latin hip hop",
+        "crunk",
     },
     "trap": {
         "bass trap",
+        "dwn trap",
     },
     "accordeon": {
         "accordion",
@@ -65,7 +92,6 @@ MANUAL_GENRE_MAPPING = {
         "ballroom",
         "chicago house",
         "deep house",
-        "deep tech house",
         "disco house",
         "disco house",
         "dutch house",
@@ -84,15 +110,14 @@ MANUAL_GENRE_MAPPING = {
         "nordic house",
         "pop house",
         "progressive electro house",
-        "progressive house",
         "soul house",
-        "tech house",
         "tech house",
         "tribal house",
         "tropical house",
         "tropical house",
         "vocal house",
         "vocal house",
+        "-greek house",
     },
     "progressive": {
         "dark progressive house",
@@ -101,17 +126,27 @@ MANUAL_GENRE_MAPPING = {
         "outsider house",
         "progressive trance house",
     },
+    "progressive house": {
+        "-dark progressive house",
+    },
     "hardstyle": {
         "bouncy house",
         "hard house",
+        "dark hardcore",
+        "doomcore",
+    },
+    "hardcore": {
+        "-dark hardcore",
     },
     "trance": {
         "bubble trance",
         "progressive house",
+        "chill-out trance",
     },
     "techno": {
         "acid techno",
         "aggrotech",
+        "dub techno",
     },
     "pop": {
         "acoustic pop",
@@ -127,24 +162,73 @@ MANUAL_GENRE_MAPPING = {
         "bubblegum dance",
         "bubblegum pop",
         "folk-pop",
+        "candy pop",
+        "cantopop",
+        "canzone napoletana",
+        "carnaval",
+        "ccm",
+        "chamber pop",
+        "channel pop",
+        "chill groove",
+        "chill lounge",
+        "christelijk",
+        "christian",
+        "city pop",
+        "country dawn",
+        "country gospel",
+        "country rock",
+        "covertrance",
+        "dance pop",
+        "desi",
+        "disco polo",
+        "discofox",
     },
-    "alternative rock": {
+    "ccm": {
+        "-alternative ccm",
+    },
+    "alternative": {
         "alternative metal",
         "alternative pop rock",
-        "nu metal",
         "rap rock",
     },
+    "metal": {
+        "-alternative metal",
+        "cyber metal",
+    },
+    "pop rock": {
+        "-alternative pop rock",
+    },
     "rock": {
-        "alt-indie rock",
-        "alternative",
+        "alternative rock",
         "anti-folk",
         "art rock",
         "australian alternative rock",
+        "canterbury scene",
+        "comedy rock",
+        "corrosion",
+        "dance rock",
+        "downshift",
+    },
+    "post rock": {
+        "crossover prog",
+        "djent",
+        "dream pop",
+        "dreamo",
+    },
+    "hardcore rock": {
+        "chaotic hardcore"
+    },
+    "alternative rock": {
+        "-australian alternative rock"
     },
     "black metal": {
         "black death",
         "black sludge",
         "black thrash",
+        "chaotic black metal",
+        "cryptic black metal",
+        "depressive black metal",
+        "doom metal",
     },
     "post black metal": {
         "blackgaze",
@@ -152,36 +236,57 @@ MANUAL_GENRE_MAPPING = {
     "death metal": {
         "brutal death metal",
         "brutal deathcore",
+        "charred death",
+        "death core",
+        "deathgrind",
     },
     "indie": {
         "alternative ccm",
         "austindie",
         "irish indie",
+        "chillwave",
     },
     "afrobeat": {
         "afrobeats",
     },
     "country": {
         "americana",
+        "commons",
+        "country road",
+        "cowboy western"
     },
     "blues": {
         "acoustic blues",
         "bluegrass",
         "blues-rock guitar",
         "blues-rock",
+        "country blues",
     },
     "beats": {
         "ambeat",
     },
-    "punk": {
+    "punk rock": {
+        "punk",
         "anarcho-punk",
+        "crack rock steady",
+        "crust punk",
     },
-    "andean folk": {"andean"},
-    "emo": {"anthem emo"},
+    "post punk rock": {
+        "dance punk",
+        "wave",
+    },
+    "andean folk": {
+        "andean"
+    },
+    "emo": {
+        "anthem emo"
+    },
     "latin": {
         "azonto",
         "azontobeats",
         "banda",
+        "choro",
+        "cubaton",
     },
     "bangla folk": {
         "bangla"
@@ -199,6 +304,9 @@ MANUAL_GENRE_MAPPING = {
     "jazz": {
         "bebop",
         "big band",
+        "post-bop",
+        "cool jazz",
+        "dixieland",
     },
     "belorus folk": {
         "belorush"
@@ -210,21 +318,113 @@ MANUAL_GENRE_MAPPING = {
         "bhangra"
     },
     "cuban folk": {
-      "bolero"
+        "bolero",
     },
     "bossa nova": {
         "bossa nova jazz",
-    },
-    "brass": {
-        "brass band",
-        "brass ensemble",
     },
     "brazilian folk": {
         "brega",
     },
     "dubstep": {
         "brostep",
+        "catstep",
+        "chillstep",
+        "cinematic dubstep",
+        "dubstep product",
+        "dubsteppe",
+
     },
+    "flamenco": {
+        "cante flamenco",
+    },
+    "indian folk": {
+        "carnatic"
+    },
+    "scottish folk": {
+        "ceilidh",
+    },
+    "celtik folk": {
+        "celtic",
+    },
+    "bulgarian folk": {
+        "chalga",
+    },
+    "argentine folk": {
+        "chamame",
+    },
+    "chanson": {
+        "chanson quebecois",
+    },
+    "synth": {
+        "c64",
+        "c86",
+        "chiptune",
+    },
+    "orchestral": {
+        "deep orchestral",
+        "cello",
+        "chamber choir",
+        "choral",
+        "clarinet",
+        "classical flute",
+        "classical organ",
+        "classical performance",
+        "classical period",
+        "classical piano",
+        "composition d",
+        "concert piano",
+        "consort",
+        "contemporary classical",
+    },
+    "piano": {
+        "classify",
+    },
+    "marching": {
+        "college marching band",
+        "brass",
+        "brass band",
+        "brass ensemble",
+    },
+    "dominican folk": {
+        "cornetas y tambores",
+    },
+    "colombian folk": {
+        "cumbia",
+        "cumbia funk",
+        "cumbia pop",
+        "cumbia sonidera",
+        "cumbia villera",
+    },
+    "indonesian folk": {
+        "dangdut",
+    },
+    "dance punk": {
+        "danspunk",
+        "dance-punk"
+    },
+    "drum and bass": {
+        "darkstep",
+        "drumfunk",
+
+    },
+    "sahara folk": {
+        "desert blues",
+    },
+    "australian folk": {
+        "didgeridoo",
+    },
+    "downtempo": {
+        "downtempo fusion",
+    },
+    "reggae": {
+        "dub",
+    },
+    "mexican folk": {
+        "duranguense",
+    },
+    # to remove
+    "classical": None,
 }
 
 GENRE_VARIATIONS = {
@@ -236,7 +436,10 @@ GENRE_VARIATIONS = {
     "atmospheric": False,
     "avant-garde": False,
     "classic": False,
-    "deep": True,
+    "contemporary": False,
+    "dark": False,
+    "deep": False,
+    "drone": False,
     "experimental": True,
     "garage": False,
     "geek": False,
@@ -279,6 +482,8 @@ GEOGRAPHY_LABELS = {
     "caucasian",
     "celtic",
     "chicago",
+    "c-",
+    "chilean",
     "chinese",
     "colombian",
     "columbus ohio",
@@ -415,10 +620,23 @@ def _merge_mapping(
     for genre, override_mappings in overriding_mapping.items():
         if genre not in merged:
             merged[genre] = override_mappings
-        for override_mapping in override_mappings:
-            if override_mapping in merged:
-                merged[genre].update(merged[override_mapping])
-                del merged[override_mapping]
+        elif genre in merged and not override_mappings:
+            del merged[genre]
+
+    keys_in_values = set(merged.keys()) & reduce(lambda a, b: a.union(b), list(merged.values()))
+    if keys_in_values:
+        value_index = {}
+        for key, vals in merged.items():
+            for val in vals:
+                old_key = value_index.pop(val, None)
+                if old_key:
+                    print(f"<{val}> is duplicates in keys <{old_key}> and <{key}>", file=sys.stderr)
+                value_index[val] = key
+        for key in sorted(keys_in_values, key=lambda x: len(x), reverse=True):
+            mapping_key = value_index[key]
+            print(f"Key <{key}> is present as value in <{mapping_key}>. Merging {merged[key]} in <{mapping_key}>")
+            merged[mapping_key].update(merged[key])
+            del merged[key]
     return merged
 
 

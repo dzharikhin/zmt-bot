@@ -142,6 +142,6 @@ def main(
 
 if __name__ == "__main__":
     main(
-        genre_dataset_path=pathlib.Path("csv/songs-prepared.csv"),
+        genre_dataset_path=pathlib.Path("csv/songs-downloaded.csv"),
         audio_features_dataset_path=pathlib.Path("csv/audio_features_dataset.csv"),
     )
