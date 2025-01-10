@@ -89,6 +89,11 @@ MIXED_GENRES = {
     "glitch hop",
     "industrial",
     "guidance",
+    "halloween",
+    "hauntology",
+    "hoerspiel",
+    "hollywood",
+    "hop",
 }
 
 # fixing and enhancing automapping
@@ -117,6 +122,9 @@ MANUAL_GENRE_MAPPING = {
         "francoton",
         "g funk",
         "grime",
+        "hip pop",
+        "horrorcore",
+        "hyphy",
     },
     "trap": {
         "bass trap",
@@ -175,9 +183,14 @@ MANUAL_GENRE_MAPPING = {
         "dark hardcore",
         "doomcore",
         "gabba",
+        "hands up",
+        "happy hardcore",
+        "hardcore techno",
     },
     "hardcore": {
         "-dark hardcore",
+        "hardcore rock",
+        "hardcore punk",
     },
     "trance": {
         "bubble trance",
@@ -249,6 +262,7 @@ MANUAL_GENRE_MAPPING = {
         "alternative pop rock",
         "rap rock",
         "funk metal",
+        "heavy alternative",
     },
     "metal": {
         "-alternative metal",
@@ -260,6 +274,7 @@ MANUAL_GENRE_MAPPING = {
         "gothic metal",
         "gothic symphonic metal",
         "groove metal",
+        "hatecore",
     },
     "pop rock": {
         "-alternative pop rock",
@@ -281,6 +296,9 @@ MANUAL_GENRE_MAPPING = {
         "gothic alternative",
         "gothic rock",
         "grunge pop",
+        "hard glam",
+        "hard stoner rock",
+        "heavy gothic rock",
     },
     "post rock": {
         "crossover prog",
@@ -345,9 +363,7 @@ MANUAL_GENRE_MAPPING = {
         "country blues",
         "electric blues",
         "gospel blues",
-    },
-    "beats": {
-        "ambeat",
+        "harmonica blues",
     },
     "punk rock": {
         "punk",
@@ -355,9 +371,10 @@ MANUAL_GENRE_MAPPING = {
         "crack rock steady",
         "crust punk",
         "fast melodic punk",
+        "horror punk",
     },
     "post punk rock": {
-        "dance punk",
+        "dance punk rock",
         "wave",
         "electropunk",
     },
@@ -374,6 +391,7 @@ MANUAL_GENRE_MAPPING = {
         "banda",
         "choro",
         "cubaton",
+        "hiplife",
     },
     "electro latin": {
         "electro bailando",
@@ -382,10 +400,10 @@ MANUAL_GENRE_MAPPING = {
     "bangla folk": {
         "bangla",
     },
-    # initial `a capella` genre is mixed
-    "acapella": {
-        "barbershop",
-    },
+    # # initial `a capella` genre is mixed
+    # "acapella": {
+    #     "barbershop",
+    # },
     "barnemusikk": {
         "barnmusik",
     },
@@ -401,6 +419,8 @@ MANUAL_GENRE_MAPPING = {
         "free jazz",
         "doo-wop",
         "gypsy jazz",
+        "hard bop",
+        "highlife",
     },
     "belorus folk": {
         "belorush",
@@ -475,6 +495,8 @@ MANUAL_GENRE_MAPPING = {
         "consort",
         "contemporary classical",
         "early music",
+        "harp",
+        "harpsichord",
     },
     "piano": {
         "classify",
@@ -499,7 +521,7 @@ MANUAL_GENRE_MAPPING = {
         "dangdut",
         "gamelan",
     },
-    "dance punk": {
+    "dance punk rock": {
         "danspunk",
         "dance-punk",
     },
@@ -545,6 +567,12 @@ MANUAL_GENRE_MAPPING = {
     "arab folk": {
         "ghazal",
     },
+    "hawaiian folk": {
+        "hawaiian",
+    },
+    "hindustani folk": {
+        "hindustani classical",
+    },
     "folk": {
         "folkmusik",
     },
@@ -568,7 +596,7 @@ GENRE_VARIATIONS = {
     "experimental": True,
     "garage": False,
     "geek": False,
-    "hard": True,
+    "hard": False,
     "hardcore": True,
     "lounge": False,
     "melodic": False,
