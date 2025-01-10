@@ -872,7 +872,7 @@ def _merge_mapping(
                     raw_genres.add(override_mapping)
         merged[genre] = raw_genres
     for genre, override_mappings in overriding_mapping.items():
-        if genre not in merged:
+        if genre not in merged and override_mappings:
             merged[genre] = override_mappings
         elif genre in merged and not override_mappings:
             del merged[genre]
