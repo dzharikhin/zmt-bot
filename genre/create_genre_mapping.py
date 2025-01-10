@@ -59,6 +59,23 @@ MIXED_GENRES = {
     "drill and bass",
     "drone",
     "e6fi",
+    "early music ensemble",
+    "easy listening",
+    "edm",
+    "electro dub",
+    "electro jazz",
+    "electro trash",
+    "electroacoustic improvisation",
+    "electroclash",
+    "electrofox",
+    "electronic",
+    "electronica",
+    "environmental",
+    "epicore",
+    "escape room",
+    "eurovision",
+    "experimental",
+    "",
 }
 
 # fixing and enhancing automapping
@@ -148,6 +165,8 @@ MANUAL_GENRE_MAPPING = {
         "acid techno",
         "aggrotech",
         "dub techno",
+        "ebm",
+        "electro-industrial",
     },
     "pop": {
         "acoustic pop",
@@ -183,6 +202,9 @@ MANUAL_GENRE_MAPPING = {
         "desi",
         "disco polo",
         "discofox",
+        "electropowerpop",
+        "etherpop",
+        "europop",
     },
     "ccm": {
         "-alternative ccm",
@@ -215,8 +237,14 @@ MANUAL_GENRE_MAPPING = {
         "djent",
         "dream pop",
         "dreamo",
+        "ethereal wave",
+        "experimental psych",
+        "experimental rock",
     },
-    "hardcore rock": {"chaotic hardcore"},
+    "hardcore rock": {
+        "chaotic hardcore",
+        "electronicore",
+    },
     "alternative rock": {"-australian alternative rock"},
     "black metal": {
         "black death",
@@ -237,6 +265,9 @@ MANUAL_GENRE_MAPPING = {
         "death core",
         "deathgrind",
     },
+    "ska": {
+        "euroska",
+    },
     "indie": {
         "alternative ccm",
         "austindie",
@@ -253,6 +284,7 @@ MANUAL_GENRE_MAPPING = {
         "blues-rock guitar",
         "blues-rock",
         "country blues",
+        "electric blues",
     },
     "beats": {
         "ambeat",
@@ -266,15 +298,20 @@ MANUAL_GENRE_MAPPING = {
     "post punk rock": {
         "dance punk",
         "wave",
+        "electropunk",
     },
     "andean folk": {"andean"},
-    "emo": {"anthem emo"},
+    "emo": {"anthem emo", "emo punk"},
     "latin": {
         "azonto",
         "azontobeats",
         "banda",
         "choro",
         "cubaton",
+    },
+    "electro latin": {
+        "electro bailando",
+        "electro latino",
     },
     "bangla folk": {"bangla"},
     # initial `a capella` genre is mixed
@@ -311,6 +348,7 @@ MANUAL_GENRE_MAPPING = {
         "cinematic dubstep",
         "dubstep product",
         "dubsteppe",
+        "experimental dubstep",
     },
     "flamenco": {
         "cante flamenco",
@@ -351,6 +389,7 @@ MANUAL_GENRE_MAPPING = {
         "concert piano",
         "consort",
         "contemporary classical",
+        "early music",
     },
     "piano": {
         "classify",
@@ -393,6 +432,15 @@ MANUAL_GENRE_MAPPING = {
     },
     "mexican folk": {
         "duranguense",
+    },
+    "ecuadoria folk": {
+        "ecuadoria",
+    },
+    "japanese folk": {
+        "enka",
+    },
+    "balkan folk": {
+        "entehno",
     },
     # to remove
     "classical": None,
