@@ -81,6 +81,14 @@ MIXED_GENRES = {
     "funky",
     "fusion",
     "future ambient",
+    "gamecore",
+    "garage",
+    "girl group",
+    "glitch",
+    "glitch beats",
+    "glitch hop",
+    "industrial",
+    "guidance",
 }
 
 # fixing and enhancing automapping
@@ -108,6 +116,7 @@ MANUAL_GENRE_MAPPING = {
         "fourth world",
         "francoton",
         "g funk",
+        "grime",
     },
     "trap": {
         "bass trap",
@@ -148,6 +157,7 @@ MANUAL_GENRE_MAPPING = {
         "vocal house",
         "vocal house",
         "-greek house",
+        "groove room",
     },
     "progressive": {
         "dark progressive house",
@@ -164,6 +174,7 @@ MANUAL_GENRE_MAPPING = {
         "hard house",
         "dark hardcore",
         "doomcore",
+        "gabba",
     },
     "hardcore": {
         "-dark hardcore",
@@ -172,16 +183,21 @@ MANUAL_GENRE_MAPPING = {
         "bubble trance",
         "progressive house",
         "chill-out trance",
+        "glitter trance",
     },
     "psytrance": {
         "full on",
+        "goa trance",
     },
     "techno": {
         "acid techno",
-        "aggrotech",
         "dub techno",
+    },
+    "industrial": {
+        "aggrotech",
         "ebm",
         "electro-industrial",
+        "grave wave",
     },
     "pop": {
         "acoustic pop",
@@ -221,6 +237,8 @@ MANUAL_GENRE_MAPPING = {
         "etherpop",
         "europop",
         "folk pop",
+        "gauze pop",
+        "gospel",
     },
     "ccm": {
         "-alternative ccm",
@@ -238,6 +256,10 @@ MANUAL_GENRE_MAPPING = {
         "fallen angel",
         "folk metal",
         "funeral doom",
+        "gothic doom",
+        "gothic metal",
+        "gothic symphonic metal",
+        "groove metal",
     },
     "pop rock": {
         "-alternative pop rock",
@@ -254,6 +276,11 @@ MANUAL_GENRE_MAPPING = {
         "downshift",
         "folk punk",
         "folk rock",
+        "gbvfi",
+        "glam rock",
+        "gothic alternative",
+        "gothic rock",
+        "grunge pop",
     },
     "post rock": {
         "crossover prog",
@@ -264,6 +291,7 @@ MANUAL_GENRE_MAPPING = {
         "experimental psych",
         "experimental rock",
         "freakbeat",
+        "gothic post-punk",
     },
     "hardcore rock": {
         "chaotic hardcore",
@@ -287,6 +315,8 @@ MANUAL_GENRE_MAPPING = {
         "charred death",
         "death core",
         "deathgrind",
+        "grindcore",
+        "grisly death metal",
     },
     "ska": {
         "euroska",
@@ -300,7 +330,13 @@ MANUAL_GENRE_MAPPING = {
     "afrobeat": {
         "afrobeats",
     },
-    "country": {"americana", "commons", "country road", "cowboy western"},
+    "country": {
+        "americana",
+        "commons",
+        "country road",
+        "cowboy western",
+        "gothic americana",
+    },
     "blues": {
         "acoustic blues",
         "bluegrass",
@@ -308,6 +344,7 @@ MANUAL_GENRE_MAPPING = {
         "blues-rock",
         "country blues",
         "electric blues",
+        "gospel blues",
     },
     "beats": {
         "ambeat",
@@ -324,8 +361,13 @@ MANUAL_GENRE_MAPPING = {
         "wave",
         "electropunk",
     },
-    "andean folk": {"andean"},
-    "emo": {"anthem emo", "emo punk"},
+    "andean folk": {
+        "andean",
+    },
+    "emo": {
+        "anthem emo",
+        "emo punk",
+    },
     "latin": {
         "azonto",
         "azontobeats",
@@ -337,9 +379,13 @@ MANUAL_GENRE_MAPPING = {
         "electro bailando",
         "electro latino",
     },
-    "bangla folk": {"bangla"},
+    "bangla folk": {
+        "bangla",
+    },
     # initial `a capella` genre is mixed
-    "acapella": {"barbershop"},
+    "acapella": {
+        "barbershop",
+    },
     "barnemusikk": {
         "barnmusik",
     },
@@ -353,10 +399,18 @@ MANUAL_GENRE_MAPPING = {
         "cool jazz",
         "dixieland",
         "free jazz",
+        "doo-wop",
+        "gypsy jazz",
     },
-    "belorus folk": {"belorush"},
-    "kenyan folk": {"benga"},
-    "punjab folk": {"bhangra"},
+    "belorus folk": {
+        "belorush",
+    },
+    "kenyan folk": {
+        "benga",
+    },
+    "punjab folk": {
+        "bhangra",
+    },
     "cuban folk": {
         "bolero",
     },
@@ -376,11 +430,14 @@ MANUAL_GENRE_MAPPING = {
         "dubsteppe",
         "experimental dubstep",
         "filthstep",
+        "ghoststep",
     },
     "flamenco": {
         "cante flamenco",
     },
-    "indian folk": {"carnatic"},
+    "indian folk": {
+        "carnatic",
+    },
     "scottish folk": {
         "ceilidh",
     },
@@ -440,8 +497,12 @@ MANUAL_GENRE_MAPPING = {
     },
     "indonesian folk": {
         "dangdut",
+        "gamelan",
     },
-    "dance punk": {"danspunk", "dance-punk"},
+    "dance punk": {
+        "danspunk",
+        "dance-punk",
+    },
     "drum and bass": {
         "darkstep",
         "drumfunk",
@@ -457,9 +518,11 @@ MANUAL_GENRE_MAPPING = {
     },
     "reggae": {
         "dub",
+        "gospel reggae",
     },
     "mexican folk": {
         "duranguense",
+        "grupera",
     },
     "ecuadoria folk": {
         "ecuadoria",
@@ -475,6 +538,12 @@ MANUAL_GENRE_MAPPING = {
     },
     "german folk": {
         "fussball",
+    },
+    "spanish folk": {
+        "galego",
+    },
+    "arab folk": {
+        "ghazal",
     },
     "folk": {
         "folkmusik",
