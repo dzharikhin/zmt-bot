@@ -94,6 +94,11 @@ MIXED_GENRES = {
     "hoerspiel",
     "hollywood",
     "hop",
+    "idm",
+    "intelligent dance music",
+    "invasion",
+    "jam band",
+    "jazztronica",
 }
 
 # fixing and enhancing automapping
@@ -140,7 +145,6 @@ MANUAL_GENRE_MAPPING = {
         "chicago house",
         "deep house",
         "disco house",
-        "disco house",
         "dutch house",
         "electro house",
         "euro house",
@@ -166,6 +170,7 @@ MANUAL_GENRE_MAPPING = {
         "vocal house",
         "-greek house",
         "groove room",
+        "-hard house",
     },
     "progressive": {
         "dark progressive house",
@@ -186,6 +191,7 @@ MANUAL_GENRE_MAPPING = {
         "hands up",
         "happy hardcore",
         "hardcore techno",
+        "jumpstyle",
     },
     "hardcore": {
         "-dark hardcore",
@@ -252,6 +258,10 @@ MANUAL_GENRE_MAPPING = {
         "folk pop",
         "gauze pop",
         "gospel",
+        "idol",
+        "idol pop",
+        "indie anthem-folk",
+        "italo dance",
     },
     "ccm": {
         "-alternative ccm",
@@ -275,6 +285,7 @@ MANUAL_GENRE_MAPPING = {
         "gothic symphonic metal",
         "groove metal",
         "hatecore",
+        "jazz metal",
     },
     "pop rock": {
         "-alternative pop rock",
@@ -299,6 +310,12 @@ MANUAL_GENRE_MAPPING = {
         "hard glam",
         "hard stoner rock",
         "heavy gothic rock",
+        "indorock",
+        "jangle pop",
+        "jangle rock",
+    },
+    "stoner rock": {
+        "-hard stoner rock",
     },
     "post rock": {
         "crossover prog",
@@ -310,6 +327,7 @@ MANUAL_GENRE_MAPPING = {
         "experimental rock",
         "freakbeat",
         "gothic post-punk",
+        "instrumental post rock",
     },
     "hardcore rock": {
         "chaotic hardcore",
@@ -344,6 +362,9 @@ MANUAL_GENRE_MAPPING = {
         "austindie",
         "irish indie",
         "chillwave",
+        "indiecoustica",
+        "indietronica",
+        "indie folk",
     },
     "afrobeat": {
         "afrobeats",
@@ -364,6 +385,7 @@ MANUAL_GENRE_MAPPING = {
         "electric blues",
         "gospel blues",
         "harmonica blues",
+        "jazz blues",
     },
     "punk rock": {
         "punk",
@@ -377,6 +399,9 @@ MANUAL_GENRE_MAPPING = {
         "dance punk rock",
         "wave",
         "electropunk",
+    },
+    "disco": {
+        "italo disco",
     },
     "andean folk": {
         "andean",
@@ -421,7 +446,17 @@ MANUAL_GENRE_MAPPING = {
         "gypsy jazz",
         "hard bop",
         "highlife",
+        "jazz bass",
+        "jazz brass",
+        "jazz composition",
+        "jazz fusion",
+        "jazz guitar",
+        "jazz orchestra",
+        "jazz orkester",
+        "jazz piano",
+        "jazz trio",
     },
+    "bop": {"-hard bop"},
     "belorus folk": {
         "belorush",
     },
@@ -457,6 +492,7 @@ MANUAL_GENRE_MAPPING = {
     },
     "indian folk": {
         "carnatic",
+        "indian classical",
     },
     "scottish folk": {
         "ceilidh",
@@ -573,11 +609,24 @@ MANUAL_GENRE_MAPPING = {
     "hindustani folk": {
         "hindustani classical",
     },
+    "fiinish folk": {
+        "iskelma",
+    },
+    "funk": {
+        "jazz funk",
+    },
+    "irish folk": {
+        "jig and reel",
+    },
+    "israeli folk": {
+        "judaica",
+    },
     "folk": {
         "folkmusik",
     },
     # to remove
     "classical": None,
+    "glam": None,
 }
 
 GENRE_VARIATIONS = {
@@ -608,6 +657,7 @@ GENRE_VARIATIONS = {
     "underground": False,
     "vintage": False,
     "vocal": False,
+    "indie": False,
 }
 
 GEOGRAPHY_LABELS = {
@@ -680,6 +730,7 @@ GEOGRAPHY_LABELS = {
     "memphis",
     "mexican",
     "michigan",
+    "new orleans",
     "nordic",
     "northern",
     "norwegian",
