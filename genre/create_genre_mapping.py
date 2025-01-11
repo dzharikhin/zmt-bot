@@ -114,6 +114,17 @@ MIXED_GENRES = {
     "musiikkia lapsille",
     "musique pour enfants",
     "muziek voor kinderen",
+    "new weird america",
+    "ninja",
+    "nintendocore",
+    "nu electro",
+    "nursery",
+    "old-time",
+    "oratory",
+    "organic ambient",
+    "oshare kei",
+    "otacore",
+    "outsider",
 }
 
 # fixing and enhancing automapping
@@ -145,6 +156,7 @@ MANUAL_GENRE_MAPPING = {
         "hip pop",
         "horrorcore",
         "hyphy",
+        "nerdcore",
     },
     "trap": {
         "bass trap",
@@ -237,6 +249,7 @@ MANUAL_GENRE_MAPPING = {
         "electro-industrial",
         "grave wave",
         "minimal wave",
+        "neue deutsche harte",
     },
     "pop": {
         "acoustic pop",
@@ -288,6 +301,9 @@ MANUAL_GENRE_MAPPING = {
         "lilith",
         "louvor",
         "lovers rock",
+        "neo-singer-songwriter",
+        "new romantic",
+        "new wave pop",
     },
     "ccm": {
         "-alternative ccm",
@@ -299,6 +315,8 @@ MANUAL_GENRE_MAPPING = {
         "rap rock",
         "funk metal",
         "heavy alternative",
+        "neo metal",
+        "nu metal",
     },
     "metal": {
         "-alternative metal",
@@ -313,6 +331,10 @@ MANUAL_GENRE_MAPPING = {
         "hatecore",
         "jazz metal",
         "metal guitar",
+        "neo classical metal",
+        "neo-trad metal",
+        "nwobhm",
+        "nwothm",
     },
     "pop rock": {
         "-alternative pop rock",
@@ -343,6 +365,9 @@ MANUAL_GENRE_MAPPING = {
         "lift kit",
         "madchester",
         "mod revival",
+        "neo-industrial rock",
+        "new wave",
+        "ostrock",
     },
     "stoner rock": {
         "-hard stoner rock",
@@ -360,6 +385,13 @@ MANUAL_GENRE_MAPPING = {
         "instrumental post rock",
         "kraut rock",
         "math pop",
+        "neo mellow",
+        "neo-progressive",
+        "neo-psychedelic",
+        "new rave",
+        "noise punk",
+        "noise rock",
+        "nu gaze",
     },
     "hardcore rock": {
         "chaotic hardcore",
@@ -385,6 +417,7 @@ MANUAL_GENRE_MAPPING = {
         "deathgrind",
         "grindcore",
         "grisly death metal",
+        "necrogrind",
     },
     "ska": {
         "euroska",
@@ -397,6 +430,8 @@ MANUAL_GENRE_MAPPING = {
         "indiecoustica",
         "indietronica",
         "indie folk",
+        "noise pop",
+        "ok indie",
     },
     "afrobeat": {
         "afrobeats",
@@ -407,6 +442,10 @@ MANUAL_GENRE_MAPPING = {
         "country road",
         "cowboy western",
         "gothic americana",
+        "neo honky tonk",
+        "neo-traditional country",
+        "new americana",
+        "outlaw country",
     },
     "blues": {
         "acoustic blues",
@@ -426,11 +465,14 @@ MANUAL_GENRE_MAPPING = {
         "crust punk",
         "fast melodic punk",
         "horror punk",
+        "oi",
+        "orgcore",
     },
     "post punk rock": {
         "dance punk rock",
         "wave",
         "electropunk",
+        "no wave",
     },
     "disco": {
         "italo disco",
@@ -442,7 +484,7 @@ MANUAL_GENRE_MAPPING = {
         "anthem emo",
         "emo punk",
     },
-    "latin": {
+    "tropical": {
         "azonto",
         "azontobeats",
         "banda",
@@ -452,8 +494,9 @@ MANUAL_GENRE_MAPPING = {
         "kizomba",
         "kuduro",
         "makossa",
+        "orquesta tropical",
     },
-    "electro latin": {
+    "electro tropical": {
         "electro bailando",
         "electro latino",
     },
@@ -503,6 +546,7 @@ MANUAL_GENRE_MAPPING = {
     },
     "cuban folk": {
         "bolero",
+        "nueva cancion",
     },
     "bossa nova": {
         "bossa nova jazz",
@@ -523,6 +567,9 @@ MANUAL_GENRE_MAPPING = {
         "experimental dubstep",
         "filthstep",
         "ghoststep",
+    },
+    "breaks": {
+        "nu skool breaks",
     },
     "liquid": {
         "liquid bass",
@@ -595,6 +642,7 @@ MANUAL_GENRE_MAPPING = {
         "cumbia pop",
         "cumbia sonidera",
         "cumbia villera",
+        "nu-cumbia",
     },
     "indonesian folk": {
         "dangdut",
@@ -624,6 +672,7 @@ MANUAL_GENRE_MAPPING = {
     "mexican folk": {
         "duranguense",
         "grupera",
+        "norteno",
     },
     "ecuadoria folk": {
         "ecuadoria",
@@ -692,8 +741,37 @@ MANUAL_GENRE_MAPPING = {
     "cabo verde folk": {
         "morna",
     },
+    "american folk": {
+        "native american",
+    },
+    "soul": {
+        "neo soul",
+        "neo soul-jazz",
+    },
+    "r&b": {
+        "new jack smooth",
+        "new jack swing",
+    },
+    "rockabilly": {
+        "neo-rockabilly",
+    },
+    "nepali folk": {
+        "nepali",
+    },
+    "neuropunk": {
+        "neurostep",
+    },
+    "new age": {
+        "new age piano",
+        "nu age",
+    },
+    "phillipines folk": {
+        "opm",
+    },
     "folk": {
         "folkmusik",
+        "neofolk",
+        "deep neofolk",
     },
     # to remove
     "classical": None,
@@ -809,6 +887,7 @@ GEOGRAPHY_LABELS = {
     "nordic",
     "northern",
     "norwegian",
+    "nz",
     "pakistani",
     "persian",
     "perth",
