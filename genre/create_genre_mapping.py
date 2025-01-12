@@ -20,7 +20,6 @@ MIXED_GENRES = {
     "anime cv",
     "anime",
     "afrikaans",
-    "accordeon",
     "a cappella",
     "aussietronica",
     "avant-garde",
@@ -38,6 +37,8 @@ MIXED_GENRES = {
     "cantautor",
     "chamber psych",
     "children's music",
+    "chill",
+    "chill-out",
     "classical",
     "college a cappella",
     "comedy",
@@ -76,7 +77,7 @@ MIXED_GENRES = {
     "eurovision",
     "experimental",
     "fake",
-    "fingerstyle",
+    "filmi",
     "free improvisation",
     "funky",
     "fusion",
@@ -102,16 +103,22 @@ MIXED_GENRES = {
     "kids dance party",
     "kindermusik",
     "library music",
+    "light music",
     "lo star",
     "lo-fi",
     "lowercase",
     "mashup",
+    "meditation",
     "melancholia",
     "metropopolis",
     "minimal",
+    "motivation",
     "movie tunes",
+    "music",
     "musica para ninos",
+    "musica per bambini",
     "musiikkia lapsille",
+    "musique concrete",
     "musique pour enfants",
     "muziek voor kinderen",
     "new weird america",
@@ -141,7 +148,6 @@ MIXED_GENRES = {
     "russelater",
     "schlager",
     "scorecore",
-    "scratch",
     "shimmer psych",
     "show tunes",
     "singer-songwriter",
@@ -341,6 +347,7 @@ MANUAL_GENRE_MAPPING = {
         "lilith",
         "louvor",
         "lovers rock",
+        "mellow gold",
         "neo-singer-songwriter",
         "new romantic",
         "new wave pop",
@@ -621,6 +628,8 @@ MANUAL_GENRE_MAPPING = {
         "kizomba",
         "kuduro",
         "makossa",
+        "merengue",
+        "merengue urbano",
         "orquesta tropical",
         "punta",
         "reggaeton",
@@ -759,8 +768,10 @@ MANUAL_GENRE_MAPPING = {
         "harpsichord",
         "serialism",
         "string quartet",
+        "modern classical",
     },
-    "piano": {
+    "piano instrument": {
+        "piano"
         "classify",
     },
     "marching": {
@@ -814,6 +825,7 @@ MANUAL_GENRE_MAPPING = {
     "mexican folk": {
         "duranguense",
         "grupera",
+        "mexican",
         "norteno",
         "ranchera",
         "son",
@@ -901,6 +913,7 @@ MANUAL_GENRE_MAPPING = {
         "quiet storm",
         "slow game",
         "smooth urban r&b",
+        "pop r&b",
     },
     "rockabilly": {
         "neo-rockabilly",
@@ -908,7 +921,7 @@ MANUAL_GENRE_MAPPING = {
     "nepali folk": {
         "nepali",
     },
-    "neuropunk": {
+    "neurofunk": {
         "neurostep",
     },
     "new age": {
@@ -970,6 +983,33 @@ MANUAL_GENRE_MAPPING = {
     },
     "steelpan instrument": {
         "steelpan",
+    },
+    "accordeon instrument": {
+        "accordeon",
+    },
+    "fingerstyle instrument": {
+        "fingerstyle",
+    },
+    "scratch instrument": {
+        "scratch",
+    },
+    "classical guitar instrument": {
+        "classical guitar",
+    },
+    "mallet instrument": {
+        "mallet",
+    },
+    "lounge": {
+        "sunset lounge",
+    },
+    "mediterranean folk": {
+        "mizrahi",
+    },
+    "liturgical": {
+        "monastic",
+    },
+    "pipe band instrumental": {
+        "pipe band",
     },
     # to remove
     "classical": None,
