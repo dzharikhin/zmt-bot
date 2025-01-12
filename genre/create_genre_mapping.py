@@ -1,4 +1,5 @@
 import pathlib
+import pprint
 import sys
 from collections import defaultdict
 from functools import reduce
@@ -1377,7 +1378,7 @@ def group_genres(
     merged_mapping = _merge_mapping(
         _collapse_genre_geography(unique_genres), MANUAL_GENRE_MAPPING
     )
-    print(f"{merged_mapping=}")
+    print(f"{pprint.pp(merged_mapping, sort_dicts=True, )}")
     inverse_mapping = {
         specific_name: common_name
         for common_name, specific_names in merged_mapping.items()
