@@ -139,6 +139,23 @@ MIXED_GENRES = {
     "remix",
     "rock noise",
     "russelater",
+    "schlager",
+    "scorecore",
+    "scratch",
+    "shimmer psych",
+    "show tunes",
+    "singer-songwriter",
+    "skweee",
+    "sleep",
+    "solipsynthm",
+    "song poem",
+    "soundtrack",
+    "speed garage",
+    "spoken word",
+    "spytrack",
+    "steampunk",
+    "strut",
+    "synth",
 }
 
 # fixing and enhancing automapping
@@ -235,6 +252,7 @@ MANUAL_GENRE_MAPPING = {
         "happy hardcore",
         "hardcore techno",
         "jumpstyle",
+        "speedcore",
     },
     "hardcore": {
         "-dark hardcore",
@@ -248,6 +266,7 @@ MANUAL_GENRE_MAPPING = {
         "glitter trance",
         "progressive trance",
         "progressive uplifting trance",
+        "sky room",
     },
     "psytrance": {
         "full on",
@@ -259,6 +278,7 @@ MANUAL_GENRE_MAPPING = {
         "acid techno",
         "dub techno",
         "re:techno",
+        "schranz",
     },
     "minimal techno": {
         "minimal melodic techno",
@@ -328,6 +348,10 @@ MANUAL_GENRE_MAPPING = {
         "post-teen pop",
         "praise",
         "rockism",
+        "shimmer pop",
+        "soft rock",
+        "stomp pop",
+        "synthpop",
     },
     "ccm": {
         "-alternative ccm",
@@ -348,6 +372,9 @@ MANUAL_GENRE_MAPPING = {
         "progressive post-hardcore",
         "rap metal",
         "rap metalcore",
+    },
+    "screamo": {
+        "screamocore",
     },
     "metal rock": {
         "metal",
@@ -372,6 +399,9 @@ MANUAL_GENRE_MAPPING = {
     },
     "metal": {
         "-alternative metal",
+        "speed metal",
+        "stoner metal",
+        "symphonic metal",
     },
     "pop rock": {
         "-alternative pop rock",
@@ -421,6 +451,11 @@ MANUAL_GENRE_MAPPING = {
         "rock gaucho",
         "rock-and-roll",
         "roots rock",
+        "sleaze rock",
+        "space rock",
+        "stoner rock",
+        "swamp pop",
+        "symphonic rock",
     },
     "alternative rock": {
         "-australian alternative rock",
@@ -457,6 +492,7 @@ MANUAL_GENRE_MAPPING = {
     "hardcore rock": {
         "chaotic hardcore",
         "electronicore",
+        "sludge metal",
     },
     "black metal": {
         "black death",
@@ -467,6 +503,7 @@ MANUAL_GENRE_MAPPING = {
         "depressive black metal",
         "doom metal",
         "raw black metal",
+        "symphonic black metal",
     },
     "post black metal": {
         "blackgaze",
@@ -482,11 +519,13 @@ MANUAL_GENRE_MAPPING = {
         "grindcore",
         "grisly death metal",
         "necrogrind",
+        "slam death metal",
     },
     "ska": {
         "euroska",
         "punk ska",
         "reggae rock",
+        "ska revival",
     },
     "indie": {
         "alternative ccm",
@@ -500,6 +539,8 @@ MANUAL_GENRE_MAPPING = {
         "ok indie",
         "pixie",
         "popgaze",
+        "shiver pop",
+        "slow core",
     },
     "afrobeat": {
         "afrobeats",
@@ -516,6 +557,7 @@ MANUAL_GENRE_MAPPING = {
         "outlaw country",
         "piedmont blues",
         "progressive bluegrass",
+        "string band",
     },
     "blues": {
         "acoustic blues",
@@ -528,6 +570,7 @@ MANUAL_GENRE_MAPPING = {
         "harmonica blues",
         "jazz blues",
         "piano blues",
+        "swamp blues",
     },
     "punk rock": {
         "punk",
@@ -541,6 +584,12 @@ MANUAL_GENRE_MAPPING = {
         "poppunk",
         "power-pop punk",
         "riot grrrl",
+        "ska punk",
+        "skate punk",
+        "skinhead oi",
+        "slash punk",
+        "straight edge",
+        "street punk",
     },
     "post punk rock": {
         "dance punk rock",
@@ -548,6 +597,7 @@ MANUAL_GENRE_MAPPING = {
         "electropunk",
         "no wave",
         "post-punk",
+        "screamo punk",
     },
     "disco": {
         "italo disco",
@@ -575,6 +625,8 @@ MANUAL_GENRE_MAPPING = {
         "punta",
         "reggaeton",
         "reggaeton flow",
+        "sega",
+        "soukous",
     },
     "electro tropical": {
         "electro bailando",
@@ -583,10 +635,6 @@ MANUAL_GENRE_MAPPING = {
     "bangla folk": {
         "bangla",
     },
-    # # initial `a capella` genre is mixed
-    # "acapella": {
-    #     "barbershop",
-    # },
     "barnemusikk": {
         "barnmusik",
     },
@@ -614,6 +662,9 @@ MANUAL_GENRE_MAPPING = {
         "jazz piano",
         "jazz trio",
         "rhythm and boogie",
+        "soul jazz",
+        "stride",
+        "swing",
     },
     "bop": {"-hard bop"},
     "belorus folk": {
@@ -637,6 +688,9 @@ MANUAL_GENRE_MAPPING = {
         "forro",
         "mpb",
         "musica nativista",
+        "sertanejo",
+        "sertanejo tradicional",
+        "sertanejo universitario",
     },
     "dubstep": {
         "brostep",
@@ -703,6 +757,8 @@ MANUAL_GENRE_MAPPING = {
         "early music",
         "harp",
         "harpsichord",
+        "serialism",
+        "string quartet",
     },
     "piano": {
         "classify",
@@ -753,12 +809,14 @@ MANUAL_GENRE_MAPPING = {
         "gospel reggae",
         "reggae fusion",
         "roots reggae",
+        "skinhead reggae",
     },
     "mexican folk": {
         "duranguense",
         "grupera",
         "norteno",
         "ranchera",
+        "son",
     },
     "ecuadoria folk": {
         "ecuadoria",
@@ -777,6 +835,7 @@ MANUAL_GENRE_MAPPING = {
     },
     "spanish folk": {
         "galego",
+        "spanish classical",
     },
     "arab folk": {
         "ghazal",
@@ -834,11 +893,14 @@ MANUAL_GENRE_MAPPING = {
     "soul": {
         "neo soul",
         "neo soul-jazz",
+        "soul blues",
     },
     "r&b": {
         "new jack smooth",
         "new jack swing",
         "quiet storm",
+        "slow game",
+        "smooth urban r&b",
     },
     "rockabilly": {
         "neo-rockabilly",
@@ -859,6 +921,7 @@ MANUAL_GENRE_MAPPING = {
     },
     "samba": {
         "pagode",
+        "samba-enredo",
     },
     "grunge": {
         "post-grunge",
@@ -879,10 +942,34 @@ MANUAL_GENRE_MAPPING = {
     "opera": {
         "romantic",
     },
+    "salsa": {
+        "salsa international",
+    },
+    "angola folk": {
+        "semba",
+    },
+    "british folk": {
+        "shanty",
+        "skiffle",
+    },
+    "sri lanka folk": {
+        "sinhala",
+    },
+    "trinidad folk": {
+        "calypso",
+        "soca",
+    },
     "folk": {
         "folkmusik",
         "neofolk",
         "deep neofolk",
+        "stomp and flutter",
+        "stomp and holler",
+        "stomp and whittle",
+        "string folk",
+    },
+    "steelpan instrument": {
+        "steelpan",
     },
     # to remove
     "classical": None,
@@ -1014,11 +1101,15 @@ GEOGRAPHY_LABELS = {
     "rva",
     "scottish",
     "seattle",
+    "sheffield",
+    "singaporean",
     "slavic",
+    "slc",
     "slovak",
     "slovenian",
     "southern",
     "spanish",
+    "stl",
     "suomi",
     "swiss",
     "taiwanese",
