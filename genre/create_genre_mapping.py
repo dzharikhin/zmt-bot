@@ -162,6 +162,14 @@ MIXED_GENRES = {
     "steampunk",
     "strut",
     "synth",
+    "talent show",
+    "theme",
+    "tico",
+    "tin pan alley",
+    "tone",
+    "tracestep",
+    "tribute",
+    "tzadik",
 }
 
 # fixing and enhancing automapping
@@ -195,10 +203,13 @@ MANUAL_GENRE_MAPPING = {
         "hyphy",
         "nerdcore",
         "rap chileno",
+        "turntablism",
     },
     "trap": {
         "bass trap",
         "dwn trap",
+        "trap francais",
+        "trap music",
     },
     "accordeon": {
         "accordion",
@@ -259,6 +270,8 @@ MANUAL_GENRE_MAPPING = {
         "hardcore techno",
         "jumpstyle",
         "speedcore",
+        "tekno",
+        "terrorcore",
     },
     "hardcore": {
         "-dark hardcore",
@@ -359,6 +372,7 @@ MANUAL_GENRE_MAPPING = {
         "soft rock",
         "stomp pop",
         "synthpop",
+        "teen pop",
     },
     "ccm": {
         "-alternative ccm",
@@ -463,6 +477,7 @@ MANUAL_GENRE_MAPPING = {
         "stoner rock",
         "swamp pop",
         "symphonic rock",
+        "trash rock",
     },
     "alternative rock": {
         "-australian alternative rock",
@@ -527,6 +542,8 @@ MANUAL_GENRE_MAPPING = {
         "grisly death metal",
         "necrogrind",
         "slam death metal",
+        "technical brutal death metal",
+        "technical death metal",
     },
     "ska": {
         "euroska",
@@ -548,6 +565,10 @@ MANUAL_GENRE_MAPPING = {
         "popgaze",
         "shiver pop",
         "slow core",
+        "triangle indie",
+        "twee indie pop",
+        "twee pop",
+        "twin cities indie",
     },
     "afrobeat": {
         "afrobeats",
@@ -565,6 +586,7 @@ MANUAL_GENRE_MAPPING = {
         "piedmont blues",
         "progressive bluegrass",
         "string band",
+        "tejano",
     },
     "blues": {
         "acoustic blues",
@@ -688,6 +710,8 @@ MANUAL_GENRE_MAPPING = {
     "cuban folk": {
         "bolero",
         "nueva cancion",
+        "timba",
+        "trova",
     },
     "bossa nova": {
         "bossa nova jazz",
@@ -728,6 +752,7 @@ MANUAL_GENRE_MAPPING = {
     },
     "scottish folk": {
         "ceilidh",
+        "traditional scottish folk",
     },
     "celtik folk": {
         "celtic",
@@ -770,8 +795,8 @@ MANUAL_GENRE_MAPPING = {
         "string quartet",
         "modern classical",
     },
-    "piano instrument": {
-        "piano"
+    "piano instrumental": {
+        "piano",
         "classify",
     },
     "marching": {
@@ -964,6 +989,7 @@ MANUAL_GENRE_MAPPING = {
     "british folk": {
         "shanty",
         "skiffle",
+        "traditional british folk",
     },
     "sri lanka folk": {
         "sinhala",
@@ -980,23 +1006,25 @@ MANUAL_GENRE_MAPPING = {
         "stomp and holler",
         "stomp and whittle",
         "string folk",
+        "traditional",
+        "traditional folk",
     },
-    "steelpan instrument": {
+    "steelpan instrumental": {
         "steelpan",
     },
-    "accordeon instrument": {
+    "accordeon instrumental": {
         "accordeon",
     },
-    "fingerstyle instrument": {
+    "fingerstyle instrumental": {
         "fingerstyle",
     },
-    "scratch instrument": {
+    "scratch instrumental": {
         "scratch",
     },
-    "classical guitar instrument": {
+    "classical guitar instrumental": {
         "classical guitar",
     },
-    "mallet instrument": {
+    "mallet instrumental": {
         "mallet",
     },
     "lounge": {
@@ -1010,6 +1038,22 @@ MANUAL_GENRE_MAPPING = {
     },
     "pipe band instrumental": {
         "pipe band",
+    },
+    "tanzanian folk": {
+        "tanzlmusi",
+    },
+    "thrash metal": {
+        "thrash core",
+        "thrash-groove metal",
+    },
+    "tibetan folk": {
+        "tibetan",
+    },
+    "turkish folk": {
+        "turkish classical",
+    },
+    "ukulele instrumental": {
+        "ukulele",
     },
     # to remove
     "classical": None,
