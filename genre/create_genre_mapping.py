@@ -170,6 +170,12 @@ MIXED_GENRES = {
     "tracestep",
     "tribute",
     "tzadik",
+    "video game music",
+    "visual kei",
+    "warm drone",
+    "wonky",
+    "workout",
+    "zeuhl",
 }
 
 # fixing and enhancing automapping
@@ -286,6 +292,7 @@ MANUAL_GENRE_MAPPING = {
         "progressive trance",
         "progressive uplifting trance",
         "sky room",
+        "uplifting trance",
     },
     "psytrance": {
         "full on",
@@ -373,6 +380,9 @@ MANUAL_GENRE_MAPPING = {
         "stomp pop",
         "synthpop",
         "teen pop",
+        "viral pop",
+        "worship",
+        "wrestling",
     },
     "ccm": {
         "-alternative ccm",
@@ -510,6 +520,8 @@ MANUAL_GENRE_MAPPING = {
         "psych-rock",
         "psychedelic",
         "psychedelic blues-rock",
+        "uplift",
+        "wrock",
     },
     "hardcore rock": {
         "chaotic hardcore",
@@ -526,6 +538,8 @@ MANUAL_GENRE_MAPPING = {
         "doom metal",
         "raw black metal",
         "symphonic black metal",
+        "unblack metal",
+        "usbm",
     },
     "post black metal": {
         "blackgaze",
@@ -587,6 +601,7 @@ MANUAL_GENRE_MAPPING = {
         "progressive bluegrass",
         "string band",
         "tejano",
+        "vintage country folk",
     },
     "blues": {
         "acoustic blues",
@@ -619,6 +634,7 @@ MANUAL_GENRE_MAPPING = {
         "slash punk",
         "straight edge",
         "street punk",
+        "vegan straight edge",
     },
     "post punk rock": {
         "dance punk rock",
@@ -627,6 +643,7 @@ MANUAL_GENRE_MAPPING = {
         "no wave",
         "post-punk",
         "screamo punk",
+        "vaporwave",
     },
     "disco": {
         "italo disco",
@@ -658,6 +675,8 @@ MANUAL_GENRE_MAPPING = {
         "reggaeton flow",
         "sega",
         "soukous",
+        "zouk",
+        "zouk riddim",
     },
     "electro tropical": {
         "electro bailando",
@@ -724,6 +743,7 @@ MANUAL_GENRE_MAPPING = {
         "sertanejo",
         "sertanejo tradicional",
         "sertanejo universitario",
+        "velha guarda",
     },
     "dubstep": {
         "brostep",
@@ -735,6 +755,7 @@ MANUAL_GENRE_MAPPING = {
         "experimental dubstep",
         "filthstep",
         "ghoststep",
+        "zapstep",
     },
     "breaks": {
         "nu skool breaks",
@@ -794,6 +815,7 @@ MANUAL_GENRE_MAPPING = {
         "serialism",
         "string quartet",
         "modern classical",
+        "wind ensemble",
     },
     "piano instrumental": {
         "piano",
@@ -818,6 +840,7 @@ MANUAL_GENRE_MAPPING = {
         "cumbia villera",
         "nu-cumbia",
         "porro",
+        "vallenato",
     },
     "indonesian folk": {
         "dangdut",
@@ -869,10 +892,12 @@ MANUAL_GENRE_MAPPING = {
     },
     "german folk": {
         "fussball",
+        "volksmusik",
     },
     "spanish folk": {
         "galego",
         "spanish classical",
+        "villancicos",
     },
     "arab folk": {
         "ghazal",
@@ -885,8 +910,9 @@ MANUAL_GENRE_MAPPING = {
         "hindustani classical",
         "qawwali",
     },
-    "fiinish folk": {
+    "finnish folk": {
         "iskelma",
+        "yoik",
     },
     "funk": {
         "jazz funk",
@@ -931,6 +957,7 @@ MANUAL_GENRE_MAPPING = {
         "neo soul",
         "neo soul-jazz",
         "soul blues",
+        "urban contemporary",
     },
     "r&b": {
         "new jack smooth",
@@ -968,9 +995,7 @@ MANUAL_GENRE_MAPPING = {
         "power electronics",
         "power noise",
     },
-    "shoegaze": {
-        "psych gaze",
-    },
+    "shoegaze": {"psych gaze", "voidgaze"},
     "quebec folk": {
         "quebecois",
     },
@@ -1008,6 +1033,7 @@ MANUAL_GENRE_MAPPING = {
         "string folk",
         "traditional",
         "traditional folk",
+        "world",
     },
     "steelpan instrumental": {
         "steelpan",
@@ -1055,6 +1081,28 @@ MANUAL_GENRE_MAPPING = {
     "ukulele instrumental": {
         "ukulele",
     },
+    "violin instrumental": {
+        "violin",
+    },
+    "western": {
+        "western swing",
+    },
+    "french folk": {
+        "ye ye",
+    },
+    "austrian folk": {
+        "zillertal",
+    },
+    "zimbabwe folk": {
+        "zim",
+        "zolo",
+    },
+    "cote d'ivoire folk": {
+        "zouglou",
+    },
+    "louisiana folk": {
+        "zydeco",
+    },
     # to remove
     "classical": None,
     "glam": None,
@@ -1090,6 +1138,8 @@ GENRE_VARIATIONS = {
     "vocal": False,
     "indie": False,
     "pop": False,
+    "vapor": False,
+    "world": False,
 }
 
 GEOGRAPHY_LABELS = {
@@ -1206,6 +1256,7 @@ GEOGRAPHY_LABELS = {
     "venezuelan",
     "vegas",
     "vienna",
+    "vietnamese",
     "welsh",
     "west african",
     "west coast",
