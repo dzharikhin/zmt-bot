@@ -332,18 +332,14 @@ MANUAL_GENRE_MAPPING = {
     "ccm": {
         "-alternative ccm",
     },
-    "alternative rock": {
-        "-australian alternative rock",
-    },
     "nu metal": {
-        "-australian alternative rock",
         "alternative metal",
+        "alternative rock",
         "alternative pop rock",
         "rap rock",
         "funk metal",
         "heavy alternative",
         "neo metal",
-        "nu metal",
         "post-doom metal",
         "post-metal",
         "post-post-hardcore",
@@ -381,7 +377,7 @@ MANUAL_GENRE_MAPPING = {
         "-alternative pop rock",
     },
     "rock": {
-        "alternative rock",
+        "-alternative rock",
         "simple rock",
         "anti-folk",
         "art rock",
@@ -425,6 +421,9 @@ MANUAL_GENRE_MAPPING = {
         "rock gaucho",
         "rock-and-roll",
         "roots rock",
+    },
+    "alternative rock": {
+        "-australian alternative rock",
     },
     "stoner rock": {
         "-hard stoner rock",
@@ -1113,6 +1112,12 @@ def _merge_mapping(
                 value_index[val] = key
         for key in sorted(keys_in_values, key=lambda x: len(x), reverse=True):
             mapping_key = value_index[key]
+            if mapping_key == key:
+                print(
+                    f"<{key}> duplicates as key and value, ignoring",
+                    file=sys.stderr,
+                )
+                continue
             print(
                 f"Key <{key}> is present as value in <{mapping_key}>. Merging {merged[key]} in <{mapping_key}>"
             )
