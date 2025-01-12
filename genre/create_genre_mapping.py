@@ -125,6 +125,20 @@ MIXED_GENRES = {
     "oshare kei",
     "otacore",
     "outsider",
+    "performance",
+    "poetry",
+    "polyphony",
+    "poprock",
+    "preverb",
+    "prog",
+    "progressive rock",
+    "psych-pop",
+    "reading",
+    "redneck",
+    "relaxative",
+    "remix",
+    "rock noise",
+    "russelater",
 }
 
 # fixing and enhancing automapping
@@ -157,6 +171,7 @@ MANUAL_GENRE_MAPPING = {
         "horrorcore",
         "hyphy",
         "nerdcore",
+        "rap chileno",
     },
     "trap": {
         "bass trap",
@@ -231,14 +246,19 @@ MANUAL_GENRE_MAPPING = {
         "progressive house",
         "chill-out trance",
         "glitter trance",
+        "progressive trance",
+        "progressive uplifting trance",
     },
     "psytrance": {
         "full on",
         "goa trance",
+        "progressive psytrance",
+        "psychedelic trance",
     },
     "techno": {
         "acid techno",
         "dub techno",
+        "re:techno",
     },
     "minimal techno": {
         "minimal melodic techno",
@@ -304,11 +324,18 @@ MANUAL_GENRE_MAPPING = {
         "neo-singer-songwriter",
         "new romantic",
         "new wave pop",
+        "poptimism",
+        "post-teen pop",
+        "praise",
+        "rockism",
     },
     "ccm": {
         "-alternative ccm",
     },
     "alternative rock": {
+        "-australian alternative rock",
+    },
+    "nu metal": {
         "-australian alternative rock",
         "alternative metal",
         "alternative pop rock",
@@ -317,8 +344,17 @@ MANUAL_GENRE_MAPPING = {
         "heavy alternative",
         "neo metal",
         "nu metal",
+        "post-doom metal",
+        "post-metal",
+        "post-post-hardcore",
+        "post-screamo",
+        "progressive alternative",
+        "progressive post-hardcore",
+        "rap metal",
+        "rap metalcore",
     },
-    "metal": {
+    "metal rock": {
+        "metal",
         "-alternative metal",
         "cyber metal",
         "fallen angel",
@@ -335,12 +371,18 @@ MANUAL_GENRE_MAPPING = {
         "neo-trad metal",
         "nwobhm",
         "nwothm",
+        "power metal",
+        "progressive metal",
+    },
+    "metal": {
+        "-alternative metal",
     },
     "pop rock": {
         "-alternative pop rock",
     },
     "rock": {
         "alternative rock",
+        "simple rock",
         "anti-folk",
         "art rock",
         "australian alternative rock",
@@ -368,6 +410,21 @@ MANUAL_GENRE_MAPPING = {
         "neo-industrial rock",
         "new wave",
         "ostrock",
+        "piano rock",
+        "post-hardcore",
+        "power blues-rock",
+        "power pop",
+        "protopunk",
+        "psychedelic rock",
+        "psychobilly",
+        "pub rock",
+        "punk blues",
+        "rock 'n roll",
+        "rock catala",
+        "rock en espanol",
+        "rock gaucho",
+        "rock-and-roll",
+        "roots rock",
     },
     "stoner rock": {
         "-hard stoner rock",
@@ -392,6 +449,11 @@ MANUAL_GENRE_MAPPING = {
         "noise punk",
         "noise rock",
         "nu gaze",
+        "permanent wave",
+        "psych",
+        "psych-rock",
+        "psychedelic",
+        "psychedelic blues-rock",
     },
     "hardcore rock": {
         "chaotic hardcore",
@@ -405,9 +467,12 @@ MANUAL_GENRE_MAPPING = {
         "cryptic black metal",
         "depressive black metal",
         "doom metal",
+        "raw black metal",
     },
     "post black metal": {
         "blackgaze",
+        "pagan black metal",
+        "psychedelic doom",
     },
     "death metal": {
         "brutal death metal",
@@ -421,6 +486,8 @@ MANUAL_GENRE_MAPPING = {
     },
     "ska": {
         "euroska",
+        "punk ska",
+        "reggae rock",
     },
     "indie": {
         "alternative ccm",
@@ -432,6 +499,8 @@ MANUAL_GENRE_MAPPING = {
         "indie folk",
         "noise pop",
         "ok indie",
+        "pixie",
+        "popgaze",
     },
     "afrobeat": {
         "afrobeats",
@@ -446,6 +515,8 @@ MANUAL_GENRE_MAPPING = {
         "neo-traditional country",
         "new americana",
         "outlaw country",
+        "piedmont blues",
+        "progressive bluegrass",
     },
     "blues": {
         "acoustic blues",
@@ -457,6 +528,7 @@ MANUAL_GENRE_MAPPING = {
         "gospel blues",
         "harmonica blues",
         "jazz blues",
+        "piano blues",
     },
     "punk rock": {
         "punk",
@@ -467,15 +539,21 @@ MANUAL_GENRE_MAPPING = {
         "horror punk",
         "oi",
         "orgcore",
+        "poppunk",
+        "power-pop punk",
+        "riot grrrl",
     },
     "post punk rock": {
         "dance punk rock",
         "wave",
         "electropunk",
         "no wave",
+        "post-punk",
     },
     "disco": {
         "italo disco",
+        "post-disco",
+        "post-disco soul",
     },
     "andean folk": {
         "andean",
@@ -495,6 +573,9 @@ MANUAL_GENRE_MAPPING = {
         "kuduro",
         "makossa",
         "orquesta tropical",
+        "punta",
+        "reggaeton",
+        "reggaeton flow",
     },
     "electro tropical": {
         "electro bailando",
@@ -533,6 +614,7 @@ MANUAL_GENRE_MAPPING = {
         "jazz orkester",
         "jazz piano",
         "jazz trio",
+        "rhythm and boogie",
     },
     "bop": {"-hard bop"},
     "belorus folk": {
@@ -594,6 +676,7 @@ MANUAL_GENRE_MAPPING = {
     "argentine folk": {
         "chamame",
         "folklore argentino",
+        "rio de la plata",
     },
     "chanson": {
         "chanson quebecois",
@@ -643,6 +726,7 @@ MANUAL_GENRE_MAPPING = {
         "cumbia sonidera",
         "cumbia villera",
         "nu-cumbia",
+        "porro",
     },
     "indonesian folk": {
         "dangdut",
@@ -668,11 +752,14 @@ MANUAL_GENRE_MAPPING = {
     "reggae": {
         "dub",
         "gospel reggae",
+        "reggae fusion",
+        "roots reggae",
     },
     "mexican folk": {
         "duranguense",
         "grupera",
         "norteno",
+        "ranchera",
     },
     "ecuadoria folk": {
         "ecuadoria",
@@ -694,18 +781,21 @@ MANUAL_GENRE_MAPPING = {
     },
     "arab folk": {
         "ghazal",
+        "rai",
     },
     "hawaiian folk": {
         "hawaiian",
     },
     "hindustani folk": {
         "hindustani classical",
+        "qawwali",
     },
     "fiinish folk": {
         "iskelma",
     },
     "funk": {
         "jazz funk",
+        "p funk",
     },
     "irish folk": {
         "jig and reel",
@@ -720,9 +810,7 @@ MANUAL_GENRE_MAPPING = {
     "haitian folk": {
         "kompa",
     },
-    "greek folk": {
-        "laiko",
-    },
+    "greek folk": {"laiko", "rebetiko"},
     "lithuanian folk": {
         "lithumania",
     },
@@ -751,6 +839,7 @@ MANUAL_GENRE_MAPPING = {
     "r&b": {
         "new jack smooth",
         "new jack swing",
+        "quiet storm",
     },
     "rockabilly": {
         "neo-rockabilly",
@@ -767,6 +856,29 @@ MANUAL_GENRE_MAPPING = {
     },
     "phillipines folk": {
         "opm",
+        "pinoy alternative",
+    },
+    "samba": {
+        "pagode",
+    },
+    "grunge": {
+        "post-grunge",
+    },
+    "noise": {
+        "power electronics",
+        "power noise",
+    },
+    "shoegaze": {
+        "psych gaze",
+    },
+    "quebec folk": {
+        "quebecois",
+    },
+    "jungle": {
+        "ragga jungle",
+    },
+    "opera": {
+        "romantic",
     },
     "folk": {
         "folkmusik",
@@ -807,6 +919,7 @@ GENRE_VARIATIONS = {
     "vintage": False,
     "vocal": False,
     "indie": False,
+    "pop": False,
 }
 
 GEOGRAPHY_LABELS = {
@@ -896,8 +1009,10 @@ GEOGRAPHY_LABELS = {
     "polynesian",
     "portland",
     "portuguese",
+    "puerto rican",
     "romanian",
     "russian",
+    "rva",
     "scottish",
     "seattle",
     "slavic",
@@ -1041,26 +1156,24 @@ def group_genres(
     def mapper(genre_name: str) -> str:
         return inverse_mapping.get(genre_name, genre_name)
 
-    genre_dataset.with_columns(
-        pl.col(GENRE_COLUMN_NAME)
-        .map_elements(mapper, pl.String)
-        .alias(f"{GENRE_COLUMN_NAME}_mapped")
-    ).with_columns(
-        pl.col(f"{GENRE_COLUMN_NAME}_mapped").alias(GENRE_COLUMN_NAME)
-    ).filter(
-        pl.col(GENRE_COLUMN_NAME).is_in(list(MIXED_GENRES)).not_()
-    ).select(
-        pl.col(ID_COLUMN_NAME), pl.col(GENRE_COLUMN_NAME)
-    ).group_by(
-        pl.col(GENRE_COLUMN_NAME)
-    ).agg(
-        pl.col(f"{ID_COLUMN_NAME}")
-    ).with_columns(
-        pl.col(ID_COLUMN_NAME).list.join(";")
-    ).collect().sort(
-        by=pl.col(GENRE_COLUMN_NAME)
-    ).write_csv(
-        grouped_by_genre_path
+    (
+        genre_dataset.with_columns(
+            pl.col(GENRE_COLUMN_NAME)
+            .map_elements(mapper, pl.String)
+            .alias(f"{GENRE_COLUMN_NAME}_mapped")
+        )
+        .with_columns(pl.col(f"{GENRE_COLUMN_NAME}_mapped").alias(GENRE_COLUMN_NAME))
+        .filter(pl.col(GENRE_COLUMN_NAME).is_in(list(MIXED_GENRES)).not_())
+        # .filter(
+        #     pl.col(GENRE_COLUMN_NAME).is_in(list(merged_mapping.keys())).not_()
+        # )
+        .select(pl.col(ID_COLUMN_NAME), pl.col(GENRE_COLUMN_NAME))
+        .group_by(pl.col(GENRE_COLUMN_NAME))
+        .agg(pl.col(f"{ID_COLUMN_NAME}"))
+        .with_columns(pl.col(ID_COLUMN_NAME).list.join(";"))
+        .collect()
+        .sort(by=pl.col(GENRE_COLUMN_NAME))
+        .write_csv(grouped_by_genre_path)
     )
 
 
