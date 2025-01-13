@@ -7,6 +7,8 @@ from functools import reduce
 import polars as pl
 
 GENRE_COLUMN_NAME = "genre_name"
+AGGREGATED_GENRE_COLUMN_NAME = "genre_name_aggregated"
+SPOTIFY_ID_COLUMN_NAME = "spotify_id"
 ID_COLUMN_NAME = "track_id"
 
 # genres grouped by not sound criteria or sounding very non-uniform
@@ -1421,34 +1423,43 @@ def group_genres(
     def mapper(genre_name: str) -> str:
         return inverse_mapping.get(genre_name, genre_name)
 
-    (
+    mapped_genre_dataset = (
         genre_dataset.with_columns(
             pl.col(GENRE_COLUMN_NAME)
             .map_elements(mapper, pl.String)
-            .alias(f"{GENRE_COLUMN_NAME}_mapped")
+            .alias(AGGREGATED_GENRE_COLUMN_NAME)
         )
-        .with_columns(pl.col(f"{GENRE_COLUMN_NAME}_mapped").alias(GENRE_COLUMN_NAME))
-        .filter(pl.col(GENRE_COLUMN_NAME).is_in(list(MIXED_GENRES)).not_())
+        .filter(pl.col(AGGREGATED_GENRE_COLUMN_NAME).is_in(list(MIXED_GENRES)).not_())
         # .filter(
         #     pl.col(GENRE_COLUMN_NAME).is_in(list(merged_mapping.keys())).not_()
         # )
-        .select(pl.col(ID_COLUMN_NAME), pl.col(GENRE_COLUMN_NAME))
-        .group_by(pl.col(GENRE_COLUMN_NAME))
-        .agg(pl.col(f"{ID_COLUMN_NAME}"))
-        .with_columns(pl.col(ID_COLUMN_NAME).list.join(";"))
+        .with_columns(pl.col(SPOTIFY_ID_COLUMN_NAME).alias(ID_COLUMN_NAME))
+        .drop(pl.col(SPOTIFY_ID_COLUMN_NAME))
+    )
+
+    (
+        mapped_genre_dataset.select(
+            pl.col(ID_COLUMN_NAME), pl.col(AGGREGATED_GENRE_COLUMN_NAME)
+        )
+        .group_by(pl.col(AGGREGATED_GENRE_COLUMN_NAME))
+        .agg(pl.col(ID_COLUMN_NAME))
+        .with_columns(pl.col(ID_COLUMN_NAME).list.join(";").alias(ID_COLUMN_NAME))
         .collect()
-        .sort(by=pl.col(GENRE_COLUMN_NAME))
+        .sort(by=pl.col(AGGREGATED_GENRE_COLUMN_NAME))
         .write_csv(grouped_by_genre_path)
+    )
+    (
+        mapped_genre_dataset.select(
+            pl.col(ID_COLUMN_NAME),
+            pl.col(GENRE_COLUMN_NAME),
+            pl.col(AGGREGATED_GENRE_COLUMN_NAME),
+        ).sink_csv(mapped_genre_dataset_path)
     )
 
 
 if __name__ == "__main__":
     group_genres(
-        genre_dataset_path=pathlib.Path("csv/songs-genre_filtered.csv"),
-        grouped_by_genre_path=pathlib.Path(
-            "csv/songs-genre_filtered-grouped_by_genre.csv"
-        ),
-        mapped_genre_dataset_path=pathlib.Path(
-            "csv/songs-genre_filtered-mapped_genres.csv"
-        ),
+        genre_dataset_path=pathlib.Path("csv/songs-downloaded.csv"),
+        grouped_by_genre_path=pathlib.Path("csv/songs-grouped_by_genre.csv"),
+        mapped_genre_dataset_path=pathlib.Path("csv/songs-mapped_genres.csv"),
     )

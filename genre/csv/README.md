@@ -2,8 +2,7 @@
 - `songs-downloaded.csv` - if you need raw data - consider this as your source. deduplicated, csv format-fixed data, for which sample was successfully downloaded(see tags `data-genre-*`and releases). Built with [download_genre_snippets.py](../download_genre_snippets.py)
 - `audio_features_dataset.csv`- audio features extracted for downloaded samples. Built with [prepare_features_dataset.py](../prepare_features_dataset.py)
 - `audio_features_dataset-processing_failed.csv`- sample ids failed to extract features from. Built with [prepare_features_dataset.py](../prepare_features_dataset.py)
-- `songs-genre-filtered.csv` - `songs-downloaded.csv` filtered of outliners per genre, leaving only `track_id` and `genre_name`
-- `songs-prepared-grouped_by_genre.csv` - `songs-downloaded.csv` grouped by genre_name to be able to listen examples of genre. Built with [create_genre_mapping.py](../create_genre_mapping.py)
+- `songs-grouped_by_genre.csv` - `songs-downloaded.csv` applied genre aggregation then grouped by mapped genre name to be able to listen examples of genre mapping. Built with [create_genre_mapping.py](../create_genre_mapping.py)
   to play audio you can use script:
   ```python
   #!/usr/bin/env python3
@@ -30,3 +29,6 @@
       ]
     # here you add command call to play multiple files like subprocess.run()
   ```
+- `songs-mapped_genres.csv` - track id, genre, mapped genre. Built with [create_genre_mapping.py](../create_genre_mapping.py)
+- `songs-genre_filtered.csv` - dataset without skipped outliners per mapped genre. Built with [filter_outliers.py](../filter_outliers.py)
+- `songs-genre_filtered-outliners.csv` - skipped outliners per mapped genre. Built with [filter_outliers.py](../filter_outliers.py)
