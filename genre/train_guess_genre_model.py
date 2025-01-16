@@ -1,4 +1,6 @@
+import csv
 import pathlib
+import pickle
 import random
 
 import numpy
@@ -17,13 +19,13 @@ GENRE_COLUMN_NAME = "genre_name_aggregated"
 
 def main(
     *,
-    genre_dataset_path: pathlib.Path,
-    audio_features_dataset_path: pathlib.Path,
+    working_dir: pathlib.Path,
     parallel_threads: int | None = None,
-    repetitions: int = 0,
+    genre_sample_fraction: float = 1.0,
+    feature_importance_repetitions: int = 0,
 ):
-    genre_dataset = pl.scan_csv(genre_dataset_path)
-    audio_features_dataset = pl.scan_csv(audio_features_dataset_path)
+    genre_dataset = pl.scan_csv(working_dir.joinpath("songs-genre_filtered.csv"))
+    audio_features_dataset = pl.scan_csv(working_dir.joinpath("audio_features_dataset.csv"))
 
     meaningful_genres_data = (
         genre_dataset.group_by(pl.col(GENRE_COLUMN_NAME))
@@ -37,7 +39,8 @@ def main(
         .collect()
     )
     genre_sample = meaningful_genres_data
-    genre_sample = genre_sample.sample(fraction=0.05, shuffle=True)
+    if genre_sample_fraction < 1.0:
+        genre_sample = genre_sample.sample(fraction=genre_sample_fraction, shuffle=True)
     print(f"{genre_sample=}")
     genre_dataset_sample = genre_dataset.select(
         pl.col(ID_COLUMN_NAME), pl.col(GENRE_COLUMN_NAME)
@@ -97,8 +100,7 @@ def main(
     model.fit(X_train, y_train)
 
     y_predicted = model.predict(X_test)
-    print(f"Average accuracy: {accuracy_score(y_test, y_predicted):.2f}")
-    print("Detailed report:")
+    print(f"Fitting is done. Average accuracy: {accuracy_score(y_test, y_predicted):.2f}")
     report = classification_report(
         y_test,
         y_predicted,
@@ -107,6 +109,7 @@ def main(
     )
 
     not_learned_genres = 0
+    report_rows=[("genre","precision", "examples in data")]
     for genre, data in sorted(
         filter(
             lambda t: isinstance(t[1], dict)
@@ -116,20 +119,27 @@ def main(
         key=lambda t: t[1]["precision"],
         reverse=True,
     ):
-        print(
-            f"{genre}: {data["precision"]}, supported by {int (data["support"])} examples"
-        )
+        report_rows.append((genre, data["precision"], int (data["support"])))
         if data["precision"] <= 0.5:
             not_learned_genres += 1
+    model_file_path = working_dir.joinpath("genre_model.pickle")
+    with model_file_path.open("wb") as model_file:
+        pickle.dump(model, model_file, protocol=5)
+    print(f"Dumped model to {model_file_path}")
+
+    model_stats_path = model_file_path.parent.joinpath(f"{model_file_path.stem}-stat.csv")
+    with model_stats_path.open("wt") as report_csv:
+        csv.writer(report_csv).writerows(report_rows)
+    print(f"Dumped model stats to {model_stats_path}")
     print(f"Not learned for {not_learned_genres}/{genre_sample.shape[0]}")
 
-    if repetitions > 0:
+    if feature_importance_repetitions > 0:
         result = permutation_importance(
             model,
             X_test.to_pandas(),
             y_test.to_pandas(),
             scoring="neg_log_loss",
-            n_repeats=repetitions,
+            n_repeats=feature_importance_repetitions,
             random_state=random.randint(1, 100),
         )
 
@@ -147,7 +157,7 @@ def main(
 
 if __name__ == "__main__":
     main(
-        genre_dataset_path=pathlib.Path("csv/songs-genre_filtered.csv"),
-        audio_features_dataset_path=pathlib.Path("csv/audio_features_dataset.csv"),
+        working_dir=pathlib.Path("csv"),
+        genre_sample_fraction=0.05,
         parallel_threads=10,
     )
