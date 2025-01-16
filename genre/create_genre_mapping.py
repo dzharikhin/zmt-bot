@@ -1134,6 +1134,12 @@ MANUAL_GENRE_MAPPING = {
     "throat singing instrumental": {
         "throat singing",
     },
+    "panpipe instrumental": {
+        "panpipe",
+    },
+    "saxophone instrumental": {
+        "saxophone",
+    },
     "classical": {
         "-contemporary classical",
         "-indian classical",
