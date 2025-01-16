@@ -13,6 +13,10 @@ from sklearn.multiclass import OneVsOneClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.svm import LinearSVC
 
+from genre.create_genre_mapping import group_genres
+from genre.filter_outliers import filter_outliers_per_genre
+from genre.prepare_features_dataset import prepare_audio_features_dataset
+
 ID_COLUMN_NAME = "track_id"
 GENRE_COLUMN_NAME = "genre_name_aggregated"
 
@@ -20,12 +24,30 @@ GENRE_COLUMN_NAME = "genre_name_aggregated"
 def main(
     *,
     working_dir: pathlib.Path,
+    snippets_path: pathlib.Path,
+    songs_dataset_path: pathlib.Path,
+    data_contamination_fraction: float,
     parallel_threads: int | None = None,
     genre_sample_fraction: float = 1.0,
     feature_importance_repetitions: int = 0,
 ):
-    genre_dataset = pl.scan_csv(working_dir.joinpath("songs-genre_filtered.csv"))
-    audio_features_dataset = pl.scan_csv(working_dir.joinpath("audio_features_dataset.csv"))
+    audio_features_dataset_path = prepare_audio_features_dataset(
+        working_dir, snippets_path
+    )
+    mapped_genres_dataset_path = working_dir.joinpath("songs-mapped_genres.csv")
+    group_genres(
+        genre_dataset_path=songs_dataset_path,
+        grouped_by_genre_path=working_dir.joinpath("songs-grouped_by_genre.csv"),
+        mapped_genre_dataset_path=mapped_genres_dataset_path,
+    )
+    filtered_genre_dataset_path = working_dir.joinpath("songs-genre_filtered.csv")
+    filter_outliers_per_genre(
+        genre_dataset_path=mapped_genres_dataset_path,
+        audio_features_dataset_path=audio_features_dataset_path,
+        result_path=filtered_genre_dataset_path,
+        contamination_fraction=data_contamination_fraction,
+    )
+    genre_dataset = pl.scan_csv(filtered_genre_dataset_path)
 
     meaningful_genres_data = (
         genre_dataset.group_by(pl.col(GENRE_COLUMN_NAME))
@@ -41,11 +63,12 @@ def main(
     genre_sample = meaningful_genres_data
     if genre_sample_fraction < 1.0:
         genre_sample = genre_sample.sample(fraction=genre_sample_fraction, shuffle=True)
-    print(f"{genre_sample=}")
+    print(f"{genre_sample.get_column(GENRE_COLUMN_NAME).to_list()=}")
     genre_dataset_sample = genre_dataset.select(
         pl.col(ID_COLUMN_NAME), pl.col(GENRE_COLUMN_NAME)
     ).filter(pl.col(GENRE_COLUMN_NAME).is_in(genre_sample))
 
+    audio_features_dataset = pl.scan_csv(audio_features_dataset_path)
     data = audio_features_dataset.join(
         genre_dataset_sample.select(pl.col(ID_COLUMN_NAME), pl.col(GENRE_COLUMN_NAME)),
         how="inner",
@@ -100,7 +123,9 @@ def main(
     model.fit(X_train, y_train)
 
     y_predicted = model.predict(X_test)
-    print(f"Fitting is done. Average accuracy: {accuracy_score(y_test, y_predicted):.2f}")
+    print(
+        f"Fitting is done. Average accuracy: {accuracy_score(y_test, y_predicted):.2f}"
+    )
     report = classification_report(
         y_test,
         y_predicted,
@@ -109,7 +134,7 @@ def main(
     )
 
     not_learned_genres = 0
-    report_rows=[("genre","precision", "examples in data")]
+    report_rows = [("genre", "precision", "examples in data")]
     for genre, data in sorted(
         filter(
             lambda t: isinstance(t[1], dict)
@@ -119,7 +144,7 @@ def main(
         key=lambda t: t[1]["precision"],
         reverse=True,
     ):
-        report_rows.append((genre, data["precision"], int (data["support"])))
+        report_rows.append((genre, data["precision"], int(data["support"])))
         if data["precision"] <= 0.5:
             not_learned_genres += 1
     model_file_path = working_dir.joinpath("genre_model.pickle")
@@ -127,7 +152,9 @@ def main(
         pickle.dump(model, model_file, protocol=5)
     print(f"Dumped model to {model_file_path}")
 
-    model_stats_path = model_file_path.parent.joinpath(f"{model_file_path.stem}-stat.csv")
+    model_stats_path = model_file_path.parent.joinpath(
+        f"{model_file_path.stem}-stat.csv"
+    )
     with model_stats_path.open("wt") as report_csv:
         csv.writer(report_csv).writerows(report_rows)
     print(f"Dumped model stats to {model_stats_path}")
@@ -158,6 +185,9 @@ def main(
 if __name__ == "__main__":
     main(
         working_dir=pathlib.Path("csv"),
-        genre_sample_fraction=0.05,
+        snippets_path=pathlib.Path("/home/jrx/snippets"),
+        songs_dataset_path=pathlib.Path("csv/songs-downloaded.csv"),
+        data_contamination_fraction=0.3,
+        genre_sample_fraction=1.0,
         parallel_threads=10,
     )
