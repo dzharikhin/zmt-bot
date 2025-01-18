@@ -98,7 +98,7 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
         for i in range(batches_num):
             slice_df = self._df.slice(i * self._batch_size, self._batch_size)
             sink_file_name = self._build_slice_name(i)
-            slice_df.sink_csv(sink_file_name, include_header=False)
+            slice_df.collect(streaming=True).write_csv(sink_file_name, include_header=False)
             print(f"{sink_file_name} is ready: {slice_df.explain()}")
 
     def __enter__(self) -> DatasetProcessor[ID]:
