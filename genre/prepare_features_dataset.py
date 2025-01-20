@@ -10,7 +10,7 @@ from soundfile import LibsndfileError
 from audio.features import (
     extract_features_for_mp3,
     AudioFeaturesType,
-    AUDIO_FEATURE_SCHEMA,
+    AUDIO_FEATURE_TYPE_SCHEMA,
 )
 from dataset.persistent_dataset_processor import DataSetFromDataManager
 
@@ -30,10 +30,10 @@ def prepare_audio_features_dataset(
     with tempfile.TemporaryDirectory() as tmp:
         dataset_manager = DataSetFromDataManager(
             dataset_path,
-            row_schema=AUDIO_FEATURE_SCHEMA,
+            row_schema=AUDIO_FEATURE_TYPE_SCHEMA,
             index_generator=(f.stem for f in audio_dir.iterdir() if f.is_file()),
             intermediate_results_dir=pathlib.Path(tmp),
-            batch_size=1000,
+            batch_size=500,
         )
         with dataset_manager as ds:
 
@@ -49,10 +49,10 @@ def prepare_audio_features_dataset(
                     logging.warning(
                         f"failed to get features for {row_id},added to fail log, returning stub: {e}"
                     )
-                    row = cast(AudioFeaturesType, tuple([row_id] + [None] * 94))
+                    row = cast(AudioFeaturesType, tuple([row_id] + [None] * (len(AUDIO_FEATURE_TYPE_SCHEMA) - 1)))
 
                 done = counter.fetch_inc() + 1
-                if done % 100 == 0:
+                if done % 10 == 0:
                     logging.info(
                         f"feature generation calls/dataset_size stat: {done}/{ds.size}"
                     )
@@ -62,9 +62,11 @@ def prepare_audio_features_dataset(
             logging.info(
                 f"total feature generation calls/dataset_size stat: {counter.load()}/{ds.size}"
             )
-        with fails_path.open(mode="rt") as fails:
-            failed_row_ids = {row[0] for row in csv.reader(fails)}
-        dataset_manager.remove_failures_in_place(failed_row_ids)
+
+        if fails_path.exists():
+            with fails_path.open(mode="rt") as fails:
+                failed_row_ids = {row[0] for row in csv.reader(fails)}
+            dataset_manager.remove_failures_in_place(failed_row_ids)
     return dataset_path
 
 
