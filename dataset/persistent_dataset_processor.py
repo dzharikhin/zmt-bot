@@ -59,10 +59,6 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
         self._df = self._init_df(index_generator)
 
     def fill(self, row_value_generator: Callable[[ID], tuple[ID, *tuple[Any, ...]]]):
-        any_value_column_is_null = functools.reduce(
-            lambda a, b: a.or_(b),
-            [pl.col(column[0]).is_null() for column in self._polars_row_schema[1:]],
-        )
         mapper = functools.partial(self._transform_tuple_to_dict, row_value_generator)
         if self.cache_fraction > 0:
             mapper = lru_cache(maxsize=int(self.size * self.cache_fraction))(mapper)
@@ -76,7 +72,8 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
 
         def process_unprocessed_rows_in_batch(df: pl.DataFrame) -> pl.DataFrame:
             additional_data = (
-                df.filter(any_value_column_is_null)
+                df
+                .filter(pl.nth(2).is_null())
                 .with_columns(
                     pl.col(id_col_name)
                     .map_elements(
