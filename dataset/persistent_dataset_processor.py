@@ -152,7 +152,7 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
             existing_data_df, on=index_column_name, how="left", include_nulls=True
         )
         data_file = pathlib.Path(self._intermediate_results_dir).joinpath("merged")
-        whole_data_df.sink_csv(data_file)
+        whole_data_df.collect(streaming=True).write_csv(data_file)
         return pl.scan_csv(data_file, schema=schema_as_dict)
 
     def _transform_tuple_to_dict(
