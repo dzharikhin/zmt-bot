@@ -12,7 +12,7 @@ from scipy.sparse import csr_matrix
 from sklearn.cluster import AgglomerativeClustering
 from soundfile import SoundFile
 
-FRAMES_NUMBER = 160
+FRAMES_NUMBER = 48  # 10 seconds frame for 8 minutes track
 MFCCS_NUMBER = 48
 CHROMA_NUMBER = 12
 SPECTRAL_CONTRAST_NUMBER = 7
