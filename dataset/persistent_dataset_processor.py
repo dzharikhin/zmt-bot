@@ -1,4 +1,3 @@
-import csv
 import functools
 import pathlib
 import shutil
@@ -154,12 +153,9 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
             "index_buffer"
         )
         with index_buffer_file_path.open(mode="wt") as index_buffer_file:
-            writer = csv.writer(index_buffer_file)
             for index_value in index_generator:
                 self.size += 1
-                writer.writerow(
-                    [index_value] + [None] * (len(self._polars_row_schema) - 1)
-                )
+                index_buffer_file.write(f"{index_value}\n")
 
         whole_data_df = pl.scan_csv(
             index_buffer_file_path, schema=schema_as_dict, has_header=False
