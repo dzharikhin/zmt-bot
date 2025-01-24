@@ -54,13 +54,13 @@ def prepare_audio_features_dataset(
                 done = counter.fetch_inc() + 1
                 if done % 10 == 0:
                     logging.info(
-                        f"feature generation calls/dataset_size stat: {done}/{ds.size}"
+                        f"feature generation calls/dataset_size stat: {done}/{ds.to_process_rows_count}"
                     )
                 return row
 
             ds.fill(generate_features)
             logging.info(
-                f"total feature generation calls/dataset_size stat: {counter.load()}/{ds.size}"
+                f"total feature generation calls/dataset_size stat: {counter.load()}/{ds.to_process_rows_count}"
             )
 
         if fails_path.exists():
