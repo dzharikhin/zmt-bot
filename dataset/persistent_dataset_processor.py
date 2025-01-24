@@ -28,7 +28,9 @@ class DatasetProcessor(Protocol[ID]):
     def fill(self, row_value_generator: Callable[[ID], tuple[ID, *tuple[Any, ...]]]):
         pass
 
-    size: int
+    total_dataset_rows_count: int
+    processed_rows_count: int
+    to_process_rows_count: int
 
 
 class DataSetFromDataManager(DatasetProcessor[ID]):
@@ -50,18 +52,32 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
             (name, pl.DataType.from_python(column_type))
             for name, column_type in row_schema
         ]
-        self.size = 0
         self.cache_fraction = cache_fraction
         self._map_elements_call_strategy = map_elements_call_strategy
         self._intermediate_results_dir = intermediate_results_dir
         self._batch_size = batch_size
         self._df = self._init_df(index_generator)
-        self._backup_file: pathlib.Path | None
+        size_df = (
+            self._df.select(pl.nth(0), pl.nth(1))
+            .group_by(pl.nth(1).is_null().not_().alias("processed"))
+            .len()
+            .collect(streaming=True)
+        )
+        self.total_dataset_rows_count = size_df.select("len").sum().item()
+        self.processed_rows_count = (
+            size_df.filter(pl.col("processed").eq(True)).select("len").sum().item()
+        )
+        self.to_process_rows_count = (
+            size_df.filter(pl.col("processed").eq(False)).select("len").sum().item()
+        )
+        self._backup_file: pathlib.Path | None = None
 
     def fill(self, row_value_generator: Callable[[ID], tuple[ID, *tuple[Any, ...]]]):
         mapper = functools.partial(self._transform_tuple_to_dict, row_value_generator)
         if self.cache_fraction > 0:
-            mapper = lru_cache(maxsize=int(self.size * self.cache_fraction))(mapper)
+            mapper = lru_cache(
+                maxsize=int(self.to_process_rows_count * self.cache_fraction)
+            )(mapper)
         map_elements_kwargs = (
             {"strategy": self._map_elements_call_strategy}
             if self._map_elements_call_strategy
@@ -86,16 +102,12 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
             )
             return df.update(additional_data, on=id_col_name, how="left")
 
-        processed_size = (
-            self._df.filter(pl.nth(1).is_null().not_())
-            .select(pl.len())
-            .collect(streaming=True)
-            .item()
-        )
         not_processes_yet_df = self._df.filter(pl.nth(1).is_null()).map_batches(
             process_unprocessed_rows_in_batch, streamable=True
         )
-        print(f"Processing {self.size - processed_size} of total {self.size} rows")
+        print(
+            f"Processing {self.to_process_rows_count} of total {self.total_dataset_rows_count} rows"
+        )
         batch_index = 0
         while not (
             slice_df := not_processes_yet_df.slice(
@@ -111,6 +123,9 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
                 f"Batch [{batch_index * self._batch_size}, {(batch_index + 1) * self._batch_size}) of not processed yet rows is appended to {self._persist_path}"
             )
             batch_index += 1
+        print(
+            f"Successfully processed all of {self.total_dataset_rows_count} rows, result in {self._persist_path}"
+        )
 
     def __enter__(self) -> DatasetProcessor[ID]:
         if self._persist_path.exists():
@@ -154,7 +169,6 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
         )
         with index_buffer_file_path.open(mode="wt") as index_buffer_file:
             for index_value in index_generator:
-                self.size += 1
                 index_buffer_file.write(f"{index_value}\n")
 
         whole_data_df = pl.scan_csv(
@@ -220,7 +234,7 @@ if __name__ == "__main__":
 
             def generate_value(row_id: str) -> tuple[str, float, float, float]:
                 done = counter.fetch_inc() + 1
-                print(f"{done}/{ds.size}: {row_id}")
+                print(f"{done}/{ds.to_process_rows_count}: {row_id}")
                 return (
                     row_id,
                     int(row_id) * 1.0,
@@ -229,5 +243,4 @@ if __name__ == "__main__":
                 )
 
             ds.fill(generate_value)
-            print(f"totally called generation: {counter.load()}/{ds.size}")
         dataset_manager.remove_failures_in_place({"2"})
