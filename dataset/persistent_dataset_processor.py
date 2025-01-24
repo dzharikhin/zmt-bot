@@ -72,10 +72,8 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
 
         def process_unprocessed_rows_in_batch(df: pl.DataFrame) -> pl.DataFrame:
             additional_data = (
-                df
-                .filter(pl.nth(2).is_null())
-                .with_columns(
-                    pl.col(id_col_name)
+                df.with_columns(
+                    pl.nth(0)
                     .map_elements(
                         mapper,
                         pl.Struct(dict(self._polars_row_schema)),
@@ -88,37 +86,51 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
             )
             return df.update(additional_data, on=id_col_name, how="left")
 
-        self._df = self._df.map_batches(
+        processed_size = (
+            self._df.filter(pl.nth(1).is_null().not_())
+            .select(pl.len())
+            .collect(streaming=True)
+            .item()
+        )
+        not_processes_yet_df = self._df.filter(pl.nth(1).is_null()).map_batches(
             process_unprocessed_rows_in_batch, streamable=True
         )
-        batches_num = int(self.size / self._batch_size) + 1
-        for i in range(batches_num):
-            slice_df = self._df.slice(i * self._batch_size, self._batch_size)
-            sink_file_name = self._build_slice_name(i)
-            slice_df.collect(streaming=True).write_csv(
-                sink_file_name,
-                include_header=False,
+        print(f"Processing {self.size - processed_size} of total {self.size} rows")
+        batch_index = 0
+        while not (
+            slice_df := not_processes_yet_df.slice(
+                batch_index * self._batch_size, self._batch_size
+            ).collect(streaming=True)
+        ).is_empty():
+            with self._persist_path.open("at") as sink:
+                slice_df.write_csv(
+                    sink,
+                    include_header=(self._persist_path.stat().st_size == 0),
+                )
+            print(
+                f"Batch [{batch_index * self._batch_size}, {(batch_index + 1) * self._batch_size}) of not processed yet rows is appended to {self._persist_path}"
             )
-            print(f"{sink_file_name} is ready: {slice_df.explain()}")
+            batch_index += 1
 
     def __enter__(self) -> DatasetProcessor[ID]:
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if exc_val and self._persist_path.exists():
+        if self._persist_path.exists():
             backup_name = f"{self._persist_path.name}.{int(datetime.timestamp(datetime.now()))}.bak"
             shutil.copy(
                 self._persist_path,
                 self._persist_path.parent.joinpath(backup_name),
             )
-        self._merge_intermediate_results()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if not exc_val:
+            for backup in self._persist_path.parent.glob("*.bak"):
+                backup.unlink()
 
     def remove_failures_in_place(self, failed_row_ids: Collection[ID]):
         tmp_file = self._intermediate_results_dir.joinpath("cleared_data")
-        schema = self._polars_row_schema[0]
         drop_ids = list(failed_row_ids)
-        pl.scan_csv(self._persist_path).filter(
-            pl.col(schema[0]).is_in(drop_ids).not_()
+        pl.scan_csv(self._persist_path, schema=dict(self._polars_row_schema)).filter(
+            pl.nth(0).is_in(drop_ids).not_()
         ).sink_csv(tmp_file)
         shutil.copy(tmp_file, self._persist_path)
 
@@ -184,22 +196,6 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
     def _build_slice_name(self, index):
         return self._intermediate_results_dir.joinpath(f"slice_{index}.csv")
 
-    def _merge_intermediate_results(self):
-        glob_expr = self._build_slice_name("*")
-        intermediate_results = [
-            f for f in self._intermediate_results_dir.glob(glob_expr.name)
-        ]
-        if not intermediate_results:
-            print(f"No intermediate results for {glob_expr}. Just exiting")
-            return
-        pl.scan_csv(
-            glob_expr,
-            schema=dict(self._polars_row_schema),
-            raise_if_empty=False,
-            has_header=False,
-        ).sink_csv(self._persist_path)
-        print(f"{glob_expr} is sinked to {self._persist_path}")
-
 
 if __name__ == "__main__":
     path = pathlib.Path("snippet-dataset.csv")
@@ -217,7 +213,7 @@ if __name__ == "__main__":
                 f.name for f in pathlib.Path("data").iterdir() if f.is_file()
             ),
             intermediate_results_dir=pathlib.Path(tmp),
-            batch_size=10,
+            batch_size=1,
             cache_fraction=0,
         )
         with dataset_manager as ds:
@@ -227,11 +223,11 @@ if __name__ == "__main__":
                 print(f"{done}/{ds.size}: {row_id}")
                 return (
                     row_id,
-                    1.0,
-                    2.0,
-                    3.0,
+                    int(row_id) * 1.0,
+                    int(row_id) * 2.0,
+                    int(row_id) * 3.0,
                 )
 
             ds.fill(generate_value)
             print(f"totally called generation: {counter.load()}/{ds.size}")
-        dataset_manager.remove_failures_in_place({"2.mp3"})
+        dataset_manager.remove_failures_in_place({"2"})
