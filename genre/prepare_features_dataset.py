@@ -49,7 +49,10 @@ def prepare_audio_features_dataset(
                     logging.warning(
                         f"failed to get features for {row_id},added to fail log, returning stub: {e}"
                     )
-                    row = cast(AudioFeaturesType, tuple([row_id] + [None] * (len(AUDIO_FEATURE_TYPE_SCHEMA) - 1)))
+                    row = cast(
+                        AudioFeaturesType,
+                        tuple([row_id] + [None] * (len(AUDIO_FEATURE_TYPE_SCHEMA) - 1)),
+                    )
 
                 done = counter.fetch_inc() + 1
                 if done % 10 == 0:
