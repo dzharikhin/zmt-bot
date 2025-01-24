@@ -57,6 +57,7 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
         self._intermediate_results_dir = intermediate_results_dir
         self._batch_size = batch_size
         self._df = self._init_df(index_generator)
+        self._backup_file: pathlib.Path | None
 
     def fill(self, row_value_generator: Callable[[ID], tuple[ID, *tuple[Any, ...]]]):
         mapper = functools.partial(self._transform_tuple_to_dict, row_value_generator)
@@ -115,16 +116,19 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
     def __enter__(self) -> DatasetProcessor[ID]:
         if self._persist_path.exists():
             backup_name = f"{self._persist_path.name}.{int(datetime.timestamp(datetime.now()))}.bak"
+            self._backup_file = self._intermediate_results_dir.joinpath(backup_name)
             shutil.copy(
-                self._persist_path,
-                self._persist_path.parent.joinpath(backup_name),
+                self._persist_path.name,
+                self._backup_file,
             )
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        if not exc_val:
-            for backup in self._persist_path.parent.glob("*.bak"):
-                backup.unlink()
+        if exc_val and self._backup_file.exists():
+            shutil.copy(
+                self._backup_file,
+                self._persist_path.parent.joinpath(self._backup_file.name),
+            )
 
     def remove_failures_in_place(self, failed_row_ids: Collection[ID]):
         tmp_file = self._intermediate_results_dir.joinpath("cleared_data")
