@@ -71,6 +71,7 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
             size_df.filter(pl.col("processed").eq(False)).select("len").sum().item()
         )
         self._backup_file: pathlib.Path | None = None
+        print(f"Successfully inited {csv_path} manager. Ready to fill")
 
     def fill(self, row_value_generator: Callable[[ID], tuple[ID, *tuple[Any, ...]]]):
         mapper = functools.partial(self._transform_tuple_to_dict, row_value_generator)
@@ -132,7 +133,7 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
             backup_name = f"{self._persist_path.name}.{int(datetime.timestamp(datetime.now()))}.bak"
             self._backup_file = self._intermediate_results_dir.joinpath(backup_name)
             shutil.copy(
-                self._persist_path.name,
+                self._persist_path,
                 self._backup_file,
             )
         return self
