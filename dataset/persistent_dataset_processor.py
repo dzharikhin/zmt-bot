@@ -123,7 +123,7 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        if exc_val and self._backup_file.exists():
+        if exc_val and self._backup_file and self._backup_file.exists():
             shutil.copy(
                 self._backup_file,
                 self._persist_path.parent.joinpath(self._backup_file.name),
