@@ -176,10 +176,12 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
             index_buffer_file_path, schema=schema_as_dict, has_header=False
         )
         whole_data_df = whole_data_df.update(
-            existing_data_df, on=index_column_name, how="left", include_nulls=True
+            existing_data_df, on=index_column_name, how="left", include_nulls=False
         )
         data_file = pathlib.Path(self._intermediate_results_dir).joinpath("merged")
-        whole_data_df.collect(streaming=True).write_csv(data_file)
+        whole_data_df.collect(
+            # streaming=True,  # OOM on big data on version 1.18.0
+        ).write_csv(data_file)
         return pl.scan_csv(data_file, schema=schema_as_dict)
 
     def _transform_tuple_to_dict(
