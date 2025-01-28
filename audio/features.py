@@ -2,6 +2,7 @@ import math
 import pathlib
 import types
 from collections import OrderedDict
+from functools import reduce
 from typing import TypeAlias, Callable, cast, Iterable
 
 import librosa
@@ -234,7 +235,25 @@ def extract_features_for_mp3(
             spectral_rolloff=librosa.feature.spectral_rolloff(y=audio, sr=sr),
             tonnetz=librosa.feature.tonnetz(y=audio, sr=sr),  # size always eq(6)
         )
-        all_features = np.concatenate(list(features_data.values()))
+        try:
+            all_features = np.concatenate(list(features_data.values()))
+        except ValueError as e:
+            min_size, max_size = reduce(
+                lambda x, y: (min(x[0], y), max(x[1], y)),
+                (data.shape[1] for data in features_data.values()),
+                (float("inf"), float("-inf")),
+            )
+            diff_fraction = (max_size - min_size) / min_size
+            if diff_fraction > 0.2:
+                raise Exception(
+                    f"feature data size varies from {min_size} to {max_size} - "
+                    f"diff is {diff_fraction:.0%} of min value - can not trim, raising"
+                ) from e
+            features_data = {
+                name: data[:, :min_size] for name, data in features_data.items()
+            }
+            all_features = np.concatenate(list(features_data.values()))
+
         optimal_frame_clusterization = build_optimal_frame_clusterization(all_features)
 
         def compress_feature(
@@ -265,7 +284,7 @@ def extract_features_for_mp3(
 
 
 if __name__ == "__main__":
-    track = pathlib.Path("/home/jrx/Downloads/2.mp3")
+    track = pathlib.Path("test.mp3")
 
     row = extract_features_for_mp3(
         track_id=track.stem,
