@@ -244,9 +244,9 @@ def extract_features_for_mp3(
                 (float("inf"), float("-inf")),
             )
             diff_fraction = (max_size - min_size) / min_size
-            if diff_fraction > 0.2:
+            if diff_fraction > 0.05:
                 raise Exception(
-                    f"feature data size varies from {min_size} to {max_size} - "
+                    f"feature data size for track {track_id} varies from {min_size} to {max_size} - "
                     f"diff is {diff_fraction:.0%} of min value - can not trim, raising"
                 ) from e
             features_data = {
