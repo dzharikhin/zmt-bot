@@ -3,19 +3,12 @@ import pathlib
 import pickle
 import random
 
-import numpy
+import numpy as np
 import polars as pl
-from sklearn.ensemble import VotingClassifier, RandomForestClassifier
 from sklearn.inspection import permutation_importance
+from sklearn.linear_model import SGDClassifier
 from sklearn.metrics import classification_report, accuracy_score
-from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.multiclass import OneVsOneClassifier
-from sklearn.neural_network import MLPClassifier
-from sklearn.svm import LinearSVC
-
-from genre.create_genre_mapping import group_genres
-from genre.filter_outliers import filter_outliers_per_genre
-from genre.prepare_features_dataset import prepare_audio_features_dataset
 
 ID_COLUMN_NAME = "track_id"
 GENRE_COLUMN_NAME = "genre_name_aggregated"
@@ -31,27 +24,29 @@ def main(
     genre_sample_fraction: float = 1.0,
     feature_importance_repetitions: int = 0,
 ):
-    audio_features_dataset_path = prepare_audio_features_dataset(
-        working_dir, snippets_path
-    )
-    mapped_genres_dataset_path = working_dir.joinpath("songs-mapped_genres.csv")
-    group_genres(
-        genre_dataset_path=songs_dataset_path,
-        grouped_by_genre_path=working_dir.joinpath("songs-grouped_by_genre.csv"),
-        mapped_genre_dataset_path=mapped_genres_dataset_path,
-    )
+    # audio_features_dataset_path = prepare_audio_features_dataset(
+    #     working_dir, snippets_path
+    # )
+    # mapped_genres_dataset_path = working_dir.joinpath("songs-mapped_genres.csv")
+    # group_genres(
+    #     genre_dataset_path=songs_dataset_path,
+    #     grouped_by_genre_path=working_dir.joinpath("songs-grouped_by_genre.csv"),
+    #     mapped_genre_dataset_path=mapped_genres_dataset_path,
+    # )
     filtered_genre_dataset_path = working_dir.joinpath("songs-genre_filtered.csv")
-    filter_outliers_per_genre(
-        genre_dataset_path=mapped_genres_dataset_path,
-        audio_features_dataset_path=audio_features_dataset_path,
-        result_path=filtered_genre_dataset_path,
-        contamination_fraction=data_contamination_fraction,
-    )
+    # filter_outliers_per_genre(
+    #     genre_dataset_path=mapped_genres_dataset_path,
+    #     audio_features_dataset_path=audio_features_dataset_path,
+    #     result_path=filtered_genre_dataset_path,
+    #     contamination_fraction=data_contamination_fraction,
+    # )
+
+    audio_features_dataset_path = working_dir.joinpath("audio_features_dataset.csv")
     genre_dataset = pl.scan_csv(filtered_genre_dataset_path)
 
     meaningful_genres_data = (
         genre_dataset.group_by(pl.col(GENRE_COLUMN_NAME))
-        .agg(pl.len().gt(100).alias("examples_cnt"))
+        .agg(pl.len().ge(100).alias("examples_cnt"))
         .filter(
             pl.col("examples_cnt")
             .and_(pl.col(GENRE_COLUMN_NAME).str.ends_with("folk").not_())
@@ -63,68 +58,86 @@ def main(
     genre_sample = meaningful_genres_data
     if genre_sample_fraction < 1.0:
         genre_sample = genre_sample.sample(fraction=genre_sample_fraction, shuffle=True)
-    print(f"{genre_sample.get_column(GENRE_COLUMN_NAME).to_list()=}")
+    print(f"{genre_sample.shape=}: {list(sorted(genre_sample.get_column(GENRE_COLUMN_NAME).to_list()))=}")
     genre_dataset_sample = genre_dataset.select(
         pl.col(ID_COLUMN_NAME), pl.col(GENRE_COLUMN_NAME)
     ).filter(pl.col(GENRE_COLUMN_NAME).is_in(genre_sample))
 
-    audio_features_dataset = pl.scan_csv(audio_features_dataset_path)
-    data = audio_features_dataset.join(
+    test_track_ids = genre_dataset_sample.group_by(pl.col(GENRE_COLUMN_NAME)).agg(
+        pl.col(ID_COLUMN_NAME).sample(fraction=0.3, with_replacement=False, shuffle=True)
+    ).explode(pl.col(ID_COLUMN_NAME)).select(ID_COLUMN_NAME).collect()
+
+    normalized_audio_features_dataset = pl.scan_csv(audio_features_dataset_path).drop_nans().select(
+        pl.col(ID_COLUMN_NAME),
+        (pl.all().exclude(ID_COLUMN_NAME) - pl.all().exclude(ID_COLUMN_NAME).mean()) / pl.all().exclude(ID_COLUMN_NAME).std()
+    )
+    data = normalized_audio_features_dataset.join(
         genre_dataset_sample.select(pl.col(ID_COLUMN_NAME), pl.col(GENRE_COLUMN_NAME)),
         how="inner",
         left_on=ID_COLUMN_NAME,
         right_on=ID_COLUMN_NAME,
     )
-    X = data.select(
-        pl.all().exclude(
-            GENRE_COLUMN_NAME,
-            ID_COLUMN_NAME,
-        )
-    ).collect()
-    print(f"{X=}")
-    y = data.select(pl.col(GENRE_COLUMN_NAME)).collect()
-    print(f"{y=}")
-    random_seeds_for_models = {
-        name: random.randint(1, 100) for name in ("ovo", "rf", "mlp")
-    }
-    print(f"{random_seeds_for_models=}")
-    model = VotingClassifier(
-        verbose=True,
+    test_data = data.filter(pl.col(ID_COLUMN_NAME).is_in(test_track_ids))
+    train_data = data.filter(pl.col(ID_COLUMN_NAME).is_in(test_track_ids).not_())
+
+    # random_seeds_for_models = {
+    #     name: random.randint(1, 100) for name in ("ovo", "rf", "mlp")
+    # }
+    # print(f"{random_seeds_for_models=}")
+
+    # model = VotingClassifier(
+    #     verbose=True,
+    #     n_jobs=parallel_threads,
+    #     voting="hard",
+    #     estimators=[
+    #         (
+    #             "ovo",
+    #             OneVsOneClassifier(
+    #                 SGDClassifier(random_state=random_seeds_for_models["ovo"]),
+    #                 n_jobs=parallel_threads,
+    #             ),
+    #         ),
+    #         (
+    #             "rf",
+    #             RandomForestClassifier(
+    #                 n_estimators=math.log2(X.shape[0] * X.shape[1]),
+    #                 random_state=random_seeds_for_models["rf"],
+    #                 n_jobs=parallel_threads,
+    #             ),
+    #         ),
+    #         ("mlp", MLPClassifier(random_state=random_seeds_for_models["mlp"])),
+    #     ],
+    # )
+
+    # cv_scores = cross_val_score(model, X_train, y_train, cv=5, n_jobs=parallel_threads)
+    # print(f"Cross-Validation Scores: {cv_scores}")
+    # print(f"Mean Cross-Validation Score: {numpy.mean(cv_scores):.2f}")
+
+    # print(f"{data.collect().shape=}={train_data.collect().shape}+{test_data.collect().shape}")
+    print(f"Collecting train data")
+    training_data = train_data.collect()
+    print("Train data loaded. Fitting")
+    model = OneVsOneClassifier(
+        SGDClassifier(random_state=42),
         n_jobs=parallel_threads,
-        voting="hard",
-        estimators=[
-            (
-                "ovo",
-                OneVsOneClassifier(
-                    LinearSVC(random_state=random_seeds_for_models["ovo"]),
-                    n_jobs=parallel_threads,
-                ),
-            ),
-            (
-                "rf",
-                RandomForestClassifier(
-                    n_estimators=100,
-                    random_state=random_seeds_for_models["rf"],
-                    n_jobs=parallel_threads,
-                ),
-            ),
-            ("mlp", MLPClassifier(random_state=random_seeds_for_models["mlp"])),
-        ],
     )
+    for train_chunk in training_data.iter_slices():
+        X = train_chunk.select(pl.all().exclude(ID_COLUMN_NAME, GENRE_COLUMN_NAME))
+        y = train_chunk.select(GENRE_COLUMN_NAME)
+        print(f"{X=}")
+        print(f"{np.argwhere(np.isnan(X))=}")
+        print(f"{y=}")
+        model.partial_fit(X, y, genre_sample)
 
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.3, random_state=42, stratify=y
-    )
-
-    cv_scores = cross_val_score(model, X_train, y_train, cv=5, n_jobs=parallel_threads)
-    print(f"Cross-Validation Scores: {cv_scores}")
-    print(f"Mean Cross-Validation Score: {numpy.mean(cv_scores):.2f}")
-    print("Fitting")
-    model.fit(X_train, y_train)
-
+    print(f"Fitting is done")
+    print(f"Collecting test data")
+    X_test = test_data.select(pl.all().exclude(ID_COLUMN_NAME, GENRE_COLUMN_NAME)).collect()
+    y_test = test_data.select(GENRE_COLUMN_NAME).collect()
+    print(f"Collecting model predictions")
     y_predicted = model.predict(X_test)
+    print(f"Evaluating predictions test")
     print(
-        f"Fitting is done. Average accuracy: {accuracy_score(y_test, y_predicted):.2f}"
+        f"Average accuracy: {accuracy_score(y_test, y_predicted):.2f}"
     )
     report = classification_report(
         y_test,
@@ -147,6 +160,8 @@ def main(
         report_rows.append((genre, data["precision"], int(data["support"])))
         if data["precision"] <= 0.5:
             not_learned_genres += 1
+
+    print(f"Dumping model")
     model_file_path = working_dir.joinpath("genre_model.pickle")
     with model_file_path.open("wb") as model_file:
         pickle.dump(model, model_file, protocol=5)
@@ -189,5 +204,5 @@ if __name__ == "__main__":
         songs_dataset_path=pathlib.Path("csv/songs-downloaded.csv"),
         data_contamination_fraction=0.3,
         genre_sample_fraction=1.0,
-        parallel_threads=10,
+        parallel_threads=None,
     )
