@@ -6,9 +6,10 @@ import random
 import numpy as np
 import polars as pl
 from sklearn.inspection import permutation_importance
-from sklearn.linear_model import SGDClassifier
+from sklearn.kernel_approximation import Nystroem
 from sklearn.metrics import classification_report, accuracy_score
 from sklearn.multiclass import OneVsOneClassifier
+from sklearn.svm import SVC
 
 ID_COLUMN_NAME = "track_id"
 GENRE_COLUMN_NAME = "genre_name_aggregated"
@@ -58,18 +59,21 @@ def main(
     genre_sample = meaningful_genres_data
     if genre_sample_fraction < 1.0:
         genre_sample = genre_sample.sample(fraction=genre_sample_fraction, shuffle=True)
-    print(f"{genre_sample.shape=}: {list(sorted(genre_sample.get_column(GENRE_COLUMN_NAME).to_list()))=}")
+    print(f"{genre_sample.shape=}: {genre_sample.sort(by=pl.col(GENRE_COLUMN_NAME)).to_series().to_list()=}")
     genre_dataset_sample = genre_dataset.select(
         pl.col(ID_COLUMN_NAME), pl.col(GENRE_COLUMN_NAME)
-    ).filter(pl.col(GENRE_COLUMN_NAME).is_in(genre_sample))
+    ).filter(pl.col(GENRE_COLUMN_NAME).is_in(genre_sample.get_column(GENRE_COLUMN_NAME)))
 
     test_track_ids = genre_dataset_sample.group_by(pl.col(GENRE_COLUMN_NAME)).agg(
         pl.col(ID_COLUMN_NAME).sample(fraction=0.3, with_replacement=False, shuffle=True)
     ).explode(pl.col(ID_COLUMN_NAME)).select(ID_COLUMN_NAME).collect()
 
-    normalized_audio_features_dataset = pl.scan_csv(audio_features_dataset_path).drop_nans().select(
+    normalized_audio_features_dataset = (pl.scan_csv(audio_features_dataset_path)
+    .drop_nans()
+    .select(
         pl.col(ID_COLUMN_NAME),
         (pl.all().exclude(ID_COLUMN_NAME) - pl.all().exclude(ID_COLUMN_NAME).mean()) / pl.all().exclude(ID_COLUMN_NAME).std()
+    )
     )
     data = normalized_audio_features_dataset.join(
         genre_dataset_sample.select(pl.col(ID_COLUMN_NAME), pl.col(GENRE_COLUMN_NAME)),
@@ -77,8 +81,17 @@ def main(
         left_on=ID_COLUMN_NAME,
         right_on=ID_COLUMN_NAME,
     )
-    test_data = data.filter(pl.col(ID_COLUMN_NAME).is_in(test_track_ids))
-    train_data = data.filter(pl.col(ID_COLUMN_NAME).is_in(test_track_ids).not_())
+    print(f"Collecting data")
+    data = data.collect()
+    compressed_data = data
+    print(f"Compressing data")
+    feature_map_nystroem = Nystroem(gamma=.2, random_state=42, n_components=500).set_output(transform="polars")
+    compressed_data = (feature_map_nystroem.fit_transform(data.select(pl.all().exclude(ID_COLUMN_NAME, GENRE_COLUMN_NAME)))
+                       .insert_column(1, data.get_column(GENRE_COLUMN_NAME))
+                       .insert_column(1, data.get_column(ID_COLUMN_NAME)))
+    print(f"Splitting train-test")
+    test_data = compressed_data.filter(pl.col(ID_COLUMN_NAME).is_in(test_track_ids.get_column(ID_COLUMN_NAME)))
+    train_data = compressed_data.filter(pl.col(ID_COLUMN_NAME).is_in(test_track_ids.get_column(ID_COLUMN_NAME)).not_())
 
     # random_seeds_for_models = {
     #     name: random.randint(1, 100) for name in ("ovo", "rf", "mlp")
@@ -114,27 +127,34 @@ def main(
     # print(f"Mean Cross-Validation Score: {numpy.mean(cv_scores):.2f}")
 
     # print(f"{data.collect().shape=}={train_data.collect().shape}+{test_data.collect().shape}")
-    print(f"Collecting train data")
-    training_data = train_data.collect()
-    print("Train data loaded. Fitting")
+    print("Fitting")
     model = OneVsOneClassifier(
-        SGDClassifier(random_state=42),
+        SVC(random_state=42),
         n_jobs=parallel_threads,
     )
-    for train_chunk in training_data.iter_slices():
-        X = train_chunk.select(pl.all().exclude(ID_COLUMN_NAME, GENRE_COLUMN_NAME))
-        y = train_chunk.select(GENRE_COLUMN_NAME)
-        print(f"{X=}")
-        print(f"{np.argwhere(np.isnan(X))=}")
-        print(f"{y=}")
-        model.partial_fit(X, y, genre_sample)
+    model.fit(
+        train_data.select(pl.all().exclude(ID_COLUMN_NAME, GENRE_COLUMN_NAME)),
+        train_data.select(pl.col(GENRE_COLUMN_NAME)),
+    )
+    # for train_chunk in train_data.iter_slices():
+    #     X = train_chunk.select(pl.all().exclude(ID_COLUMN_NAME, GENRE_COLUMN_NAME))
+    #     y = train_chunk.select(GENRE_COLUMN_NAME)
+    #     print(f"{X=}")
+    #     print(f"{np.argwhere(np.isnan(X))=}")
+    #     print(f"{y=}")
+    #     model.partial_fit(X, y, genre_sample)
 
     print(f"Fitting is done")
     print(f"Collecting test data")
-    X_test = test_data.select(pl.all().exclude(ID_COLUMN_NAME, GENRE_COLUMN_NAME)).collect()
-    y_test = test_data.select(GENRE_COLUMN_NAME).collect()
+    X_test = test_data.select(pl.all().exclude(ID_COLUMN_NAME, GENRE_COLUMN_NAME))
     print(f"Collecting model predictions")
-    y_predicted = model.predict(X_test)
+    def partial_predict(chunk):
+        predicted_part = model.predict(chunk)
+        print(f"Predictions for {chunk.shape=}: {predicted_part.shape}")
+        return predicted_part
+    y_predicted = np.concatenate([partial_predict(data_chunk) for data_chunk in X_test.iter_slices(1000)])
+    print(f"Collecting test predictions")
+    y_test = test_data.select(GENRE_COLUMN_NAME)
     print(f"Evaluating predictions test")
     print(
         f"Average accuracy: {accuracy_score(y_test, y_predicted):.2f}"
