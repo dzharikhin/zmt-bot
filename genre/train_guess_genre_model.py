@@ -1,15 +1,24 @@
 import csv
+import logging
 import pathlib
 import pickle
 import random
 
 import numpy as np
 import polars as pl
+from sklearn.ensemble import VotingClassifier, RandomForestClassifier
 from sklearn.inspection import permutation_importance
 from sklearn.kernel_approximation import Nystroem
 from sklearn.metrics import classification_report, accuracy_score
 from sklearn.multiclass import OneVsOneClassifier
-from sklearn.svm import SVC
+from sklearn.neural_network import MLPClassifier
+from sklearn.svm import LinearSVC
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s.%(msecs)03d %(levelname)s %(funcName)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
 
 ID_COLUMN_NAME = "track_id"
 GENRE_COLUMN_NAME = "genre_name_aggregated"
@@ -59,7 +68,7 @@ def main(
     genre_sample = meaningful_genres_data
     if genre_sample_fraction < 1.0:
         genre_sample = genre_sample.sample(fraction=genre_sample_fraction, shuffle=True)
-    print(f"{genre_sample.shape=}: {genre_sample.sort(by=pl.col(GENRE_COLUMN_NAME)).to_series().to_list()=}")
+    logging.info(f"{genre_sample.shape=}: {genre_sample.sort(by=pl.col(GENRE_COLUMN_NAME)).to_series().to_list()=}")
     genre_dataset_sample = genre_dataset.select(
         pl.col(ID_COLUMN_NAME), pl.col(GENRE_COLUMN_NAME)
     ).filter(pl.col(GENRE_COLUMN_NAME).is_in(genre_sample.get_column(GENRE_COLUMN_NAME)))
@@ -81,57 +90,53 @@ def main(
         left_on=ID_COLUMN_NAME,
         right_on=ID_COLUMN_NAME,
     )
-    print(f"Collecting data")
+    logging.info(f"Collecting data")
     data = data.collect()
     compressed_data = data
-    print(f"Compressing data")
-    feature_map_nystroem = Nystroem(gamma=.2, random_state=42, n_components=500).set_output(transform="polars")
+    logging.info(f"Compressing data")
+    feature_map_nystroem = Nystroem(random_state=42, n_components=5000).set_output(transform="polars")
     compressed_data = (feature_map_nystroem.fit_transform(data.select(pl.all().exclude(ID_COLUMN_NAME, GENRE_COLUMN_NAME)))
                        .insert_column(1, data.get_column(GENRE_COLUMN_NAME))
                        .insert_column(1, data.get_column(ID_COLUMN_NAME)))
-    print(f"Splitting train-test")
+    del data
+    logging.info(f"Splitting train-test")
     test_data = compressed_data.filter(pl.col(ID_COLUMN_NAME).is_in(test_track_ids.get_column(ID_COLUMN_NAME)))
     train_data = compressed_data.filter(pl.col(ID_COLUMN_NAME).is_in(test_track_ids.get_column(ID_COLUMN_NAME)).not_())
 
-    # random_seeds_for_models = {
-    #     name: random.randint(1, 100) for name in ("ovo", "rf", "mlp")
-    # }
-    # print(f"{random_seeds_for_models=}")
+    random_seeds_for_models = {
+        name: random.randint(1, 100) for name in ("ovo", "rf", "mlp")
+    }
+    logging.info(f"{random_seeds_for_models=}")
 
-    # model = VotingClassifier(
-    #     verbose=True,
-    #     n_jobs=parallel_threads,
-    #     voting="hard",
-    #     estimators=[
-    #         (
-    #             "ovo",
-    #             OneVsOneClassifier(
-    #                 SGDClassifier(random_state=random_seeds_for_models["ovo"]),
-    #                 n_jobs=parallel_threads,
-    #             ),
-    #         ),
-    #         (
-    #             "rf",
-    #             RandomForestClassifier(
-    #                 n_estimators=math.log2(X.shape[0] * X.shape[1]),
-    #                 random_state=random_seeds_for_models["rf"],
-    #                 n_jobs=parallel_threads,
-    #             ),
-    #         ),
-    #         ("mlp", MLPClassifier(random_state=random_seeds_for_models["mlp"])),
-    #     ],
-    # )
+    model = VotingClassifier(
+        verbose=True,
+        n_jobs=parallel_threads,
+        voting="hard",
+        estimators=[
+            (
+                "ovo",
+                OneVsOneClassifier(
+                    LinearSVC(random_state=random_seeds_for_models["ovo"]),
+                    n_jobs=parallel_threads,
+                ),
+            ),
+            (
+                "rf",
+                RandomForestClassifier(
+                    n_estimators=train_data.shape[1] // 10,
+                    random_state=random_seeds_for_models["rf"],
+                    n_jobs=parallel_threads,
+                ),
+            ),
+            ("mlp", MLPClassifier(random_state=random_seeds_for_models["mlp"])),
+        ],
+    )
 
     # cv_scores = cross_val_score(model, X_train, y_train, cv=5, n_jobs=parallel_threads)
-    # print(f"Cross-Validation Scores: {cv_scores}")
-    # print(f"Mean Cross-Validation Score: {numpy.mean(cv_scores):.2f}")
+    # logging.info(f"Cross-Validation Scores: {cv_scores}")
+    # logging.info(f"Mean Cross-Validation Score: {numpy.mean(cv_scores):.2f}")
 
-    # print(f"{data.collect().shape=}={train_data.collect().shape}+{test_data.collect().shape}")
-    print("Fitting")
-    model = OneVsOneClassifier(
-        SVC(random_state=42),
-        n_jobs=parallel_threads,
-    )
+    logging.info("Fitting")
     model.fit(
         train_data.select(pl.all().exclude(ID_COLUMN_NAME, GENRE_COLUMN_NAME)),
         train_data.select(pl.col(GENRE_COLUMN_NAME)),
@@ -139,24 +144,24 @@ def main(
     # for train_chunk in train_data.iter_slices():
     #     X = train_chunk.select(pl.all().exclude(ID_COLUMN_NAME, GENRE_COLUMN_NAME))
     #     y = train_chunk.select(GENRE_COLUMN_NAME)
-    #     print(f"{X=}")
-    #     print(f"{np.argwhere(np.isnan(X))=}")
-    #     print(f"{y=}")
+    #     logging.info(f"{X=}")
+    #     logging.info(f"{np.argwhere(np.isnan(X))=}")
+    #     logging.info(f"{y=}")
     #     model.partial_fit(X, y, genre_sample)
 
-    print(f"Fitting is done")
-    print(f"Collecting test data")
+    logging.info(f"Fitting is done")
+    logging.info(f"Collecting test data")
     X_test = test_data.select(pl.all().exclude(ID_COLUMN_NAME, GENRE_COLUMN_NAME))
-    print(f"Collecting model predictions")
+    logging.info(f"Collecting model predictions")
     def partial_predict(chunk):
         predicted_part = model.predict(chunk)
-        print(f"Predictions for {chunk.shape=}: {predicted_part.shape}")
+        logging.info(f"Predictions for {chunk.shape=}: {predicted_part.shape}")
         return predicted_part
     y_predicted = np.concatenate([partial_predict(data_chunk) for data_chunk in X_test.iter_slices(1000)])
-    print(f"Collecting test predictions")
+    logging.info(f"Collecting test predictions")
     y_test = test_data.select(GENRE_COLUMN_NAME)
-    print(f"Evaluating predictions test")
-    print(
+    logging.info(f"Evaluating predictions test")
+    logging.info(
         f"Average accuracy: {accuracy_score(y_test, y_predicted):.2f}"
     )
     report = classification_report(
@@ -181,19 +186,19 @@ def main(
         if data["precision"] <= 0.5:
             not_learned_genres += 1
 
-    print(f"Dumping model")
+    logging.info(f"Dumping model")
     model_file_path = working_dir.joinpath("genre_model.pickle")
     with model_file_path.open("wb") as model_file:
         pickle.dump(model, model_file, protocol=5)
-    print(f"Dumped model to {model_file_path}")
+    logging.info(f"Dumped model to {model_file_path}")
 
     model_stats_path = model_file_path.parent.joinpath(
         f"{model_file_path.stem}-stat.csv"
     )
     with model_stats_path.open("wt") as report_csv:
         csv.writer(report_csv).writerows(report_rows)
-    print(f"Dumped model stats to {model_stats_path}")
-    print(f"Not learned for {not_learned_genres}/{genre_sample.shape[0]}")
+    logging.info(f"Dumped model stats to {model_stats_path}")
+    logging.info(f"Not learned for {not_learned_genres}/{genre_sample.shape[0]}")
 
     if feature_importance_repetitions > 0:
         result = permutation_importance(
@@ -214,7 +219,7 @@ def main(
             key=lambda row: row[1],
             reverse=True,
         )
-        print(importance_by_feature)
+        logging.info(importance_by_feature)
 
 
 if __name__ == "__main__":
