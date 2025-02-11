@@ -58,8 +58,6 @@ def main(
         contamination_fraction=data_contamination_fraction,
     )
 
-    genre_dataset = pl.scan_csv(filtered_genre_dataset_path)
-
     genre_mapping = {
         "edm": {
             "trance",
@@ -112,24 +110,32 @@ def main(
         "funk": {},
         "blues": {},
         "witch house": {},
+        "balkan brass": {},
     }
     interesting_genres = set(genre_mapping.keys())
     interesting_genres.update(reduce(lambda a, b: a.union(b), genre_mapping.values()))
-    not_included_genres = list(
-        sorted(
-            filter(
-                lambda g: not g.endswith("folk") and not g.endswith("instrumental"),
-                set(
-                    genre_dataset.unique(subset=[GENRE_COLUMN_NAME])
-                    .sort(by=GENRE_COLUMN_NAME)
-                    .collect()
-                    .get_column(GENRE_COLUMN_NAME)
-                    .to_list()
-                )
-                - interesting_genres,
-            )
+    genre_dataset = pl.scan_csv(filtered_genre_dataset_path)
+
+    not_included_genres = (
+        genre_dataset.select(pl.col(GENRE_COLUMN_NAME).unique().sort())
+        .select(pl.implode(GENRE_COLUMN_NAME).sort().alias("all_genres"))
+        .collect()
+        .insert_column(
+            1, pl.Series("interesting_genres", [list(sorted(interesting_genres))])
         )
+        .with_columns(
+            pl.col("all_genres")
+            .list.set_difference(pl.col("interesting_genres"))
+            .alias("not_included_genres")
+        )
+        .select(pl.col("not_included_genres"))
+        .explode(pl.col("not_included_genres"))
+        .get_column("not_included_genres")
+        .sort()
+        .unique(maintain_order=True)
+        .to_list()
     )
+
     logging.info(f"{not_included_genres=}")
     inverse_mapping = {
         specific_name: common_name
@@ -140,23 +146,19 @@ def main(
     def mapper(genre_name: str) -> str:
         return inverse_mapping.get(genre_name, genre_name)
 
-    genre_sample = (
-        genre_dataset.with_columns(
-            pl.col(GENRE_COLUMN_NAME)
-            .map_elements(mapper, pl.String)
-            .alias("clustered_genre")
-        )
-        .with_columns(pl.col("clustered_genre").alias(GENRE_COLUMN_NAME))
-        .select(pl.col(ID_COLUMN_NAME), pl.col(GENRE_COLUMN_NAME))
-        .filter(pl.col(GENRE_COLUMN_NAME).is_in(list(genre_mapping.keys())))
-    )
+    remapped_genre_dataset = genre_dataset.with_columns(
+        pl.col(GENRE_COLUMN_NAME)
+        .map_elements(mapper, pl.String)
+        .alias("clustered_genre")
+    ).with_columns(pl.col("clustered_genre").alias(GENRE_COLUMN_NAME))
 
+    genre_sample = pl.Series(GENRE_COLUMN_NAME, list(genre_mapping.keys())).to_frame()
     if genre_sample_fraction < 1.0:
         genre_sample = genre_sample.sample(fraction=genre_sample_fraction, shuffle=True)
     logging.info(
         f"{genre_sample.shape=}: {genre_sample.sort(by=pl.col(GENRE_COLUMN_NAME)).to_series().to_list()=}"
     )
-    genre_dataset_sample = genre_dataset.select(
+    genre_dataset_sample = remapped_genre_dataset.select(
         pl.col(ID_COLUMN_NAME), pl.col(GENRE_COLUMN_NAME)
     ).filter(
         pl.col(GENRE_COLUMN_NAME).is_in(genre_sample.get_column(GENRE_COLUMN_NAME))
@@ -254,7 +256,10 @@ def main(
     logging.info(f"Mean Cross-Validation Score: {numpy.mean(cv_scores):.2f}")
 
     logging.info("Fitting")
-    model.fit(X_train, y_train,)
+    model.fit(
+        X_train,
+        y_train,
+    )
 
     logging.info(f"Fitting is done")
     logging.info(f"Collecting test data")
