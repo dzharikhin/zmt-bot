@@ -1,4 +1,12 @@
-# first, create tag in a format `data-genre-yyyy-mm-dd` push it and create release from the tag  
+# split the data into 1GB pieces
+```shell
+zip -r -s 1024m csv.zip csv/
+```
+# to unzip
+```shell
+zip -s 0 csv.zip --out csv_whole.zip
+```
+# create tag in a format `data-genre-yyyy-mm-dd` push it and create release from the tag  
 # then, set token variable in console:
 ```shell
 export GITHUB_TOKEN={token} 

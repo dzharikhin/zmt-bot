@@ -27,6 +27,7 @@ def prepare_audio_features_dataset(
     counter = atomics.atomic(width=4, atype=atomics.INT)
     dataset_path = results_dir.joinpath("audio_features_dataset.csv")
     fails_path = results_dir.joinpath(f"{dataset_path.stem}-processing_failed.csv")
+    fails_path.unlink(missing_ok=True)
     tmp_dir = pathlib.Path("tmp")
     tmp_dir.mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(dir=tmp_dir) as tmp:

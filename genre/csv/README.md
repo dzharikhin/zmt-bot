@@ -1,3 +1,6 @@
+> Archive with files is attached to release must be unpacked to the current folder
+
+Train data. Built with [train_guess_genre_model.py](../train_guess_genre_model.py)
 - `songs.csv` - raw dataset from https://github.com/trebi/music-genres-dataset
 - `songs-downloaded.csv` - if you need raw data - consider this as your source. deduplicated, csv format-fixed data, for which sample was successfully downloaded(see tags `data-genre-*`and releases). Built with [download_genre_snippets.py](../download_genre_snippets.py)
 - `audio_features_dataset.csv`- audio features extracted for downloaded samples. Built with [prepare_features_dataset.py](../prepare_features_dataset.py)
@@ -32,3 +35,6 @@
 - `songs-mapped_genres.csv` - track id, genre, mapped genre. Built with [create_genre_mapping.py](../create_genre_mapping.py)
 - `songs-genre_filtered.csv` - dataset without skipped outliners per mapped genre. Built with [filter_outliers.py](../filter_outliers.py)
 - `songs-genre_filtered-outliners.csv` - skipped outliners per mapped genre. Built with [filter_outliers.py](../filter_outliers.py)
+- `genre_model.pickle` - binary of the trained model
+- `genre_model-stat.csv` - accuracy stats of the trained model
+- `test_predictions_match.csv` - model test data with predictions for manual analysis

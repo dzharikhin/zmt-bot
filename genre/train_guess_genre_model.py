@@ -1,11 +1,12 @@
 import csv
+import itertools
 import logging
 import pathlib
 import pickle
 import random
+import re
 from functools import reduce
 
-import numpy
 import numpy as np
 import polars as pl
 from sklearn.ensemble import VotingClassifier, RandomForestClassifier
@@ -70,15 +71,17 @@ def main(
             "miami bass",
             "electro tropical",
             "baile funk",
+            "hardstyle",
+            "darkpsy",
+            "big room",
+            "pop edm",
         },
-        "hardstyle": {},
-        "breaks": {"breakbeat"},
         "hip hop": {
             "electronic trap",
             "trap",
             "r&b",
+            "drill",
         },
-        "trip hop": {},
         "drum and bass": {
             "breakcore",
             "neurofunk",
@@ -101,16 +104,26 @@ def main(
             "nu metal",
             "black metal",
             "metalcore",
+            "avantgarde metal",
+            "crossover thrash",
+            "beatdown",
+            "glam metal",
+            "goregrind",
+            "grim death metal",
+            "hardcore",
+            "post black metal",
+            "post punk rock",
+            "thrash metal",
         },
         "pop": {},
-        "reggae": {
-            "ragga",
+        "improvizing": {
+            "acid jazz",
+            "smooth jazz",
+            "blues",
+            "funk rock",
+            "funky breaks",
         },
-        "jazz": {},
-        "funk": {},
-        "blues": {},
         "witch house": {},
-        "balkan brass": {},
     }
     interesting_genres = set(genre_mapping.keys())
     interesting_genres.update(reduce(lambda a, b: a.union(b), genre_mapping.values()))
@@ -176,16 +189,87 @@ def main(
         .collect()
     )
 
+    logging.info(f"Cleaning data")
     normalized_audio_features_dataset = (
         pl.scan_csv(audio_features_dataset_path)
         .drop_nans()
         .select(
             pl.col(ID_COLUMN_NAME),
-            (pl.all().exclude(ID_COLUMN_NAME) - pl.all().exclude(ID_COLUMN_NAME).mean())
-            / pl.all().exclude(ID_COLUMN_NAME).std(),
+            pl.col("tempo"),
+            (
+                pl.all().exclude(ID_COLUMN_NAME, "tempo")
+                - pl.all().exclude(ID_COLUMN_NAME, "tempo").mean()
+            )
+            / pl.all().exclude(ID_COLUMN_NAME, "tempo").std(),
         )
     )
-    data = normalized_audio_features_dataset.join(
+
+    logging.info(f"Compressing data")
+    normalized_audio_features_dataset = normalized_audio_features_dataset.collect()
+
+    schema = normalized_audio_features_dataset.schema
+    preserved_columns = []
+    aggregating_indices = []
+    for i, column_name in enumerate(schema.keys()):
+        if any(
+            re.match(pattern, column_name)
+            for pattern in {
+                f"^{ID_COLUMN_NAME}$",
+                "^tempo$",
+                "^zcr_.+",
+                "^rmse_.+",
+                "^spectral_centroid_.+",
+                "^spectral_bandwidth_.+",
+                "^spectral_flatness_.+",
+                "^spectral_rolloff_.+",
+            }
+        ):
+            preserved_columns.append(column_name)
+        else:
+            aggregating_indices.append(i)
+
+    column_names = list(schema.keys())
+    aggregating_indices = [
+        [e[1] for e in group]
+        for _, group in itertools.groupby(
+            [
+                (re.match("^(.+)_\\d+$", column_names[i]).group(1), i)
+                for i in aggregating_indices
+            ],
+            key=lambda t: t[0],
+        )
+    ]
+
+    def join_compressed(
+        dataset: pl.DataFrame, column_indices: tuple[int, list[int]]
+    ) -> pl.DataFrame:
+        feature_map_nystroem = Nystroem(
+            random_state=42, n_components=len(column_indices[1]) // 2
+        ).set_output(transform="polars")
+        return dataset.join(
+            feature_map_nystroem.fit_transform(
+                normalized_audio_features_dataset.select(
+                    *(pl.nth(index) for index in column_indices[1])
+                )
+            )
+            .rename(lambda cn: f"{cn}_{column_indices[0]}")
+            .insert_column(
+                1, normalized_audio_features_dataset.get_column(ID_COLUMN_NAME)
+            ),
+            how="inner",
+            left_on=ID_COLUMN_NAME,
+            right_on=ID_COLUMN_NAME,
+        )
+
+    compressed_features_dataset = reduce(
+        join_compressed,
+        enumerate(aggregating_indices),
+        normalized_audio_features_dataset.select(
+            *(pl.col(column) for column in preserved_columns)
+        ),
+    )
+
+    data = compressed_features_dataset.lazy().join(
         genre_dataset_sample.select(pl.col(ID_COLUMN_NAME), pl.col(GENRE_COLUMN_NAME)),
         how="inner",
         left_on=ID_COLUMN_NAME,
@@ -193,74 +277,47 @@ def main(
     )
     logging.info(f"Collecting data")
     data = data.collect()
-    logging.info(f"Compressing data")
-    feature_map_nystroem = Nystroem(
-        random_state=42, n_components=data.shape[1] // 2
-    ).set_output(transform="polars")
-    compressed_data = (
-        feature_map_nystroem.fit_transform(
-            data.select(pl.all().exclude(ID_COLUMN_NAME, GENRE_COLUMN_NAME))
-        )
-        .insert_column(1, data.get_column(GENRE_COLUMN_NAME))
-        .insert_column(1, data.get_column(ID_COLUMN_NAME))
-    )
-    del data
     logging.info(f"Splitting train-test")
-    test_data = compressed_data.filter(
+    test_data = data.filter(
         pl.col(ID_COLUMN_NAME).is_in(test_track_ids.get_column(ID_COLUMN_NAME))
     )
-    train_data = compressed_data.filter(
+    train_data = data.filter(
         pl.col(ID_COLUMN_NAME).is_in(test_track_ids.get_column(ID_COLUMN_NAME)).not_()
-    )
-
-    random_seeds_for_models = {
-        name: random.randint(1, 100) for name in ("ovo", "rf", "mlp")
-    }
-    logging.info(f"{random_seeds_for_models=}")
-
-    model = VotingClassifier(
-        verbose=True,
-        n_jobs=parallel_threads,
-        voting="hard",
-        estimators=[
-            (
-                "ovo",
-                OneVsOneClassifier(
-                    LinearSVC(random_state=random_seeds_for_models["ovo"]),
-                    n_jobs=parallel_threads,
-                ),
-            ),
-            (
-                "rf",
-                RandomForestClassifier(
-                    n_estimators=compressed_data.shape[1] // 10,
-                    random_state=random_seeds_for_models["rf"],
-                    n_jobs=parallel_threads,
-                ),
-            ),
-            (
-                "mlp",
-                MLPClassifier(
-                    hidden_layer_sizes=(compressed_data.shape[1] // 10,),
-                    random_state=random_seeds_for_models["mlp"],
-                ),
-            ),
-        ],
     )
 
     X_train = train_data.select(pl.all().exclude(ID_COLUMN_NAME, GENRE_COLUMN_NAME))
     y_train = train_data.select(pl.col(GENRE_COLUMN_NAME))
 
-    cv_scores = cross_val_score(model, X_train, y_train, cv=5, n_jobs=parallel_threads)
-    logging.info(f"Cross-Validation Scores: {cv_scores}")
-    logging.info(f"Mean Cross-Validation Score: {numpy.mean(cv_scores):.2f}")
-
-    logging.info("Fitting")
-    model.fit(
-        X_train,
-        y_train,
+    models = {
+        "ovo": OneVsOneClassifier(
+            LinearSVC(random_state=random.randint(1, 100)), n_jobs=parallel_threads
+        ),
+        "rf": RandomForestClassifier(
+            n_estimators=data.shape[1] // 10,
+            random_state=random.randint(1, 100),
+            n_jobs=parallel_threads,
+        ),
+        "mlp": MLPClassifier(
+            hidden_layer_sizes=(data.shape[1] // 10,),
+            random_state=random.randint(1, 100),
+        ),
+    }
+    model = VotingClassifier(
+        n_jobs=parallel_threads,
+        voting="hard",
+        estimators=list(models.items()),
     )
 
+    random_seeds_for_models = {}
+    for model_name, model in models.items():
+        if "ovo" == model_name:
+            random_seeds_for_models[model_name] = model.estimator.random_state
+        else:
+            random_seeds_for_models[model_name] = model.random_state
+    logging.info(f"{random_seeds_for_models=}")
+
+    logging.info(f"Fitting")
+    model.fit(X_train, y_train)
     logging.info(f"Fitting is done")
     logging.info(f"Collecting test data")
     X_test = test_data.select(pl.all().exclude(ID_COLUMN_NAME, GENRE_COLUMN_NAME))
@@ -276,8 +333,21 @@ def main(
     )
     logging.info(f"Collecting test predictions")
     y_test = test_data.select(GENRE_COLUMN_NAME)
+    logging.info("Saving predictions")
+    test_data.select(
+        pl.col(ID_COLUMN_NAME), pl.col(GENRE_COLUMN_NAME), pl.col("tempo")
+    ).insert_column(1, pl.Series("predicted", y_predicted)).write_csv(
+        working_dir.joinpath("test_predictions_match.csv")
+    )
     logging.info(f"Evaluating predictions test")
     logging.info(f"Average accuracy: {accuracy_score(y_test, y_predicted):.2f}")
+    logging.info(f"Cross-validating")
+    cv_scores = cross_val_score(model, X_train, y_train, cv=5, n_jobs=parallel_threads)
+    logging.info(f"Cross-Validation Scores: {cv_scores}")
+    logging.info(
+        f"Mean Cross-Validation Score: {np.mean(cv_scores):.2f}+-{np.std(cv_scores)}"
+    )
+    logging.info(f"Building report")
     report = classification_report(
         y_test,
         y_predicted,
