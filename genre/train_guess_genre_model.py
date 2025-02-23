@@ -1,17 +1,14 @@
 import csv
-import itertools
 import logging
 import pathlib
 import pickle
 import random
-import re
 from functools import reduce
 
 import numpy as np
 import polars as pl
 from sklearn.ensemble import VotingClassifier, RandomForestClassifier
 from sklearn.inspection import permutation_importance
-from sklearn.kernel_approximation import Nystroem
 from sklearn.metrics import classification_report, accuracy_score
 from sklearn.model_selection import cross_val_score
 from sklearn.multiclass import OneVsOneClassifier
@@ -190,86 +187,12 @@ def main(
     )
 
     logging.info(f"Cleaning data")
-    normalized_audio_features_dataset = (
+    audio_features_dataset = (
         pl.scan_csv(audio_features_dataset_path)
         .drop_nans()
-        .select(
-            pl.col(ID_COLUMN_NAME),
-            pl.col("tempo"),
-            (
-                pl.all().exclude(ID_COLUMN_NAME, "tempo")
-                - pl.all().exclude(ID_COLUMN_NAME, "tempo").mean()
-            )
-            / pl.all().exclude(ID_COLUMN_NAME, "tempo").std(),
-        )
     )
 
-    logging.info(f"Compressing data")
-    normalized_audio_features_dataset = normalized_audio_features_dataset.collect()
-
-    schema = normalized_audio_features_dataset.schema
-    preserved_columns = []
-    aggregating_indices = []
-    for i, column_name in enumerate(schema.keys()):
-        if any(
-            re.match(pattern, column_name)
-            for pattern in {
-                f"^{ID_COLUMN_NAME}$",
-                "^tempo$",
-                "^zcr_.+",
-                "^rmse_.+",
-                "^spectral_centroid_.+",
-                "^spectral_bandwidth_.+",
-                "^spectral_flatness_.+",
-                "^spectral_rolloff_.+",
-            }
-        ):
-            preserved_columns.append(column_name)
-        else:
-            aggregating_indices.append(i)
-
-    column_names = list(schema.keys())
-    aggregating_indices = [
-        [e[1] for e in group]
-        for _, group in itertools.groupby(
-            [
-                (re.match("^(.+)_\\d+$", column_names[i]).group(1), i)
-                for i in aggregating_indices
-            ],
-            key=lambda t: t[0],
-        )
-    ]
-
-    def join_compressed(
-        dataset: pl.DataFrame, column_indices: tuple[int, list[int]]
-    ) -> pl.DataFrame:
-        feature_map_nystroem = Nystroem(
-            random_state=42, n_components=len(column_indices[1]) // 2
-        ).set_output(transform="polars")
-        return dataset.join(
-            feature_map_nystroem.fit_transform(
-                normalized_audio_features_dataset.select(
-                    *(pl.nth(index) for index in column_indices[1])
-                )
-            )
-            .rename(lambda cn: f"{cn}_{column_indices[0]}")
-            .insert_column(
-                1, normalized_audio_features_dataset.get_column(ID_COLUMN_NAME)
-            ),
-            how="inner",
-            left_on=ID_COLUMN_NAME,
-            right_on=ID_COLUMN_NAME,
-        )
-
-    compressed_features_dataset = reduce(
-        join_compressed,
-        enumerate(aggregating_indices),
-        normalized_audio_features_dataset.select(
-            *(pl.col(column) for column in preserved_columns)
-        ),
-    )
-
-    data = compressed_features_dataset.lazy().join(
+    data = audio_features_dataset.join(
         genre_dataset_sample.select(pl.col(ID_COLUMN_NAME), pl.col(GENRE_COLUMN_NAME)),
         how="inner",
         left_on=ID_COLUMN_NAME,
