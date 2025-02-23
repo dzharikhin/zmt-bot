@@ -5,7 +5,8 @@ Train data. Built with [train_guess_genre_model.py](../train_guess_genre_model.p
 - `songs-downloaded.csv` - if you need raw data - consider this as your source. deduplicated, csv format-fixed data, for which sample was successfully downloaded(see tags `data-genre-*`and releases). Built with [download_genre_snippets.py](../download_genre_snippets.py)
 - `audio_features_dataset.csv`- audio features extracted for downloaded samples. Built with [prepare_features_dataset.py](../prepare_features_dataset.py)
 - `audio_features_dataset-processing_failed.csv`- sample ids failed to extract features from. Built with [prepare_features_dataset.py](../prepare_features_dataset.py)
-- `songs-grouped_by_genre.csv` - `songs-downloaded.csv` applied genre aggregation then grouped by mapped genre name to be able to listen examples of genre mapping. Built with [create_genre_mapping.py](../create_genre_mapping.py)
+- `tracks-clustered.csv` - ml-clustered `audio_features_dataset.csv` 
+- `songs-grouped_by_cluster.csv` - `tracks-clustered.csv` applied clusterization then grouped by cluster to be able to listen examples of clusterization
   to play audio you can use script:
   ```python
   #!/usr/bin/env python3
@@ -32,9 +33,6 @@ Train data. Built with [train_guess_genre_model.py](../train_guess_genre_model.p
       ]
     # here you add command call to play multiple files like subprocess.run()
   ```
-- `songs-mapped_genres.csv` - track id, genre, mapped genre. Built with [create_genre_mapping.py](../create_genre_mapping.py)
-- `songs-genre_filtered.csv` - dataset without skipped outliners per mapped genre. Built with [filter_outliers.py](../filter_outliers.py)
-- `songs-genre_filtered-outliners.csv` - skipped outliners per mapped genre. Built with [filter_outliers.py](../filter_outliers.py)
+- `tracks-outliers.csv` - skipped outliers in clusters excluded from model learning
 - `genre_model.pickle` - binary of the trained model
 - `genre_model-stat.csv` - accuracy stats of the trained model
-- `test_predictions_match.csv` - model test data with predictions for manual analysis
