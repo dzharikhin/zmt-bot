@@ -38,8 +38,8 @@ def main(
         working_dir, snippets_path
     )
 
-    clustered_tracks = working_dir.joinpath("tracks-clustered.csv")
-    if not clustered_tracks.exists():
+    clustered_tracks_path = working_dir.joinpath("tracks-clustered.csv")
+    if not clustered_tracks_path.exists():
         logging.info(f"Collecting data")
         audio_features_dataset = (
             pl.scan_csv(audio_features_dataset_path).drop_nans().collect()
@@ -54,7 +54,7 @@ def main(
             audio_features_dataset.shape[1], pl.Series(GENRE_COLUMN_NAME, clusters)
         )
         logging.info(f"Saving clustered tracks")
-        data.write_csv(clustered_tracks)
+        data.write_csv(clustered_tracks_path)
         logging.info(f"Saving grouped by cluster")
         data.select(pl.col(ID_COLUMN_NAME), pl.col(GENRE_COLUMN_NAME)).group_by(
             pl.col(GENRE_COLUMN_NAME)
@@ -69,7 +69,7 @@ def main(
         del clusterizer
         del clusters
 
-    data = pl.read_csv(clustered_tracks)
+    data = pl.read_csv(clustered_tracks_path)
     logging.info(f"Sampling data")
     data = (
         data.filter(pl.len().over(GENRE_COLUMN_NAME) >= min_cluster_size)
@@ -121,29 +121,32 @@ def main(
     train_data = data.filter(
         pl.col(ID_COLUMN_NAME).is_in(test_track_ids.get_column(ID_COLUMN_NAME)).not_()
     )
+    del data
     logging.info(f"train data size: {train_data.shape}")
 
     X_train = train_data.select(pl.all().exclude(ID_COLUMN_NAME, GENRE_COLUMN_NAME))
     y_train = train_data.select(pl.col(GENRE_COLUMN_NAME))
 
-    del data
-    model = OneVsRestClassifier(
-        SVC(decision_function_shape="ovo", random_state=random.randint(1, 100))
-    )
     model_file_path = working_dir.joinpath(f"genre_model.pickle")
     model_stats_path = model_file_path.parent.joinpath(
         f"{model_file_path.stem}-stat.csv"
     )
-    random_seeds_for_model = model.estimator.random_state
-    logging.info(f"random state: {random_seeds_for_model}")
+    if not model_file_path.exists():
+        model = OneVsRestClassifier(
+            SVC(decision_function_shape="ovo", random_state=random.randint(1, 100))
+        )
+        random_seeds_for_model = model.estimator.random_state
+        logging.info(f"random state: {random_seeds_for_model}")
 
-    logging.info(f"Fitting model")
-    model.fit(X_train, y_train)
-    logging.info(f"Fitting is done")
+        logging.info(f"Fitting model")
+        model.fit(X_train, y_train)
+        logging.info(f"Fitting is done")
+    else:
+        with model_file_path.open(mode="rb") as model_file:
+            model = pickle.load(model_file)
 
-    logging.info(f"Collecting test data")
-    X_test = test_data.select(pl.all().exclude(ID_COLUMN_NAME, GENRE_COLUMN_NAME))
     logging.info(f"Collecting model predictions")
+    X_test = test_data.select(pl.all().exclude(ID_COLUMN_NAME, GENRE_COLUMN_NAME))
 
     def partial_predict(chunk):
         predicted_part = model.predict(chunk)
@@ -153,16 +156,15 @@ def main(
     y_predicted = np.concatenate(
         [partial_predict(data_chunk) for data_chunk in X_test.iter_slices(1000)]
     )
-    logging.info(f"Collecting test predictions")
-    y_test = test_data.select(GENRE_COLUMN_NAME)
 
+    y_test = test_data.select(GENRE_COLUMN_NAME)
     logging.info(f"Average accuracy: {accuracy_score(y_test, y_predicted):.2f}")
-    logging.info(f"Cross-validating")
-    cv_scores = cross_val_score(model, X_train, y_train, cv=5)
-    logging.info(f"Cross-Validation scores: {cv_scores}")
-    logging.info(
-        f"Mean Cross-Validation score: {np.mean(cv_scores):.2f}+-{np.std(cv_scores)}"
-    )
+
+    logging.info(f"Dumping model")
+    with model_file_path.open(mode="wb") as model_file:
+        pickle.dump(model, model_file, protocol=5)
+    logging.info(f"Dumped model to {model_file_path}")
+
     logging.info(f"Building report")
     report = classification_report(
         y_test,
@@ -186,14 +188,16 @@ def main(
         if stats["precision"] <= 0.5:
             not_learned_genres += 1
 
-    logging.info(f"Dumping model")
-    with model_file_path.open("wb") as model_file:
-        pickle.dump(model, model_file, protocol=5)
-    logging.info(f"Dumped model to {model_file_path}")
-
     with model_stats_path.open("wt") as report_csv:
         csv.writer(report_csv).writerows(report_rows)
     logging.info(f"Dumped model stats to {model_stats_path}")
+
+    logging.info(f"Cross-validating")
+    cv_scores = cross_val_score(model, X_train, y_train, cv=5)
+    logging.info(f"Cross-Validation scores: {cv_scores}")
+    logging.info(
+        f"Mean Cross-Validation score: {np.mean(cv_scores):.2f}+-{np.std(cv_scores)}"
+    )
 
 
 if __name__ == "__main__":
