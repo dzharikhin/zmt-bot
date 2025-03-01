@@ -1,10 +1,20 @@
 # split the data into 1GB pieces
+## zip
+> zip format has 2g limit for file size. so it is ok for snippets, but does not work for datasets
 ```shell
-zip -r -s 1024m csv.zip csv/
+zip -r -s 1g csv.zip csv/
 ```
 # to unzip
 ```shell
 zip -s 0 csv.zip --out csv_whole.zip
+```
+## tar
+```shell
+tar cvf data.tar -L1g -F 'echo data.tar-${TAR_VOLUME} >&${TAR_FD}' data/
+```
+# to unpack
+```shell
+tar xvf "data.tar" -F 'echo data.tar-${TAR_VOLUME} >&${TAR_FD}' -C .
 ```
 # create tag in a format `data-genre-yyyy-mm-dd` push it and create release from the tag  
 # then, set token variable in console:
