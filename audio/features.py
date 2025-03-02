@@ -9,6 +9,7 @@ import librosa
 import numpy as np
 import polars as pl
 from librosa import feature
+from mutagen.mp3 import MP3
 from scipy.sparse import csr_matrix
 from sklearn.cluster import AgglomerativeClustering
 from soundfile import SoundFile
@@ -25,47 +26,59 @@ AGGREGATES = OrderedDict(
 )
 
 
-def feature_size(**feature_columns: int) -> int:
-    feature_columns = list(feature_columns.values())[0]
-    return FRAMES_NUMBER * feature_columns + feature_columns * len(AGGREGATES)
-
-
 def build_schema_for_feature(
     feature_prefix: str, feature_values: int
-) -> Iterable[tuple[str, type]]:
-    return (
-        *(
-            (f"{feature_prefix}_{frame + 1}_{column + 1}", float)
-            for frame in range(FRAMES_NUMBER)
-            for column in range(feature_values)
-        ),
-        *(
-            (f"{feature_prefix}_{aggregation}_{column + 1}", float)
+) -> OrderedDict[str, Iterable[tuple[str, type]]]:
+    columns = OrderedDict(
+        [
+            (
+                feature_prefix,
+                [
+                    (f"{feature_prefix}_{frame + 1}_{column + 1}", float)
+                    for frame in range(FRAMES_NUMBER)
+                    for column in range(feature_values)
+                ],
+            )
+        ]
+        + [
+            (
+                f"{feature_prefix}_{aggregation}",
+                [
+                    (f"{feature_prefix}_{aggregation}_{column + 1}", float)
+                    for column in range(feature_values)
+                ],
+            )
             for aggregation in AGGREGATES
-            for column in range(feature_values)
-        ),
+        ]
     )
 
+    return columns
+
+
+SCHEMA_BY_FEATURE = (
+    build_schema_for_feature("mfcc", MFCCS_NUMBER)
+    | build_schema_for_feature("chroma_cqt", CHROMA_NUMBER)
+    | build_schema_for_feature("chroma_cens", CHROMA_NUMBER)
+    | build_schema_for_feature("chroma_stft", CHROMA_NUMBER)
+    | build_schema_for_feature("zcr", 1)
+    | build_schema_for_feature("rmse", 1)
+    | build_schema_for_feature("spectral_centroid", 1)
+    | build_schema_for_feature("spectral_bandwidth", 1)
+    | build_schema_for_feature("spectral_flatness", 1)
+    | build_schema_for_feature("spectral_contrast", SPECTRAL_CONTRAST_NUMBER)
+    | build_schema_for_feature("spectral_rolloff", 1)
+    | build_schema_for_feature("tonnetz", TONNETZ_NUMBER)
+)
 
 AUDIO_FEATURE_TYPE_SCHEMA = [
     ("track_id", str),
-    *build_schema_for_feature("mfcc", MFCCS_NUMBER),
-    *build_schema_for_feature("chroma_cqt", CHROMA_NUMBER),
-    *build_schema_for_feature("chroma_cens", CHROMA_NUMBER),
-    *build_schema_for_feature("chroma_stft", CHROMA_NUMBER),
-    *build_schema_for_feature("zcr", 1),
-    *build_schema_for_feature("rmse", 1),
-    *build_schema_for_feature("spectral_centroid", 1),
-    *build_schema_for_feature("spectral_bandwidth", 1),
-    *build_schema_for_feature("spectral_flatness", 1),
-    *build_schema_for_feature("spectral_contrast", SPECTRAL_CONTRAST_NUMBER),
-    *build_schema_for_feature("spectral_rolloff", 1),
-    *build_schema_for_feature("tonnetz", TONNETZ_NUMBER),
+    *reduce(lambda schema1, schema2: schema1 + schema2, SCHEMA_BY_FEATURE.values()),
     ("tempo", float),
+    ("bitrate", int),
 ]
 
 FeatureDataType = types.GenericAlias(
-    tuple, (float,) * (len(AUDIO_FEATURE_TYPE_SCHEMA) - 1)  # track_id
+    tuple, tuple(e[1] for e in AUDIO_FEATURE_TYPE_SCHEMA[1:])
 )
 AudioFeaturesType: TypeAlias = tuple[str, *FeatureDataType]
 
@@ -79,6 +92,7 @@ def extract_features_for_mp3(
         audio, sr = librosa.load(wav, sr=None)
         stft = librosa.stft(audio)
         frames = stft.shape[1]
+        librosa.get_duration(S=stft, sr=sr)
 
         connectivity_matrix = csr_matrix((frames, frames), dtype=np.int8)
         connectivity_matrix.setdiag(values=[1] * frames, k=-1)
@@ -196,7 +210,7 @@ def extract_features_for_mp3(
                 .group_by(by=pl.col(clusterization.columns[0]))
                 .agg(pl.all().mean())
                 .drop("by", clusterization.columns[0])
-                .unstack(1)
+                .unstack(step=1)
             )
 
         def aggregate_feature(
@@ -277,8 +291,11 @@ def extract_features_for_mp3(
         )
         tempo = pl.Series("tempo", librosa.feature.tempo(y=audio, sr=sr)).to_frame()
 
+        f = MP3(mp3_path)
+        bitrate = pl.Series("bitrate", f.info.bitrate // 1000).to_frame()
+
     feature_row = pl.concat(
-        [v for v in compressed_data.values()] + [tempo], how="horizontal"
+        [v for v in compressed_data.values()] + [tempo, bitrate], how="horizontal"
     )
     return cast(AudioFeaturesType, (track_id, *tuple(feature_row.rows()[0])))
 

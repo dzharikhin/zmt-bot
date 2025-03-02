@@ -31,6 +31,7 @@ class DatasetProcessor(Protocol[ID]):
     total_dataset_rows_count: int
     processed_rows_count: int
     to_process_rows_count: int
+    row_schema: tuple[tuple[str, Type[ID]], *tuple[tuple[str, Type[Any]], ...]]
 
 
 class DataSetFromDataManager(DatasetProcessor[ID]):
