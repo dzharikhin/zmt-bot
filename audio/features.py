@@ -292,7 +292,7 @@ def extract_features_for_mp3(
         tempo = pl.Series("tempo", librosa.feature.tempo(y=audio, sr=sr)).to_frame()
 
         f = MP3(mp3_path)
-        bitrate = pl.Series("bitrate", f.info.bitrate // 1000).to_frame()
+        bitrate = pl.Series("bitrate", [f.info.bitrate // 1000]).to_frame()
 
     feature_row = pl.concat(
         [v for v in compressed_data.values()] + [tempo, bitrate], how="horizontal"

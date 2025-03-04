@@ -27,7 +27,8 @@ not_overridable_properties = {
 
 user_client_check_period_seconds = 10
 dialog_list_page_size = 10
-max_threadpool_workers = 10
+max_training_threadpool_workers = 10
+max_estimation_threadpool_workers = 10
 min_track_length_seconds = 60
 max_track_length_seconds = 480
 
@@ -45,8 +46,14 @@ def override():
 
 override()
 
-train_threadpool = ThreadPoolExecutor(
-    max_workers=max_threadpool_workers, thread_name_prefix="training_threadpool_"
+training_threadpool = ThreadPoolExecutor(
+    max_workers=max_training_threadpool_workers,
+    thread_name_prefix="training_threadpool_",
+)
+
+estimation_threadpool = ThreadPoolExecutor(
+    max_workers=max_estimation_threadpool_workers,
+    thread_name_prefix="estimation_threadpool_",
 )
 
 
@@ -106,6 +113,7 @@ def get_models(user_id: int) -> list[Model]:
         get_model(user_id, int(model_path.stem))
         for model_path in models_path.iterdir()
         if model_path.is_dir()
+        and model_path.joinpath(f"{model_path.name}.pickle").exists()
     ]
 
 
@@ -151,7 +159,7 @@ def get_model_store_path(user_id: int, model_id: int) -> ModelStoreContext:
     model_path = (
         data_path.joinpath(str(user_id)).joinpath("models").joinpath(str(model_id))
     )
-    model_path.mkdir(exist_ok=True)
+    model_path.mkdir(parents=True, exist_ok=True)
 
     return ModelStoreContext(
         model_workdir=model_path,

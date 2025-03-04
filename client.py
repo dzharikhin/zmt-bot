@@ -1,4 +1,5 @@
 import asyncio
+import functools
 import json
 import logging
 import re
@@ -6,6 +7,8 @@ from asyncio import Task
 from types import CoroutineType
 from typing import cast, Union
 
+import persistqueue
+import telethon
 from persistqueue import SQLiteAckQueue
 from persistqueue.serializers import json as jser
 from telethon import TelegramClient, events
@@ -14,12 +17,13 @@ from telethon.events import NewMessage, CallbackQuery
 
 import config
 from models import build_model_page_response
-from train import prepare_model, TrainUnrecoverable, estimate
+from train import prepare_model, estimate
+from utils import get_message
 
 # commands to implement:
 # - subscribe <link_to_good> <link_to_bad> <link_to_estimate> - set channels to work with
 # - train [force] - train new model and set it as current, force - reload all tracks
-# - list-models - list available models
+# - list - list available models
 # - set-model <model_id> - set some model as current
 
 logging.basicConfig(
@@ -29,6 +33,19 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__file__)
 logger.setLevel(logging.DEBUG)
+
+
+async def send_train_queue_task(event):
+    is_forced = (
+        event.pattern_match.group(1)
+        and event.pattern_match.group(1).to_lower() == "true"
+    )
+    get_or_create_train_queue(event.sender_id).put(
+        {
+            "message_id": event.message.id,
+            "forced": is_forced,
+        }
+    )
 
 
 async def handle_train_queue_tasks(
@@ -42,25 +59,48 @@ async def handle_train_queue_tasks(
             continue
 
         queue = get_or_create_train_queue(user_id)
-        cmd = await asyncio.to_thread(queue.get)
         try:
-            await prepare_model(
-                user_id, bot_client, cmd["message_id"], cmd["is_forced"]
+            cmd = queue.get_nowait()
+            await prepare_model(user_id, bot_client, cmd["message_id"], cmd["forced"])
+            model = config.get_model(user_id, cmd["message_id"])
+            await bot_client.send_message(
+                f"Successfully trained model {model.model_id}: accuracy={model.accuracy} for {model.disliked_tracks_count} disliked tracks and {model.liked_tracks_count} liked tracks"
             )
             queue.ack(cmd)
-        except TrainUnrecoverable as e:
-            cmd_id = queue.ack_failed(cmd)
-            logger.warning(
-                f"cannot handle {cmd_id}: {cmd} - marked as failed",
-                exc_info=e,
+        except persistqueue.exceptions.Empty:
+            await asyncio.sleep(1)
+        except telethon.errors.rpcerrorlist.BotMethodInvalidError as e:
+            await handle_non_recoverable(
+                bot_client, cmd, e, queue, user_id, "cannot train model"
             )
-            await bot_client.send_message(user_id, f"Failed to execute {cmd}: {e}")
         except RPCError as e:
             cmd_id = queue.nack(cmd)
             logger.info(
                 f"{cmd_id}: {cmd} - failed with {type(e)}, going to retry",
                 exc_info=e,
             )
+        except Exception as e:
+            await handle_non_recoverable(
+                bot_client, cmd, e, queue, user_id, "cannot train model"
+            )
+
+
+async def handle_non_recoverable(bot_client, cmd, e, queue, user_id, prefix):
+    cmd_id = queue.ack_failed(cmd)
+    logger.warning(
+        f"{prefix} for user {user_id}. {cmd_id}: {cmd} - marked as failed",
+        exc_info=e,
+    )
+    await bot_client.send_message(user_id, f"Failed to execute {cmd}: {e}")
+
+
+async def send_estimate_queue_task(event, user_id):
+    get_or_create_estimate_queue(user_id).put(
+        {
+            "chat_id": event.chat_id,
+            "message_id": event.message.id,
+        }
+    )
 
 
 async def handle_estimate_queue_tasks(
@@ -72,38 +112,48 @@ async def handle_estimate_queue_tasks(
         if not queue_path.exists():
             await asyncio.sleep(1)
             continue
+
         queue = get_or_create_estimate_queue(user_id)
-        cmd = await asyncio.to_thread(queue.get)
         try:
+            cmd = queue.get_nowait()
             is_recommended = bool(
                 await estimate(user_id, cmd["chat_id"], cmd["message_id"], bot_client)
             )
-            if is_recommended:
-                await bot_client.forward_messages(user_id, cmd["message_id"])
+            message = await get_message(cmd["chat_id"], cmd["message_id"], bot_client)
+            if message:
+                if is_recommended:
+                    await bot_client.forward_messages(user_id, message)
+                else:
+                    if message.forward:
+                        reply_message = f"channel erases forward info, so provide <https://t.me> link explicitly when forwarding to estimation channel"
+                    elif m := re.match("https://t.me/\\S+", message.message):
+                        reply_message = f"Rated as not recommended: {m.group(0)}"
+                    else:
+                        reply_message = f"Rated as not recommended: https://t.me/c/{message.input_chat.channel_id}/{message.id}"
+
+                    await bot_client.send_message(user_id, reply_message)
             else:
-                channel = await bot_client.get_input_entity(cmd["chat_id"])
-                await bot_client.send_message(
-                    f"Rated as not recommended: https://t.me/{channel.name}/{cmd["message_id"]}"
-                )
+                alert = f"Message {cmd["message_id"]} from channel {cmd["chat_id"]} seems to be removed"
+                logger.info(alert)
+                await bot_client.send_message(user_id, alert)
             queue.ack(cmd)
-        except TrainUnrecoverable as e:
-            cmd_id = queue.ack_failed(cmd)
-            logger.warning(
-                f"cannot handle {cmd_id}: {cmd} - marked as failed",
-                exc_info=e,
-            )
-            await bot_client.send_message(user_id, f"Failed to execute {cmd}: {e}")
+        except persistqueue.exceptions.Empty:
+            await asyncio.sleep(1)
         except RPCError as e:
             cmd_id = queue.nack(cmd)
             logger.info(
                 f"{cmd_id}: {cmd} - failed with {type(e)}, going to retry",
                 exc_info=e,
             )
+        except Exception as e:
+            await handle_non_recoverable(
+                bot_client, cmd, e, queue, user_id, "cannot estimate track"
+            )
 
 
 START_CMD = "(?i)^/start"
 SUBSCRIBE_CMD = "(?i)^/subscribe\\s+(-?\\d+)\\s+(-?\\d+)\\s+(-?\\d+)"
-TRAIN_CMD = "(?i)^/train\\s+?([\\S]*)"
+TRAIN_CMD = "(?i)^/train\\s*([\\S]*)"
 LIST_MODELS_CMD = "(?i)^/list"
 SET_MODEL_CMD = "(?i)^/set\\s+(\\d+)"
 
@@ -123,6 +173,7 @@ def not_matched_command(txt: str) -> bool:
     )
 
 
+@functools.cache
 def get_or_create_train_queue(user_id: int) -> SQLiteAckQueue:
     queue_path = config.get_train_queue_path(user_id)
     return SQLiteAckQueue(
@@ -134,6 +185,7 @@ def get_or_create_train_queue(user_id: int) -> SQLiteAckQueue:
     )
 
 
+@functools.cache
 def get_or_create_estimate_queue(user_id: int) -> SQLiteAckQueue:
     queue_path = config.get_estimate_queue_path(user_id)
     return SQLiteAckQueue(
@@ -242,51 +294,52 @@ async def main():
                     await bot_client.send_message(user_id, f"{SUBSCRIBE_CMD} first")
                     continue
 
-                get_or_create_estimate_queue(user_id).put(
-                    {
-                        "chat_id": event.chat_id,
-                        "message_id": event.message.id,
-                    }
-                )
+                await send_estimate_queue_task(event, user_id)
 
         @bot_client.on(events.NewMessage(incoming=True, pattern=TRAIN_CMD))
         async def handle_train_handler(event: NewMessage.Event):
             if not config.get_subscription(event.sender_id):
                 event.respond(f"{SUBSCRIBE_CMD} first")
                 return
-            is_forced = (
-                event.pattern_match.group(1)
-                and event.pattern_match.group(1).to_lower() == "true"
-            )
 
-            get_or_create_train_queue(event.sender_id).put(
-                {
-                    "chat_id": event.chat_id,
-                    "message_id": event.message.id,
-                    "forced": is_forced,
-                }
-            )
+            await send_train_queue_task(event)
 
         @bot_client.on(events.NewMessage(incoming=True, pattern=LIST_MODELS_CMD))
         async def list_models_handler(event: NewMessage.Event):
             if not config.get_subscription(event.sender_id):
                 event.respond(f"{SUBSCRIBE_CMD} first")
                 return
-            await build_model_page_response(event.sender_id, [])
+            message_text, buttons, (pagination_data, attributes) = (
+                await build_model_page_response(event.sender_id, [])
+            )
+            conditional_params = (
+                {"buttons": buttons, "file": pagination_data} if buttons else {}
+            )
+            await event.respond(
+                message_text,
+                attributes=attributes,
+                **conditional_params,
+            )
 
         @bot_client.on(
             events.CallbackQuery(data=re.compile("^model-list\\(([^:]+):([^:]+)\\)"))
         )
         async def channels_pagination_handler(event: CallbackQuery.Event):
-            message = (
-                await bot_client.get_messages(event.chat_id, ids=[event.message_id])
-            )[0]
+            message = await get_message(event.chat_id, event.message_id, bot_client)
             action_type = event.pattern_match.group(1).decode("utf-8").strip()
             target_offset = event.pattern_match.group(2).decode("utf-8").strip()
             value = (await message.download_media(file=bytes)).decode("utf-8")
             offset_stack = json.loads(value)
-            await build_model_page_response(
-                message.sender_id, offset_stack, (int(target_offset), action_type)
+            message_text, buttons, (pagination_data, attributes) = (
+                await build_model_page_response(
+                    message.sender_id, offset_stack, (int(target_offset), action_type)
+                )
+            )
+            await event.edit(
+                message_text,
+                file=pagination_data,
+                attributes=attributes,
+                buttons=buttons,
             )
 
         @bot_client.on(events.NewMessage(incoming=True, pattern=SET_MODEL_CMD))
@@ -294,12 +347,13 @@ async def main():
             if not config.get_subscription(event.sender_id):
                 event.respond(f"{SUBSCRIBE_CMD} first")
                 return
-            model_id = int(event.pattern_match.group(1).decode("utf-8").strip())
+            model_id = int(event.pattern_match.group(1).strip())
             if not config.get_model(event.sender_id, model_id):
-                event.respond(f"Model {model_id} does not exist")
+                await event.respond(f"Model {model_id} does not exist")
                 return
 
             config.set_current_model_id(event.sender_id, model_id)
+            await event.respond(f"Model {model_id} set as default")
 
         tasks["global"] = {
             "check": asyncio.create_task(check_queue_handlers(tasks, bot_client))

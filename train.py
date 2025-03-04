@@ -18,12 +18,12 @@ from telethon import TelegramClient
 from telethon.tl.custom import Message
 from telethon.tl.functions.channels import GetChannelsRequest
 from telethon.tl.types import Chat, DocumentAttributeAudio
-from telethon.tl.types.messages import Chats
 
 import config
 from audio import features
 from audio.features import extract_features_for_mp3
 from dataset.persistent_dataset_processor import DataSetFromDataManager
+from utils import unwrap_single_chat, get_message
 
 logging.basicConfig(
     level=logging.WARN,
@@ -32,7 +32,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__file__)
 logger.setLevel(logging.DEBUG)
-
 
 ID_COLUMN_NAME = "track_id"
 LIKED_COLUMN_NAME = "is_liked"
@@ -51,7 +50,6 @@ def load_genre_model() -> tuple[Optional[object], list[tuple[str, type]]]:
 
 
 GENRE_MODEL, genre_schema = load_genre_model()
-
 
 RowType: TypeAlias = tuple[
     *features.AudioFeaturesType, *[e[1] for e in genre_schema], int
@@ -79,6 +77,8 @@ class Mp3Filter:
         self.max_length_seconds = params["max_seconds"]
 
     def filter_message(self, message) -> bool:
+        if not message:
+            return False
         if not isinstance(message, (telethon.tl.types.Message, Message)):
             return False
         if not message.media or not message.media.document:
@@ -108,12 +108,6 @@ FILTER = Mp3Filter(
 )
 
 
-def unwrap_single_chat(chat: Chats) -> Optional[Chat]:
-    if not chat or not chat.chats:
-        return None
-    return chat.chats[0]
-
-
 async def save_track_if_not_exists(
     user_id: int, message: Message, channel_type: Literal["liked", "disliked"]
 ):
@@ -122,9 +116,46 @@ async def save_track_if_not_exists(
         if channel_type == "disliked"
         else config.get_liked_file_store_path(user_id)
     )
-    file_path = tracks_folder.joinpath(f"{message.document.id}.mp3")
+    file_path = tracks_folder.joinpath(f"{message.file.id}{message.file.ext}")
     if not file_path.exists():
         await message.download_media(file=file_path)
+
+
+async def obtain_latest_message_id(
+    channel: Chat, bot_client: TelegramClient, step: int = 1000
+) -> int:
+    last_message_date = channel.date
+
+    async def binary_search(index_range: list[int]) -> int:
+        low, high = index_range[0], index_range[-1]
+        mid = low
+        while low <= high:
+            mid = low + (high - low) // 2
+            msg = await get_message(channel, mid, bot_client)
+            if msg and msg.date >= last_message_date:  # target found
+                return mid
+            elif msg and msg.date < last_message_date:  # target is in the right half
+                low = mid + 1
+            elif not msg:  # target is in the left half
+                high = mid - 1
+            else:  # should not happen
+                raise
+
+        return mid
+
+    max_message_range_start = 0
+    max_message_range_end = step
+    message = await get_message(channel, max_message_range_end, bot_client)
+    while message and message.date < last_message_date:
+        max_message_range_start = max_message_range_end
+        max_message_range_end += step
+        message = await get_message(channel, max_message_range_end, bot_client)
+
+    if message and message.date >= last_message_date:
+        return max_message_range_end
+    return await binary_search(
+        list(range(max_message_range_start, max_message_range_end + 1))
+    )
 
 
 async def download_audio_from_channel(
@@ -132,22 +163,42 @@ async def download_audio_from_channel(
     channel_id: int,
     channel_type: Literal["liked", "disliked"],
     bot_client: TelegramClient,
+    limit: int | None = None,
 ):
-    channel = unwrap_single_chat(
-        await bot_client(GetChannelsRequest(id=[int(channel_id)]))
-    )
+    channel = unwrap_single_chat(await bot_client(GetChannelsRequest(id=[channel_id])))
     if not channel:
         raise TrainUnrecoverable(f"Channel {channel_id} is not available")
 
-    await bot_client.end_takeout(False)
-    async with bot_client.takeout(channels=True) as takeout_client:
-        async for message in takeout_client.iter_messages(channel):
-            if not FILTER.filter_message(message):
+    latest_message_id = await obtain_latest_message_id(channel, bot_client)
+    ids = list(range(latest_message_id + 1))
+    if limit:
+        ids = ids[-limit:]
+    async for message in bot_client.iter_messages(channel, ids=ids, reverse=True):
+        if not FILTER.filter_message(message):
+            if message:
                 logging.info(
                     f"Message {message.stringify()} does not match {FILTER}, skipping"
                 )
-                continue
-            await save_track_if_not_exists(user_id, message, channel_type)
+            continue
+
+        await save_track_if_not_exists(user_id, message, channel_type)
+
+    # takeout_init_tries = 0
+    # while takeout_init_tries < 3:
+    #     takeout_init_tries += 1
+    #     try:
+    #         async with bot_client.takeout(channels=True) as takeout_client:
+    #             async for message in takeout_client.iter_messages(channel):
+    #                 if not FILTER.filter_message(message):
+    #                     logging.info(
+    #                         f"Message {message.stringify()} does not match {FILTER}, skipping"
+    #                     )
+    #                     continue
+    #                 await save_track_if_not_exists(user_id, message, channel_type)
+    #                 break
+    #     except errors.TakeoutInitDelayError as e:
+    #         await asyncio.sleep(e.seconds)
+    #         await bot_client.end_takeout(True)
 
 
 def generate_features(
@@ -169,7 +220,7 @@ def generate_features(
                 liked_class,
             ),
         )
-    except (LibsndfileError, HeaderNotFoundError) as e:
+    except Exception as e:
         row = error_hook(row_id, e)
     return row
 
@@ -202,14 +253,21 @@ def prepare_audio_features_dataset(
 
             def analyze_track(row_id: str) -> RowType:
                 def error_hook(row: str, e: Exception) -> RowType:
+                    if isinstance(e, (LibsndfileError, HeaderNotFoundError)):
+                        logging.warning(
+                            f"failed to get features for {row}, returning stub",
+                            exc_info=e,
+                        )
+                        return cast(
+                            RowType,
+                            tuple([row] + [None] * (len(ds.row_schema) - 1)),
+                        )
+
                     logging.error(
-                        f"failed to get features for {row}, returning stub",
+                        f"Unexpected error while processing row {row}, propagating",
                         exc_info=e,
                     )
-                    return cast(
-                        RowType,
-                        tuple([row] + [None] * (len(ds.row_schema) - 1)),
-                    )
+                    raise
 
                 return generate_features(audio_dir, row_id, int(is_liked), error_hook)
 
@@ -237,12 +295,14 @@ def train_model(user_id: int, model_id: int) -> config.Model:
         .collect()
         .sample(fraction=1, shuffle=True)
     )
-    data_stats = (
-        data.group_by(by=pl.col(LIKED_COLUMN_NAME))
-        .agg(pl.col(ID_COLUMN_NAME).count())
-        .to_dict(as_series=False)
+    data_stats = data.group_by(by=pl.col(LIKED_COLUMN_NAME)).agg(
+        pl.col(LIKED_COLUMN_NAME).count()
     )
-    bad_weight = data_stats[LIKED_COLUMN_NAME][1] / data_stats[LIKED_COLUMN_NAME][0]
+    bad_weight = data_stats.select(
+        pl.col(LIKED_COLUMN_NAME)
+        .filter(pl.col("by") == 1)
+        .truediv(pl.col(LIKED_COLUMN_NAME).filter(pl.col("by") == 0))
+    ).item(0, 0)
     logging.info(f"Splitting data into train/test")
     test_track_ids = (
         data.group_by(pl.col(LIKED_COLUMN_NAME))
@@ -320,7 +380,7 @@ async def prepare_model(
         )
         # Run the blocking task in the executor
         model = await asyncio.get_running_loop().run_in_executor(
-            config.train_threadpool, train_model, user_id, model_id
+            config.training_threadpool, train_model, user_id, model_id
         )
         config.set_current_model_id(user_id, model.model_id)
 
@@ -330,50 +390,57 @@ async def prepare_model(
         ) from e
 
 
-async def estimate(
-    user_id: int, chat_id: int, message_id: int, bot_client: TelegramClient
-) -> int:
+def execute_estimation(user_id: int, track_to_estimate_path: pathlib.Path) -> int:
     actual_model_id = config.get_current_model_id(user_id)
     if not actual_model_id:
         raise EstimationUnrecoverable(f"for user {user_id} no model version set")
-    try:
-        message = (await bot_client.get_messages(chat_id, ids=[message_id]))[0]
 
-        tmp_dir = config.get_user_tmp_dir(user_id)
-        with tempfile.TemporaryDirectory(dir=tmp_dir) as tmp:
-            track_to_estimate_path = pathlib.Path(tmp).joinpath(f"to-estimate.mp3")
-            await message.download_media(file=track_to_estimate_path)
+    def error_hook(row: str, exc: Exception):
+        logger.error(f"Error on processing {row}, propagating", exc_info=exc)
+        raise exc
 
-            def error_hook(row: str, exc: Exception):
-                raise exc
+    data = generate_features(
+        track_to_estimate_path.parent,
+        track_to_estimate_path.stem,
+        -1,
+        error_hook,
+    )
 
-            data = generate_features(
-                track_to_estimate_path.parent,
-                track_to_estimate_path.name,
-                -1,
-                error_hook,
-            )
-
-        if not data:
-            raise EstimationUnrecoverable(
-                f"No features for {track_to_estimate_path}. Skipping"
-            )
-        cached_model_id, model = _estimation_model_cache.get(user_id)
-
-        if not model or actual_model_id != cached_model_id:
-            with config.get_model(user_id, actual_model_id).pickle_file_path.open(
-                mode="rb"
-            ) as model_data:
-                _estimation_model_cache[user_id] = actual_model_id, pickle.load(
-                    model_data
-                )
-        _, model = _estimation_model_cache[user_id]
-        return model.predict(
-            pl.DataFrame([data], schema=ROW_SCHEMA).select(
-                pl.all().exclude(ID_COLUMN_NAME, LIKED_COLUMN_NAME)
-            )
-        )[0]
-    except IndexError as e:
+    if not data:
         raise EstimationUnrecoverable(
-            f"Cannot estimate track chat_id={chat_id} message_id={message_id}"
-        ) from e
+            f"No features for {track_to_estimate_path}. Skipping"
+        )
+    cached_model_id, model = _estimation_model_cache.get(user_id, (None, None))
+
+    if not model or actual_model_id != cached_model_id:
+        with config.get_model(user_id, actual_model_id).pickle_file_path.open(
+            mode="rb"
+        ) as model_data:
+            _estimation_model_cache[user_id] = (
+                actual_model_id,
+                pickle.load(model_data),
+            )
+    _, model = _estimation_model_cache[user_id]
+    return model.predict(
+        pl.DataFrame([data], schema=ROW_SCHEMA).select(
+            pl.all().exclude(ID_COLUMN_NAME, LIKED_COLUMN_NAME)
+        )
+    )[0]
+
+
+async def estimate(
+    user_id: int, chat_id: int, message_id: int, bot_client: TelegramClient
+) -> int:
+    message = await get_message(chat_id, message_id, bot_client)
+
+    tmp_dir = config.get_user_tmp_dir(user_id)
+    with tempfile.TemporaryDirectory(dir=tmp_dir) as tmp:
+        track_to_estimate_path = pathlib.Path(tmp).joinpath(f"to-estimate.mp3")
+        track_to_estimate_path.unlink(missing_ok=True)
+        await message.download_media(file=track_to_estimate_path)
+        return await asyncio.get_running_loop().run_in_executor(
+            config.estimation_threadpool,
+            execute_estimation,
+            user_id,
+            track_to_estimate_path,
+        )
