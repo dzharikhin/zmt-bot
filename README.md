@@ -1,4 +1,4 @@
-# tg-channel-aggregator
+# zmt-bot
 
 app to recommend track based on user audio profile
 
