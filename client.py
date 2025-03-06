@@ -18,7 +18,7 @@ from telethon.events import NewMessage, CallbackQuery
 import config
 from models import build_model_page_response
 from train import prepare_model, estimate
-from utils import get_message
+from utils import get_message, is_allowed_user
 
 # commands to implement:
 # - subscribe <link_to_good> <link_to_bad> <link_to_estimate> - set channels to work with
@@ -245,7 +245,9 @@ async def main():
         @bot_client.on(events.NewMessage(incoming=True, func=filter_not_mapped))
         @bot_client.on(events.NewMessage(incoming=True, pattern=START_CMD))
         async def start_handler(event: NewMessage.Event):
-
+            if not is_allowed_user(event.sender_id):
+                await bot_client.send_message(config.owner_user_id, f"user {event.sender_id} tries to use zmt-bot")
+                return
             logger.debug(f"Received unknown command: <{event.message.message}>")
             await event.respond(
                 """
@@ -258,7 +260,11 @@ async def main():
 
         @bot_client.on(events.NewMessage(incoming=True, pattern=SUBSCRIBE_CMD))
         async def subscribe_handler(event: NewMessage.Event):
-            # if you need a way to get channel id - this is it
+            if not is_allowed_user(event.sender_id):
+                await bot_client.send_message(config.owner_user_id, f"user {event.sender_id} tries to use zmt-bot")
+                return
+
+                # if you need a way to get channel id - this is it
             # button = Button(types.KeyboardButtonRequestPeer("ch", 1, RequestPeerTypeBroadcast(), 1),
             #        resize=True, single_use=False, selective=False)
             # await event.respond(f"test", buttons=[button])
@@ -298,6 +304,10 @@ async def main():
 
         @bot_client.on(events.NewMessage(incoming=True, pattern=TRAIN_CMD))
         async def handle_train_handler(event: NewMessage.Event):
+            if not is_allowed_user(event.sender_id):
+                await bot_client.send_message(config.owner_user_id, f"user {event.sender_id} tries to use zmt-bot")
+                return
+
             if not config.get_subscription(event.sender_id):
                 event.respond(f"{SUBSCRIBE_CMD} first")
                 return
@@ -306,6 +316,10 @@ async def main():
 
         @bot_client.on(events.NewMessage(incoming=True, pattern=LIST_MODELS_CMD))
         async def list_models_handler(event: NewMessage.Event):
+            if not is_allowed_user(event.sender_id):
+                await bot_client.send_message(config.owner_user_id, f"user {event.sender_id} tries to use zmt-bot")
+                return
+
             if not config.get_subscription(event.sender_id):
                 event.respond(f"{SUBSCRIBE_CMD} first")
                 return
@@ -344,6 +358,10 @@ async def main():
 
         @bot_client.on(events.NewMessage(incoming=True, pattern=SET_MODEL_CMD))
         async def set_model_handler(event: NewMessage.Event):
+            if not is_allowed_user(event.sender_id):
+                await bot_client.send_message(config.owner_user_id, f"user {event.sender_id} tries to use zmt-bot")
+                return
+
             if not config.get_subscription(event.sender_id):
                 event.respond(f"{SUBSCRIBE_CMD} first")
                 return

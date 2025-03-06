@@ -192,3 +192,10 @@ def get_user_tmp_dir(user_id: int) -> pathlib.Path:
     tmp_path = data_path.joinpath(str(user_id)).joinpath("tmp")
     tmp_path.mkdir(exist_ok=True)
     return tmp_path
+
+
+def get_allowed_to_use_user_ids() -> list[int]:
+    whitelist_path = data_path.joinpath("user_whitelist")
+    if not whitelist_path.exists():
+        return []
+    return [int(user.name) for user in whitelist_path.iterdir()]
