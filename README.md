@@ -11,7 +11,7 @@ export TG_ZMT_VERSION=
 export API_HASH=
 export API_ID=
 export BOT_TOKEN=
-export OWNER_USER_ID=
+export OWNER_USER
 docker run --rm -d --name "tg-zmt-bot" -v "./data:/app/data" --env API_HASH --env API_ID --env BOT_TOKEN --env OWNER_USER_ID "tg-zmt-bot:${TG_ZMT_VERSION}"
 ```
 ```shell
