@@ -13,8 +13,8 @@ ENV POETRY_CACHE_DIR=/opt/.cache
 
 RUN apt update && apt install -y cmake ninja-build && pip install -U pip && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && . $HOME/.cargo/env && pip install "poetry==${POETRY_VERSION}"
 WORKDIR /llvm
-RUN mkdir -p llvm/ && curl -L https://github.com/llvm/llvm-project/releases/download/llvmorg-15.0.7/llvm-project-15.0.7.src.tar.xz | tar -xJf - -C llvm/ --strip-components 1 \
-    && mkdir -p llvmlite/ && curl -L https://github.com/numba/llvmlite/archive/refs/tags/v0.44.0.tar.gz | tar -xzf - -C llvmlite/ --strip-components 1 \
+RUN export TARGET_LLVM_NAME=llvm-project-15.0.7.src && curl -L https://github.com/llvm/llvm-project/releases/download/llvmorg-15.0.7/${TARGET_LLVM_NAME}.tar.xz | tar --absolute-names -xJf - && mv ${TARGET_LLVM_NAME} llvm \
+    && export TARGET_LLVMLITE_TAG=0.44.0 && curl -L https://github.com/numba/llvmlite/archive/refs/tags/v${TARGET_LLVMLITE_TAG}.tar.gz | tar --absolute-names -xzf - && mv llvmlite-${TARGET_LLVMLITE_TAG} llvmlite \
     && cd llvm && ls ../llvmlite/conda-recipes/llvm15* | xargs -I{} patch -p1 -i {}
 ENV CPU_COUNT=1
 RUN cd /llvm/llvm && export PREFIX=/usr/local && bash ../llvmlite/conda-recipes/llvmdev/build.sh
