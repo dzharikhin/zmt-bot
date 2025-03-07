@@ -16,7 +16,10 @@ WORKDIR /llvm
 RUN export TARGET_LLVM_NAME=llvm-project-15.0.7.src && curl -L https://github.com/llvm/llvm-project/releases/download/llvmorg-15.0.7/${TARGET_LLVM_NAME}.tar.xz | tar --absolute-names -xJf - && mv ${TARGET_LLVM_NAME} llvm \
     && export TARGET_LLVMLITE_TAG=0.44.0 && curl -L https://github.com/numba/llvmlite/archive/refs/tags/v${TARGET_LLVMLITE_TAG}.tar.gz | tar --absolute-names -xzf - && mv llvmlite-${TARGET_LLVMLITE_TAG} llvmlite \
     && cd llvm && ls ../llvmlite/conda-recipes/llvm15* | xargs -I{} patch -p1 -i {}
-ENV CPU_COUNT=1
+# parallel compilation
+ENV CPU_COUNT=4
+# set = 1 to disable tests
+ENV CONDA_BUILD_CROSS_COMPILATION=0
 RUN cd /llvm/llvm && export PREFIX=/usr/local && bash ../llvmlite/conda-recipes/llvmdev/build.sh
 WORKDIR /app
 
