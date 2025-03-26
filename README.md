@@ -12,7 +12,7 @@ docker buildx use multiarch
 ```shell
 export TG_ZMT_VERSION=
 docker build --build-arg SKIP_LLVM_TESTS=1 -t "tg-zmt-bot:${TG_ZMT_VERSION}" .
-docker buildx build --ulimit nofile=4096:4096 --build-arg SKIP_LLVM_TESTS=1 --platform=linux/arm/v7 -t "tgzmt-bot:${TG_ZMT_VERSION}-arm" .
+docker buildx build --ulimit nofile=4096:4096 --build-arg SKIP_LLVM_TESTS=1 --platform=linux/arm/v7 -t "tg-zmt-bot:${TG_ZMT_VERSION}-arm" .
 ```
 > now only x86_64 and armv7 are supported
 > if you need to add some specific architecture - add {target}-builder stage
