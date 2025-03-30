@@ -1,10 +1,14 @@
 # syntax=docker/dockerfile-upstream:master
 FROM --platform=$BUILDPLATFORM python:3.12.9-bullseye AS armv7-polars_builder
+ARG QEMU_PAGESIZE=4096
+ENV QEMU_PAGESIZE=$QEMU_PAGESIZE
+
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV TARGET_ARCH=armv7-unknown-linux
 ENV TARGET_ARCH_POSTFIX=gnueabihf
-RUN apt update && apt install -y gcc-arm-linux-${TARGET_ARCH_POSTFIX} \
+
+RUN getconf PAGE_SIZE && apt update && apt install -y gcc-arm-linux-${TARGET_ARCH_POSTFIX} \
     && pip install -U pip setuptools maturin patchelf ziglang \
     && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ARG CPU_COUNT=4
@@ -27,6 +31,10 @@ RUN . $HOME/.cargo/env && cd /polars/polars && rustup target add ${TARGET_ARCH}-
 
 
 FROM python:3.12.9-bullseye AS linux.arm.v7-builder
+ENV QEMU_CPU=cortex-a15
+ARG QEMU_PAGESIZE=4096
+ENV QEMU_PAGESIZE=$QEMU_PAGESIZE
+RUN getconf PAGE_SIZE
 
 ARG POETRY_VERSION=1.8.5
 
@@ -38,9 +46,10 @@ ENV PYTHONUNBUFFERED=1
 # Tell Poetry where to place its cache and virtual environment
 ENV POETRY_CACHE_DIR=/opt/.cache
 
-RUN apt update && apt install -y software-properties-common && add-apt-repository -s "$(cat /etc/apt/sources.list | grep -E '^deb(.+)$' | head -1 )" && apt update
+RUN apt update && apt install -y software-properties-common
+RUN add-apt-repository -s "$(cat /etc/apt/sources.list | grep -E '^deb(.+)$' | head -1 )" && apt update
 # https://llvmlite.readthedocs.io/en/latest/admin-guide/install.html#building-manually
-RUN apt -y build-dep scipy && pip install cmake --upgrade && cmake --version && apt install -y ninja-build \
+RUN pip install cmake==3.31.2 --upgrade && cmake --version && apt install -y ninja-build \
 # scipy https://docs.scipy.org/doc/scipy/building/index.html
     gcc g++ gfortran libopenblas-dev liblapack-dev pkg-config python3-dev \
 # pyarrow https://arrow.apache.org/install/
@@ -154,11 +163,15 @@ RUN . /app/.venv/bin/activate && cd /app && . $HOME/.cargo/env && rm poetry.lock
 
 
 FROM ${TARGETPLATFORM//\//.}-builder AS target_builder
+ARG QEMU_PAGESIZE=4096
+ENV QEMU_PAGESIZE=$QEMU_PAGESIZE
 
 
 
 
 FROM python:3.12.9-bullseye AS runtime
+ARG QEMU_PAGESIZE=4096
+ENV QEMU_PAGESIZE=$QEMU_PAGESIZE
 RUN apt update && apt install -y libopenblas0 liblapack3
 ENV PATH="/app/.venv/bin:$PATH"
 
