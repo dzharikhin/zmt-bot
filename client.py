@@ -19,6 +19,7 @@ import config
 from models import build_model_page_response
 from train import prepare_model, estimate
 from utils import get_message, is_allowed_user
+import polars as pl
 
 # commands to implement:
 # - subscribe <link_to_good> <link_to_bad> <link_to_estimate> - set channels to work with
@@ -252,7 +253,7 @@ async def main():
             await event.respond(
                 """
 /subscribe - to create/edit subscription
-/train - to train new recomenation model
+/train - to train new recommendation model
 /list - to list trained models
 /sync - to sync some channels historical data
 /set - to set model"""

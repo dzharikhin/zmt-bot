@@ -18,7 +18,6 @@ from typing import (
 
 import atomics
 import polars as pl
-from polars import LazyFrame
 
 ID = TypeVar("ID", int, str)
 MapElementsStrategy: TypeAlias = Literal["thread_local", "threading"] | None
@@ -154,7 +153,7 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
         ).sink_csv(tmp_file)
         shutil.copy(tmp_file, self._persist_path)
 
-    def _init_df(self, index_generator: Generator[ID, None, None]) -> LazyFrame:
+    def _init_df(self, index_generator: Generator[ID, None, None]) -> pl.LazyFrame:
         schema_as_dict = dict(self._polars_row_schema)
         index_column_name = self._polars_row_schema[0][0]
 
