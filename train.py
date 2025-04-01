@@ -15,6 +15,7 @@ from mutagen.mp3 import HeaderNotFoundError
 from sklearn.metrics import accuracy_score
 from soundfile import LibsndfileError
 from telethon import TelegramClient
+from telethon.tl import types
 from telethon.tl.custom import Message
 from telethon.tl.functions.channels import GetChannelsRequest
 from telethon.tl.types import Chat, DocumentAttributeAudio
@@ -81,11 +82,15 @@ class Mp3Filter:
             return False
         if not isinstance(message, (telethon.tl.types.Message, Message)):
             return False
-        if not message.media or not message.media.document:
+        if isinstance(message, types.MessageMediaPhoto):
             return False
-        if message.media.document.mime_type not in {"audio/mpeg", "audio/mp3"}:
+        if not hasattr(message, "media") or not hasattr(message.media, "document"):
             return False
-        if not message.media.document.attributes or not [
+        if not hasattr(
+            message.media.document, "mime_type"
+        ) or message.media.document.mime_type not in {"audio/mpeg", "audio/mp3"}:
+            return False
+        if not hasattr(message.media.document, "attributes") or not [
             audio_attr := cast(DocumentAttributeAudio, attr)
             for attr in message.media.document.attributes
             if isinstance(attr, DocumentAttributeAudio)
