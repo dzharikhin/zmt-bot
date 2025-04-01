@@ -1,35 +1,4 @@
 # syntax=docker/dockerfile-upstream:master
-FROM --platform=$BUILDPLATFORM python:3.12.9-bullseye AS armv7-polars_builder
-ARG QEMU_PAGESIZE=4096
-ENV QEMU_PAGESIZE=$QEMU_PAGESIZE
-
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
-ENV TARGET_ARCH=armv7-unknown-linux
-ENV TARGET_ARCH_POSTFIX=gnueabihf
-
-RUN getconf PAGE_SIZE && apt update && apt install -y gcc-arm-linux-${TARGET_ARCH_POSTFIX} \
-    && pip install -U pip setuptools maturin patchelf ziglang \
-    && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-ARG CPU_COUNT=4
-ENV CPU_COUNT=$CPU_COUNT
-
-WORKDIR /polars
-ARG CARGO_BUILD_JOBS=4
-ENV CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS
-ENV TARGET_POLARS_TAG=py-1.24.0
-RUN curl -L https://github.com/pola-rs/polars/archive/refs/tags/${TARGET_POLARS_TAG}.tar.gz | tar --absolute-names -xzf - && mv polars-${TARGET_POLARS_TAG} polars \
-    && . $HOME/.cargo/env \
-    && sed -i "s/--upgrade --compile-bytecode --no-build/--upgrade --compile-bytecode/" /polars/polars/Makefile \
-    && sed -i "s/kuzu//" /polars/polars/py-polars/requirements-dev.txt \
-    && sed -i "s/deltalake>=0.15.0//" /polars/polars/py-polars/requirements-dev.txt \
-    && cd /polars/polars/py-polars && make --debug=b -j${CPU_COUNT} requirements
-RUN . $HOME/.cargo/env && cd /polars/polars && rustup target add ${TARGET_ARCH}-${TARGET_ARCH_POSTFIX} \
-    && maturin build -j${CPU_COUNT} --profile dist-release --manifest-path py-polars/Cargo.toml --target ${TARGET_ARCH}-${TARGET_ARCH_POSTFIX} --zig
-
-
-
-
 FROM python:3.12.9-bullseye AS linux.arm.v7-builder
 ENV QEMU_CPU=cortex-a15
 ARG QEMU_PAGESIZE=4096
@@ -97,16 +66,9 @@ RUN curl -L https://github.com/apache/arrow-adbc/releases/download/${TARGET_ADBC
     && cd adbc && . /app/.venv/bin/activate && cmake -S c -B build -DADBC_DRIVER_SQLITE=ON -DADBC_BUILD_SHARED=1 && cmake --build build && cmake --install build
 ENV ADBC_SQLITE_LIBRARY=/usr/local/lib/libadbc_driver_sqlite.so
 
-WORKDIR /crates-typos
-ENV TARGET_TYPOS_TAG=1.29.0
-RUN curl -L https://github.com/crate-ci/typos/archive/refs/tags/v${TARGET_TYPOS_TAG}.tar.gz | tar --absolute-names -xzf - && mv typos-${TARGET_TYPOS_TAG} crates-typos \
-    && . $HOME/.cargo/env && . /app/.venv/bin/activate \
-    && cd /crates-typos/crates-typos && maturin build -j${CPU_COUNT} --manifest-path crates/typos-cli/Cargo.toml --release \
-    && cd /crates-typos/crates-typos/target/wheels && ls | xargs -I{} pip install {} && pip list --format=freeze
-
-WORKDIR /polars
-COPY --from=armv7-polars_builder /polars/polars/target/wheels /polars/polars/target/wheels
-RUN . /app/.venv/bin/activate && cd /polars/polars/target/wheels && ls | xargs -I{} pip install {} \
+WORKDIR /wheels
+COPY --from=dependencies_arm /wheels /wheels
+RUN . /app/.venv/bin/activate && ls | xargs -I{} pip install {} \
     && pip list --format=freeze
 
 WORKDIR /app
@@ -114,7 +76,7 @@ RUN . /app/.venv/bin/activate && cd /llvm/llvmlite && python setup.py build && p
 ARG POETRY_INSTALLER_MAX_WORKERS=4
 ENV POETRY_INSTALLER_MAX_WORKERS=$POETRY_INSTALLER_MAX_WORKERS
 RUN . /app/.venv/bin/activate && cd /app && . $HOME/.cargo/env \
-    && export WHL=/polars/polars/target/wheels/$(ls /polars/polars/target/wheels) && sed -i -E "s:polars.+:polars = { path=\"$WHL\" }:" pyproject.toml && poetry lock --no-update \
+    && export WHL=/wheels/$(ls /wheels | grep "polars-") && sed -i -E "s:polars.+:polars = { path=\"$WHL\" }:" pyproject.toml && poetry lock --no-update \
     && poetry -vv install --no-root && rm -rf $POETRY_CACHE_DIR
 
 
@@ -172,7 +134,7 @@ ENV QEMU_PAGESIZE=$QEMU_PAGESIZE
 FROM python:3.12.9-bullseye AS runtime
 ARG QEMU_PAGESIZE=4096
 ENV QEMU_PAGESIZE=$QEMU_PAGESIZE
-RUN apt update && apt install -y libopenblas0 liblapack3
+RUN apt update && apt install -y libopenblas0 liblapack3 libsndfile1
 ENV PATH="/app/.venv/bin:$PATH"
 
 COPY --from=target_builder /usr/local /usr/local
