@@ -22,4 +22,7 @@ async def get_message(
 
 
 def is_allowed_user(user_id: int) -> bool:
-    return user_id == config.owner_user_id or user_id in config.get_allowed_to_use_user_ids()
+    return (
+        user_id == config.owner_user_id
+        or user_id in config.get_allowed_to_use_user_ids()
+    )

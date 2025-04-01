@@ -6,3 +6,4 @@ Dockerfile
 *.iml
 *.zip
 *.ods
+*.tar

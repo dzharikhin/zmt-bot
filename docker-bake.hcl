@@ -2,7 +2,7 @@ group "default" {
     targets = [ "deps", "tg-zmt-bot" ]
 }
 variable "TG_ZMT_VERSION" {
-  default = "1.0"
+  default = "1.1"
 }
 variable "QEMU_PAGESIZE" {
   default = "32768"

@@ -9,7 +9,6 @@ from typing import cast, Union
 
 import persistqueue
 import telethon
-from persistqueue import SQLiteAckQueue
 from persistqueue.serializers import json as jser
 from telethon import TelegramClient, events
 from telethon.errors import RPCError
@@ -19,7 +18,6 @@ import config
 from models import build_model_page_response
 from train import prepare_model, estimate
 from utils import get_message, is_allowed_user
-import polars as pl
 
 # commands to implement:
 # - subscribe <link_to_good> <link_to_bad> <link_to_estimate> - set channels to work with
@@ -60,12 +58,14 @@ async def handle_train_queue_tasks(
             continue
 
         queue = get_or_create_train_queue(user_id)
+        cmd = None
         try:
             cmd = queue.get_nowait()
             await prepare_model(user_id, bot_client, cmd["message_id"], cmd["forced"])
             model = config.get_model(user_id, cmd["message_id"])
             await bot_client.send_message(
-                f"Successfully trained model {model.model_id}: accuracy={model.accuracy} for {model.disliked_tracks_count} disliked tracks and {model.liked_tracks_count} liked tracks"
+                user_id,
+                f"Successfully trained model {model.model_id}: accuracy={model.accuracy} for {model.disliked_tracks_count} disliked tracks and {model.liked_tracks_count} liked tracks",
             )
             queue.ack(cmd)
         except persistqueue.exceptions.Empty:
@@ -102,6 +102,9 @@ async def send_estimate_queue_task(event, user_id):
             "message_id": event.message.id,
         }
     )
+    logger.debug(
+        f"Created estimation task for chat_id={event.chat_id} and message_id={event.message.id}"
+    )
 
 
 async def handle_estimate_queue_tasks(
@@ -115,6 +118,7 @@ async def handle_estimate_queue_tasks(
             continue
 
         queue = get_or_create_estimate_queue(user_id)
+        cmd = None
         try:
             cmd = queue.get_nowait()
             is_recommended = bool(
@@ -175,9 +179,9 @@ def not_matched_command(txt: str) -> bool:
 
 
 @functools.cache
-def get_or_create_train_queue(user_id: int) -> SQLiteAckQueue:
+def get_or_create_train_queue(user_id: int) -> persistqueue.SQLiteAckQueue:
     queue_path = config.get_train_queue_path(user_id)
-    return SQLiteAckQueue(
+    return persistqueue.SQLiteAckQueue(
         str(queue_path.parent),
         serializer=jser,
         multithreading=True,
@@ -187,9 +191,9 @@ def get_or_create_train_queue(user_id: int) -> SQLiteAckQueue:
 
 
 @functools.cache
-def get_or_create_estimate_queue(user_id: int) -> SQLiteAckQueue:
+def get_or_create_estimate_queue(user_id: int) -> persistqueue.SQLiteAckQueue:
     queue_path = config.get_estimate_queue_path(user_id)
-    return SQLiteAckQueue(
+    return persistqueue.SQLiteAckQueue(
         str(queue_path.parent),
         serializer=jser,
         multithreading=True,
@@ -247,22 +251,25 @@ async def main():
         @bot_client.on(events.NewMessage(incoming=True, pattern=START_CMD))
         async def start_handler(event: NewMessage.Event):
             if not is_allowed_user(event.sender_id):
-                await bot_client.send_message(config.owner_user_id, f"user {event.sender_id} tries to use zmt-bot")
+                await bot_client.send_message(
+                    config.owner_user_id, f"user {event.sender_id} tries to use zmt-bot"
+                )
                 return
             logger.debug(f"Received unknown command: <{event.message.message}>")
             await event.respond(
-                """
-/subscribe - to create/edit subscription
-/train - to train new recommendation model
-/list - to list trained models
-/sync - to sync some channels historical data
-/set - to set model"""
+                f"""
+{SUBSCRIBE_CMD} - to create/edit subscription
+{TRAIN_CMD} - to train new recommendation model
+{LIST_MODELS_CMD} - to list trained models
+{SET_MODEL_CMD} - to set model"""
             )
 
         @bot_client.on(events.NewMessage(incoming=True, pattern=SUBSCRIBE_CMD))
         async def subscribe_handler(event: NewMessage.Event):
             if not is_allowed_user(event.sender_id):
-                await bot_client.send_message(config.owner_user_id, f"user {event.sender_id} tries to use zmt-bot")
+                await bot_client.send_message(
+                    config.owner_user_id, f"user {event.sender_id} tries to use zmt-bot"
+                )
                 return
 
                 # if you need a way to get channel id - this is it
@@ -306,24 +313,30 @@ async def main():
         @bot_client.on(events.NewMessage(incoming=True, pattern=TRAIN_CMD))
         async def handle_train_handler(event: NewMessage.Event):
             if not is_allowed_user(event.sender_id):
-                await bot_client.send_message(config.owner_user_id, f"user {event.sender_id} tries to use zmt-bot")
+                await bot_client.send_message(
+                    config.owner_user_id, f"user {event.sender_id} tries to use zmt-bot"
+                )
                 return
 
             if not config.get_subscription(event.sender_id):
-                event.respond(f"{SUBSCRIBE_CMD} first")
+                await event.respond(f"{SUBSCRIBE_CMD} first")
                 return
 
             await send_train_queue_task(event)
+            await event.respond(f"Training task for id={event.message.id} created")
 
         @bot_client.on(events.NewMessage(incoming=True, pattern=LIST_MODELS_CMD))
         async def list_models_handler(event: NewMessage.Event):
             if not is_allowed_user(event.sender_id):
-                await bot_client.send_message(config.owner_user_id, f"user {event.sender_id} tries to use zmt-bot")
+                await bot_client.send_message(
+                    config.owner_user_id, f"user {event.sender_id} tries to use zmt-bot"
+                )
                 return
 
             if not config.get_subscription(event.sender_id):
-                event.respond(f"{SUBSCRIBE_CMD} first")
+                await event.respond(f"{SUBSCRIBE_CMD} first")
                 return
+
             message_text, buttons, (pagination_data, attributes) = (
                 await build_model_page_response(event.sender_id, [])
             )
@@ -339,7 +352,7 @@ async def main():
         @bot_client.on(
             events.CallbackQuery(data=re.compile("^model-list\\(([^:]+):([^:]+)\\)"))
         )
-        async def channels_pagination_handler(event: CallbackQuery.Event):
+        async def models_pagination_handler(event: CallbackQuery.Event):
             message = await get_message(event.chat_id, event.message_id, bot_client)
             action_type = event.pattern_match.group(1).decode("utf-8").strip()
             target_offset = event.pattern_match.group(2).decode("utf-8").strip()
@@ -360,12 +373,15 @@ async def main():
         @bot_client.on(events.NewMessage(incoming=True, pattern=SET_MODEL_CMD))
         async def set_model_handler(event: NewMessage.Event):
             if not is_allowed_user(event.sender_id):
-                await bot_client.send_message(config.owner_user_id, f"user {event.sender_id} tries to use zmt-bot")
+                await bot_client.send_message(
+                    config.owner_user_id, f"user {event.sender_id} tries to use zmt-bot"
+                )
                 return
 
             if not config.get_subscription(event.sender_id):
-                event.respond(f"{SUBSCRIBE_CMD} first")
+                await event.respond(f"{SUBSCRIBE_CMD} first")
                 return
+
             model_id = int(event.pattern_match.group(1).strip())
             if not config.get_model(event.sender_id, model_id):
                 await event.respond(f"Model {model_id} does not exist")
