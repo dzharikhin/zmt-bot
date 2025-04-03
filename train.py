@@ -5,6 +5,7 @@ import pathlib
 import pickle
 import shutil
 import tempfile
+import time
 from typing import Literal, Optional, TypeAlias, cast, Callable
 
 import atomics
@@ -178,15 +179,24 @@ async def download_audio_from_channel(
     ids = list(range(latest_message_id + 1))
     if limit:
         ids = ids[-limit:]
+    start = time.time()
     async for message in bot_client.iter_messages(channel, ids=ids, reverse=True):
+        got_message = time.time()
         if not FILTER.filter_message(message):
             if message:
                 logging.info(
                     f"Message {message.stringify()} does not match {FILTER}, skipping"
                 )
             continue
-
+        filtered_message = time.time()
         await save_track_if_not_exists(user_id, message, channel_type)
+        logger.debug(
+            f"Handled msg={message.id}: "
+            f"got message in {got_message - start:.2f} sec, "
+            f"filtered in {filtered_message - got_message:.2f} sec, "
+            f"saved in {time.time() - filtered_message:.2f} sec"
+        )
+        start = time.time()
 
     # takeout_init_tries = 0
     # while takeout_init_tries < 3:
@@ -364,7 +374,11 @@ def train_model(user_id: int, model_id: int) -> config.Model:
 
 
 async def prepare_model(
-    user_id: int, bot_client: TelegramClient, model_id: int, force: bool = False
+    user_id: int,
+    bot_client: TelegramClient,
+    model_id: int,
+    force: bool = False,
+    limit: int | None = None,
 ):
     try:
         subscription = config.get_subscription(user_id)
@@ -378,10 +392,18 @@ async def prepare_model(
             shutil.rmtree(config.get_disliked_file_store_path(user_id))
 
         await download_audio_from_channel(
-            user_id, subscription.liked_tracks_channel_id, "liked", bot_client
+            user_id,
+            subscription.liked_tracks_channel_id,
+            "liked",
+            bot_client,
+            limit,
         )
         await download_audio_from_channel(
-            user_id, subscription.disliked_tracks_channel_id, "disliked", bot_client
+            user_id,
+            subscription.disliked_tracks_channel_id,
+            "disliked",
+            bot_client,
+            limit,
         )
         # Run the blocking task in the executor
         model = await asyncio.get_running_loop().run_in_executor(

@@ -34,15 +34,12 @@ logger = logging.getLogger(__file__)
 logger.setLevel(logging.DEBUG)
 
 
-async def send_train_queue_task(event):
-    is_forced = (
-        event.pattern_match.group(1)
-        and event.pattern_match.group(1).to_lower() == "true"
-    )
+async def send_train_queue_task(event, is_forced: bool, limit: int | None):
     get_or_create_train_queue(event.sender_id).put(
         {
             "message_id": event.message.id,
             "forced": is_forced,
+            "limit": limit,
         }
     )
 
@@ -61,7 +58,14 @@ async def handle_train_queue_tasks(
         cmd = None
         try:
             cmd = queue.get_nowait()
-            await prepare_model(user_id, bot_client, cmd["message_id"], cmd["forced"])
+            logger.debug(f"Handling train cmd={cmd}")
+            await prepare_model(
+                user_id,
+                bot_client,
+                cmd["message_id"],
+                cmd["forced"],
+                cmd.get("limit", None),
+            )
             model = config.get_model(user_id, cmd["message_id"])
             await bot_client.send_message(
                 user_id,
@@ -121,6 +125,7 @@ async def handle_estimate_queue_tasks(
         cmd = None
         try:
             cmd = queue.get_nowait()
+            logger.debug(f"Handling estimation cmd={cmd}")
             is_recommended = bool(
                 await estimate(user_id, cmd["chat_id"], cmd["message_id"], bot_client)
             )
@@ -158,7 +163,7 @@ async def handle_estimate_queue_tasks(
 
 START_CMD = "(?i)^/start"
 SUBSCRIBE_CMD = "(?i)^/subscribe\\s+(-?\\d+)\\s+(-?\\d+)\\s+(-?\\d+)"
-TRAIN_CMD = "(?i)^/train\\s*([\\S]*)"
+TRAIN_CMD = "(?i)^/train\\s*([\\d]*)\\s*([\\S\\D]*)"
 LIST_MODELS_CMD = "(?i)^/list"
 SET_MODEL_CMD = "(?i)^/set\\s+(\\d+)"
 
@@ -322,7 +327,16 @@ async def main():
                 await event.respond(f"{SUBSCRIBE_CMD} first")
                 return
 
-            await send_train_queue_task(event)
+            limit = (
+                int(event.pattern_match.group(1))
+                if event.pattern_match.group(1)
+                else None
+            )
+            is_forced = (
+                    event.pattern_match.group(2)
+                    and event.pattern_match.group(2).to_lower() == "true"
+            )
+            await send_train_queue_task(event, is_forced, limit)
             await event.respond(f"Training task for id={event.message.id} created")
 
         @bot_client.on(events.NewMessage(incoming=True, pattern=LIST_MODELS_CMD))
