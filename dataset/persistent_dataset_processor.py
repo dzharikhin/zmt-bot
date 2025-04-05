@@ -1,4 +1,5 @@
 import functools
+import logging
 import pathlib
 import shutil
 import tempfile
@@ -57,6 +58,7 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
         self._intermediate_results_dir = intermediate_results_dir
         self._batch_size = batch_size
         self._df = self._init_df(index_generator)
+        print(f"inited _df")
         size_df = (
             self._df.select(pl.nth(0), pl.nth(1))
             .group_by(pl.nth(1).is_null().not_().alias("processed"))
@@ -171,17 +173,22 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
         with index_buffer_file_path.open(mode="wt") as index_buffer_file:
             for index_value in index_generator:
                 index_buffer_file.write(f"{index_value}\n")
-
+        print(f"Scanning index")
         whole_data_df = pl.scan_csv(
             index_buffer_file_path, schema=schema_as_dict, has_header=False
         )
+        print(f"lazy update")
         whole_data_df = whole_data_df.update(
             existing_data_df, on=index_column_name, how="left", include_nulls=False
         )
+        print(f"collecting to merged")
         data_file = pathlib.Path(self._intermediate_results_dir).joinpath("merged")
-        whole_data_df.collect(
-            # streaming=True,  # OOM on big data on version 1.18.0
-        ).write_csv(data_file)
+        merged_data = whole_data_df.collect(
+            engine="streaming"
+        )
+        print(f"got in RAM")
+        merged_data.write_csv(data_file)
+        print(f"merged written")
         return pl.scan_csv(data_file, schema=schema_as_dict)
 
     def _transform_tuple_to_dict(

@@ -257,6 +257,7 @@ def prepare_audio_features_dataset(
     tmp_dir = config.get_user_tmp_dir(user_id)
 
     with tempfile.TemporaryDirectory(dir=tmp_dir) as tmp:
+        logger.debug(f"model {results_dir.name}: started to init ds manager")
         dataset_manager = DataSetFromDataManager(
             dataset_path,
             row_schema=ROW_SCHEMA,
@@ -295,6 +296,7 @@ def prepare_audio_features_dataset(
 
 def train_model(user_id: int, model_id: int) -> config.Model:
     model_store_ctx = config.get_model_store_path(user_id, model_id)
+    logger.debug(f"model {model_id}: got store ctx={model_store_ctx}")
     liked_data = prepare_audio_features_dataset(
         user_id=user_id,
         results_dir=model_store_ctx.model_workdir,

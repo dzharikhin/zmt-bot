@@ -24,7 +24,7 @@ RUN . $HOME/.cargo/env && maturin build -j${CPU_COUNT} --release --manifest-path
 WORKDIR /polars
 ARG CARGO_BUILD_JOBS=4
 ENV CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS
-ENV TARGET_POLARS_TAG=py-1.24.0
+ENV TARGET_POLARS_TAG=py-1.26.0
 RUN curl -L https://github.com/pola-rs/polars/archive/refs/tags/${TARGET_POLARS_TAG}.tar.gz | tar --absolute-names -xzf - && mv polars-${TARGET_POLARS_TAG} polars
 WORKDIR /polars/polars
 RUN . $HOME/.cargo/env \
@@ -35,9 +35,9 @@ RUN . $HOME/.cargo/env \
     && rustup target add ${TARGET_ARCH}-${TARGET_ARCH_POSTFIX}
 ARG ALLOCATOR=
 ENV ALLOCATOR=$ALLOCATOR
-ARG JEMALLOC_SYS_WITH_LG_PAGE=4
+ARG JEMALLOC_SYS_WITH_LG_PAGE=32
 ENV JEMALLOC_SYS_WITH_LG_PAGE=$JEMALLOC_SYS_WITH_LG_PAGE
-ARG JEMALLOC_SYS_WITH_LG_HUGEPAGE=16
+ARG JEMALLOC_SYS_WITH_LG_HUGEPAGE=64
 ENV JEMALLOC_SYS_WITH_LG_HUGEPAGE=$JEMALLOC_SYS_WITH_LG_HUGEPAGE
 RUN . $HOME/.cargo/env && export RUSTFLAGS=$([ -n "${ALLOCATOR}" ] && echo "--cfg allocator=\"${ALLOCATOR}\"") && maturin build -j${CPU_COUNT} --profile dist-release --manifest-path py-polars/Cargo.toml --target ${TARGET_ARCH}-${TARGET_ARCH_POSTFIX} --zig
 
