@@ -11,11 +11,11 @@ variable "VER" {
   default = "${TG_ZMT_VERSION}-armv7-pagesize${QEMU_PAGESIZE}"
 }
 variable "ALLOCATOR" {
-  default = "mimalloc"
+  default = "jemalloc"
 }
 target "deps" {
     context = "."
-    dockerfile = "Dockerfile_dependencies_armv7"
+    dockerfile = "dependencies.x86_64.to.armv7.Dockerfile"
     args = {
         ALLOCATOR = "${ALLOCATOR}"
     }
@@ -24,6 +24,7 @@ target "deps" {
     ]
     tags = [ "tg-zmt-bot_dependencies:${VER}" ]
     output = [{ type = "docker" }]
+#    platforms = [ "linux/arm/v7" ]
 }
 variable "SKIP_LLVM_TESTS" {
   default = "1"

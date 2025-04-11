@@ -25,6 +25,7 @@ export TG_ZMT_VERSION=
 docker buildx bake
 docker save "tg-zmt-bot:${TG_ZMT_VERSION}-armv7-pagesize32768" > "tg-zmt-bot-${TG_ZMT_VERSION}-armv7-pagesize32768".tar
 ```
+> For debug you can use `docker buildx bake --progress=plain 2>&1 | tee bake.log`
 
 ## Run
 ```shell
