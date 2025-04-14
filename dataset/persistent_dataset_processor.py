@@ -171,11 +171,12 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
             "index_buffer"
         )
         with index_buffer_file_path.open(mode="wt") as index_buffer_file:
+            index_buffer_file.write(f"{index_column_name},{",".join([name for name, _ in self.row_schema][1:])}\n")
             for index_value in index_generator:
-                index_buffer_file.write(f"{index_value}\n")
+                index_buffer_file.write(f"{index_value}{"," * (len(self.row_schema) - 1)}\n")
         print(f"Scanning index")
         whole_data_df = pl.scan_csv(
-            index_buffer_file_path, schema=schema_as_dict, has_header=False
+            index_buffer_file_path, schema=schema_as_dict, has_header=True
         )
         print(f"lazy update")
         whole_data_df = whole_data_df.update(
