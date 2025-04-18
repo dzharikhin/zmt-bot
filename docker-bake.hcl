@@ -2,7 +2,6 @@ group "default" {
     targets = [ "deps", "tg-zmt-bot" ]
 }
 variable "TG_ZMT_VERSION" {
-  default = "1.1"
 }
 variable "QEMU_PAGESIZE" {
   default = "32768"
@@ -10,21 +9,14 @@ variable "QEMU_PAGESIZE" {
 variable "VER" {
   default = "${TG_ZMT_VERSION}-armv7-pagesize${QEMU_PAGESIZE}"
 }
-variable "ALLOCATOR" {
-  default = "jemalloc"
-}
 target "deps" {
     context = "."
     dockerfile = "dependencies.x86_64.to.armv7.Dockerfile"
-    args = {
-        ALLOCATOR = "${ALLOCATOR}"
-    }
     ulimits = [
         "nofile=4096:4096"
     ]
     tags = [ "tg-zmt-bot_dependencies:${VER}" ]
     output = [{ type = "docker" }]
-#    platforms = [ "linux/arm/v7" ]
 }
 variable "SKIP_LLVM_TESTS" {
   default = "1"

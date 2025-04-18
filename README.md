@@ -36,3 +36,10 @@ export BOT_TOKEN=
 export OWNER_USER
 docker run --rm -d --name "tg-zmt-bot" -v "./data:/app/data" --env API_HASH --env API_ID --env BOT_TOKEN --env OWNER_USER_ID "tg-zmt-bot:${TG_ZMT_VERSION}"
 ```
+group "validate" {
+targets = ["test", "lint"]
+}
+
+Now, running both tests is as simple as:
+
+docker buildx bake validate
