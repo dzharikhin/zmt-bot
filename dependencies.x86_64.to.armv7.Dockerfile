@@ -33,12 +33,15 @@ RUN . $HOME/.cargo/env \
     && sed -i "s/--upgrade --compile-bytecode --no-build/--upgrade --compile-bytecode/" Makefile \
     && sed -i "s/kuzu//" py-polars/requirements-dev.txt \
     && sed -i "s/deltalake>=0.15.0//" py-polars/requirements-dev.txt \
+    && sed -i "s/mimalloc = { version = \"0.1\", default-features = false }/libc_alloc = { version = \"1.0.0\" }/" py-polars/Cargo.toml \
+    && cat py-polars/Cargo.toml \
+    && sed -i "s/static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;/static ALLOC: libc_alloc::LibcAlloc = libc_alloc::LibcAlloc;/" py-polars/src/allocator.rs \
+    && cat py-polars/src/allocator.rs \
     && cd py-polars && make --debug=b -j${CPU_COUNT} requirements
 RUN . $HOME/.cargo/env \
     && rustup target add ${TARGET_ARCH}-${TARGET_ARCH_POSTFIX} \
     && rustup component add llvm-tools-preview
-
-RUN . $HOME/.cargo/env && export RUSTFLAGS="${RUSTFLAGS} --cfg allocator=\"mimalloc\"" && maturin build --target ${TARGET_ARCH}-${TARGET_ARCH_POSTFIX} --compatibility manylinux_2_28 --auditwheel=skip -j${CPU_COUNT} --profile dev --manifest-path py-polars/Cargo.toml --features tikv-jemallocator/stats,tikv-jemallocator/debug,mimalloc/debug,mimalloc/no_thp
+RUN . $HOME/.cargo/env && export RUSTFLAGS="${RUSTFLAGS} --cfg allocator=\"mimalloc\"" && maturin build -vvv --target ${TARGET_ARCH}-${TARGET_ARCH_POSTFIX} --compatibility manylinux_2_28 --auditwheel=skip -j${CPU_COUNT} --profile dev --manifest-path py-polars/Cargo.toml --features tikv-jemallocator/stats,tikv-jemallocator/debug
 
 
 
