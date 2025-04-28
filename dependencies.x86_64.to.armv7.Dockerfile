@@ -4,7 +4,8 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV TARGET_ARCH=armv7-unknown-linux
 ENV TARGET_ARCH_POSTFIX=gnueabihf
-ENV RUSTFLAGS="-g"
+ENV CC_ENABLE_DEBUG_OUTPUT=1
+ENV RUSTFLAGS="-g -C target-cpu=cortex-a15 -C target-feature=+v7"
 
 RUN getconf PAGE_SIZE
 RUN apt update
@@ -25,7 +26,7 @@ ARG JEMALLOC_SYS_WITH_LG_PAGE=15
 ENV JEMALLOC_SYS_WITH_LG_PAGE=$JEMALLOC_SYS_WITH_LG_PAGE
 ARG CARGO_BUILD_JOBS=4
 ENV CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS
-ENV TARGET_POLARS_TAG=py-1.27.1
+ENV TARGET_POLARS_TAG=py-1.28.1
 RUN curl -L https://github.com/pola-rs/polars/archive/refs/tags/${TARGET_POLARS_TAG}.tar.gz | tar --absolute-names -xzf - && mv polars-${TARGET_POLARS_TAG} polars
 WORKDIR /polars/polars
 RUN . $HOME/.cargo/env \
