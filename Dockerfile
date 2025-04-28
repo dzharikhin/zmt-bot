@@ -87,7 +87,7 @@ RUN . /app/.venv/bin/activate && cd /app && . $HOME/.cargo/env \
 
 
 
-FROM ubuntu:jammy-20250404 AS linux.x86_64-builder
+FROM ubuntu:jammy-20250404 AS linux.amd64-builder
 ARG POETRY_VERSION=1.8.5
 ENV POETRY_HOME=/opt/poetry
 ENV POETRY_VIRTUALENVS_IN_PROJECT=1
@@ -98,15 +98,20 @@ ENV PYTHONUNBUFFERED=1
 ENV POETRY_CACHE_DIR=/opt/.cache
 
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt update && apt install -y software-properties-common curl git
+RUN apt update && apt install -y software-properties-common curl git build-essential gcc g++
 RUN add-apt-repository ppa:deadsnakes/ppa
 RUN apt update && apt install -y python3.12 python-is-python3
 RUN rm -f /usr/lib/python3.12/EXTERNALLY-MANAGED && curl -sSL https://bootstrap.pypa.io/get-pip.py -o get-pip.py && python get-pip.py setuptools wheel && python -m pip config set global.break-system-packages true
 RUN add-apt-repository -s "$(cat /etc/apt/sources.list | grep -E '^deb(.+)$' | head -1 )" && apt update
 # https://llvmlite.readthedocs.io/en/latest/admin-guide/install.html#building-manually
-RUN pip install cmake --upgrade && cmake --version && apt install -y ninja-build \
+RUN pip install cmake==3.31.2 --upgrade && cmake --version && apt install -y ninja-build \
     && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && . $HOME/.cargo/env \
-    && pip install -U pip setuptools && pip install "poetry==${POETRY_VERSION}"
+    && pip install "poetry==${POETRY_VERSION}"
+
+WORKDIR /app
+COPY pyproject.toml poetry.lock /app/
+RUN poetry env use 3.12 && . /app/.venv/bin/activate && pip install -U pip setuptools
+
 # parallel compilation
 ARG CPU_COUNT=4
 ENV CPU_COUNT=$CPU_COUNT
@@ -124,8 +129,6 @@ ENV PREFIX=/usr/local
 RUN cd /llvm/llvm && bash ../llvmlite/conda-recipes/llvmdev/build.sh
 
 WORKDIR /app
-COPY pyproject.toml poetry.lock /app/
-RUN poetry env use 3.12
 RUN . /app/.venv/bin/activate && cd /llvm/llvmlite && python setup.py build && python runtests.py && python setup.py install
 ARG POETRY_INSTALLER_MAX_WORKERS=4
 ENV POETRY_INSTALLER_MAX_WORKERS=$POETRY_INSTALLER_MAX_WORKERS
