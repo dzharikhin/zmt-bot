@@ -23,7 +23,7 @@ RUN pip install cmake==3.31.2 --upgrade && cmake --version && apt install -y nin
     gcc g++ gfortran libopenblas-dev liblapack-dev pkg-config python3-dev python3.12-dev \
 # pyarrow https://arrow.apache.org/install/
     ca-certificates lsb-release \
-    && curl -LO https://apache.jfrog.io/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb \
+    && curl -LO "https://apache.jfrog.io/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb" \
     && apt install -y -V ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb \
     && apt update \
     && apt install -y -V  build-essential \
@@ -36,8 +36,8 @@ ENV CPU_COUNT=$CPU_COUNT
 WORKDIR /llvm
 ENV TARGET_LLVM_NAME=llvm-project-15.0.7.src
 ENV TARGET_LLVMLITE_TAG=0.44.0
-RUN curl -L https://github.com/llvm/llvm-project/releases/download/llvmorg-15.0.7/${TARGET_LLVM_NAME}.tar.xz | tar --absolute-names -xJf - && mv ${TARGET_LLVM_NAME} llvm \
-    && curl -L https://github.com/numba/llvmlite/archive/refs/tags/v${TARGET_LLVMLITE_TAG}.tar.gz | tar --absolute-names -xzf - && mv llvmlite-${TARGET_LLVMLITE_TAG} llvmlite \
+RUN curl -L "https://github.com/llvm/llvm-project/releases/download/llvmorg-15.0.7/${TARGET_LLVM_NAME}.tar.xz" | tar --absolute-names -xJf - && mv ${TARGET_LLVM_NAME} llvm \
+    && curl -L "https://github.com/numba/llvmlite/archive/refs/tags/v${TARGET_LLVMLITE_TAG}.tar.gz" | tar --absolute-names -xzf - && mv llvmlite-${TARGET_LLVMLITE_TAG} llvmlite \
     && cd llvm && ls ../llvmlite/conda-recipes/llvm15* | xargs -I{} patch -p1 -i {}
 # set = 1 to disable tests
 ARG SKIP_LLVM_TESTS=0
@@ -57,14 +57,14 @@ WORKDIR /arrow
 ARG JEMALLOC_SYS_WITH_LG_PAGE=15
 ENV JEMALLOC_SYS_WITH_LG_PAGE=$JEMALLOC_SYS_WITH_LG_PAGE
 ENV TARGET_ARROW_TAG=apache-arrow-19.0.1
-RUN curl -L https://github.com/apache/arrow/releases/download/${TARGET_ARROW_TAG}/${TARGET_ARROW_TAG}.tar.gz | tar --absolute-names -xzf - && mv ${TARGET_ARROW_TAG} arrow \
+RUN curl -L "https://github.com/apache/arrow/releases/download/${TARGET_ARROW_TAG}/${TARGET_ARROW_TAG}.tar.gz" | tar --absolute-names -xzf - && mv ${TARGET_ARROW_TAG} arrow \
     && cd arrow/cpp && cmake --preset -N ninja-release-python && mkdir build && cd build && cmake .. --preset ninja-release-python -DCMAKE_INSTALL_PREFIX=/usr/local \
     && cmake --build . && cmake --install .
 
 # https://github.com/apache/arrow-adbc/tree/main/python/adbc_driver_sqlite
 WORKDIR /adbc
 ENV TARGET_ADBC_TAG=apache-arrow-adbc-17
-RUN curl -L https://github.com/apache/arrow-adbc/releases/download/${TARGET_ADBC_TAG}/${TARGET_ADBC_TAG}.tar.gz | tar --absolute-names -xzf - && mv ${TARGET_ADBC_TAG} adbc \
+RUN curl -L "https://github.com/apache/arrow-adbc/releases/download/${TARGET_ADBC_TAG}/${TARGET_ADBC_TAG}.tar.gz" | tar --absolute-names -xzf - && mv ${TARGET_ADBC_TAG} adbc \
     && cd adbc && . /app/.venv/bin/activate && cmake -S c -B build -DADBC_DRIVER_SQLITE=ON -DADBC_BUILD_SHARED=1 && cmake --build build && cmake --install build
 ENV ADBC_SQLITE_LIBRARY=/usr/local/lib/libadbc_driver_sqlite.so
 
@@ -119,8 +119,8 @@ ENV CPU_COUNT=$CPU_COUNT
 WORKDIR /llvm
 ENV TARGET_LLVM_NAME=llvm-project-15.0.7.src
 ENV TARGET_LLVMLITE_TAG=0.44.0
-RUN curl -L https://github.com/llvm/llvm-project/releases/download/llvmorg-15.0.7/${TARGET_LLVM_NAME}.tar.xz | tar --absolute-names -xJf - && mv ${TARGET_LLVM_NAME} llvm \
-    && curl -L https://github.com/numba/llvmlite/archive/refs/tags/v${TARGET_LLVMLITE_TAG}.tar.gz | tar --absolute-names -xzf - && mv llvmlite-${TARGET_LLVMLITE_TAG} llvmlite \
+RUN curl -L "https://github.com/llvm/llvm-project/releases/download/llvmorg-15.0.7/${TARGET_LLVM_NAME}.tar.xz" | tar --absolute-names -xJf - && mv ${TARGET_LLVM_NAME} llvm \
+    && curl -L "https://github.com/numba/llvmlite/archive/refs/tags/v${TARGET_LLVMLITE_TAG}.tar.gz" | tar --absolute-names -xzf - && mv llvmlite-${TARGET_LLVMLITE_TAG} llvmlite \
     && cd llvm && ls ../llvmlite/conda-recipes/llvm15* | xargs -I{} patch -p1 -i {}
 # set = 1 to disable tests
 ARG SKIP_LLVM_TESTS=0
@@ -147,7 +147,12 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt update && apt install -y software-properties-common
 RUN add-apt-repository ppa:deadsnakes/ppa
-RUN apt update && apt install -y python3.12 python-is-python3 libopenblas0 liblapack3 libsndfile1 libgomp1 rust-gdb python3.12-dbg valgrind
+RUN apt update && apt install -y python3.12 python-is-python3 libopenblas0 liblapack3 libsndfile1 libgomp1
+# mimalloc as package
+RUN apt install -y libmimalloc2.0
+# debug
+RUN apt install -y rust-gdb python3.12-dbg valgrind libc6-dbg libmimalloc-dev
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/app/.venv/bin:$PATH"
 
 COPY --from=target_builder /usr/local /usr/local
