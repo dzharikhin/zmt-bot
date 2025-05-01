@@ -149,7 +149,7 @@ RUN apt update && apt install -y software-properties-common
 RUN add-apt-repository ppa:deadsnakes/ppa
 RUN apt update && apt install -y python3.12 python-is-python3 libopenblas0 liblapack3 libsndfile1 libgomp1
 # mimalloc as package
-RUN apt install -y libmimalloc2.0
+# RUN apt install -y libmimalloc2.0
 # debug
 RUN apt install -y rust-gdb python3.12-dbg valgrind libc6-dbg libmimalloc-dev
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
