@@ -25,11 +25,9 @@ standard-aifc = "^3.13.0"
 audioread = "^3.0.1"
 standard-sunau = "^3.13.0"
 poetry-core = "^2.1.2"
-
-[tool.poetry.group.polars.dependencies]
-polars = "^1.28.1"
+polars = "^1.30.0"
 pyquery = "^2.0.1"
-pyarrow = "^19.0.0"
+pyarrow = "^20.0.0"
 
 [tool.poetry.group.dev.dependencies]
 black = "^24.10.0"
