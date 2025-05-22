@@ -1,5 +1,4 @@
 import functools
-import logging
 import pathlib
 import shutil
 import tempfile
@@ -58,12 +57,11 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
         self._intermediate_results_dir = intermediate_results_dir
         self._batch_size = batch_size
         self._df = self._init_df(index_generator)
-        print(f"inited _df")
         size_df = (
             self._df.select(pl.nth(0), pl.nth(1))
             .group_by(pl.nth(1).is_null().not_().alias("processed"))
             .len()
-            .collect(streaming=True)
+            .collect(engine="streaming")
         )
         self.total_dataset_rows_count = size_df.select("len").sum().item()
         self.processed_rows_count = (
@@ -115,7 +113,7 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
         while not (
             slice_df := not_processes_yet_df.slice(
                 batch_index * self._batch_size, self._batch_size
-            ).collect(streaming=True)
+            ).collect(engine="streaming")
         ).is_empty():
             with self._persist_path.open("at") as sink:
                 slice_df.write_csv(
@@ -171,22 +169,21 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
             "index_buffer"
         )
         with index_buffer_file_path.open(mode="wt") as index_buffer_file:
-            index_buffer_file.write(f"{index_column_name},{",".join([name for name, _ in self.row_schema][1:])}\n")
+            index_buffer_file.write(
+                f"{index_column_name},{",".join([name for name, _ in self.row_schema][1:])}\n"
+            )
             for index_value in index_generator:
-                index_buffer_file.write(f"{index_value}{"," * (len(self.row_schema) - 1)}\n")
-        print(f"Scanning index")
+                index_buffer_file.write(
+                    f"{index_value}{"," * (len(self.row_schema) - 1)}\n"
+                )
         whole_data_df = pl.scan_csv(
             index_buffer_file_path, schema=schema_as_dict, has_header=True
         )
-        print(f"lazy update")
         whole_data_df = whole_data_df.update(
             existing_data_df, on=index_column_name, how="left", include_nulls=False
         )
-        print(f"collecting to merged")
         data_file = pathlib.Path(self._intermediate_results_dir).joinpath("merged")
-        merged_data = whole_data_df.collect(
-            engine="streaming"
-        )
+        merged_data = whole_data_df.collect(engine="streaming")
         print(f"got in RAM")
         merged_data.write_csv(data_file)
         print(f"merged written")

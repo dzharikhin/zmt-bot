@@ -335,8 +335,8 @@ async def main():
                 else None
             )
             is_forced = (
-                    event.pattern_match.group(2)
-                    and event.pattern_match.group(2).to_lower() == "true"
+                event.pattern_match.group(2)
+                and event.pattern_match.group(2).to_lower() == "true"
             )
             await send_train_queue_task(event, is_forced, limit)
             await event.respond(f"Training task for id={event.message.id} created")
