@@ -14,6 +14,7 @@ import telethon
 from linearboost import LinearBoostClassifier
 from mutagen.mp3 import HeaderNotFoundError
 from sklearn.metrics import accuracy_score
+from sklearn.svm import OneClassSVM
 from soundfile import LibsndfileError
 from telethon import TelegramClient
 from telethon.tl import types
@@ -294,7 +295,7 @@ def prepare_audio_features_dataset(
     return dataset_path
 
 
-def train_model(user_id: int, model_id: int) -> config.Model:
+def train_model(user_id: int, model_id: int, model_type: str) -> config.Model:
     model_store_ctx = config.get_model_store_path(user_id, model_id)
     logger.debug(f"model {model_id}: got store ctx={model_store_ctx}")
     liked_data = prepare_audio_features_dataset(
@@ -307,19 +308,17 @@ def train_model(user_id: int, model_id: int) -> config.Model:
         results_dir=model_store_ctx.model_workdir,
         is_liked=False,
     )
+    liked_dataframe = pl.scan_csv(liked_data)
+    disliked_dataframe = pl.scan_csv(disliked_data)
     data = (
-        pl.concat([pl.scan_csv(liked_data), pl.scan_csv(disliked_data)])
-        .collect()
+        pl.concat([liked_dataframe, disliked_dataframe])
+        .collect(engine="streaming")
+        .drop_nans()
         .sample(fraction=1, shuffle=True)
     )
     data_stats = data.group_by(by=pl.col(LIKED_COLUMN_NAME)).agg(
         pl.col(LIKED_COLUMN_NAME).count()
     )
-    bad_weight = data_stats.select(
-        pl.col(LIKED_COLUMN_NAME)
-        .filter(pl.col("by") == 1)
-        .truediv(pl.col(LIKED_COLUMN_NAME).filter(pl.col("by") == 0))
-    ).item(0, 0)
     logging.info(f"Splitting data into train/test")
     test_track_ids = (
         data.group_by(pl.col(LIKED_COLUMN_NAME))
@@ -338,18 +337,22 @@ def train_model(user_id: int, model_id: int) -> config.Model:
     train_data = data.filter(
         pl.col(ID_COLUMN_NAME).is_in(test_track_ids.get_column(ID_COLUMN_NAME)).not_()
     )
+    if model_type == "similar":
+        bad_fraction = data_stats.select(
+            pl.col(LIKED_COLUMN_NAME)
+            .filter(pl.col("by") == 1)
+            .truediv(pl.col(LIKED_COLUMN_NAME).filter(pl.col("by") == 0))
+        ).item(0, 0)
+        model, model_accuracy = train_similar_model(
+            train_data=train_data, test_data=test_data, bad_fraction=bad_fraction
+        )
+    elif model_type == "dissimilar":
+        model, model_accuracy = train_dissimilar_model(
+            train_data=train_data, test_data=test_data, nu=0.05
+        )
+    else:
+        raise Exception(f"{model_type} is not supported")
 
-    model = LinearBoostClassifier(
-        algorithm="SAMME.R", class_weight={0: bad_weight, 1: 1.0}
-    )
-    model.fit(
-        train_data.select(pl.all().exclude(ID_COLUMN_NAME, LIKED_COLUMN_NAME)),
-        train_data.select(pl.col(LIKED_COLUMN_NAME)),
-    )
-    y_predicted = model.predict(
-        test_data.select(pl.all().exclude(ID_COLUMN_NAME, LIKED_COLUMN_NAME))
-    )
-    accuracy = accuracy_score(test_data.select(pl.col(LIKED_COLUMN_NAME)), y_predicted)
     logging.info(f"Dumping model")
     model_file_path = model_store_ctx.model_workdir.joinpath(
         model_store_ctx.model_pickle_name
@@ -357,7 +360,7 @@ def train_model(user_id: int, model_id: int) -> config.Model:
     with model_file_path.open(mode="wb") as model_file:
         pickle.dump(model, model_file, protocol=5)
     logging.info(
-        f"Dumped model user_id={user_id} model={model_id} to {model_file_path}"
+        f"Dumped model user_id={model_store_ctx.user_id} model={model_store_ctx.model_id} to {model_file_path}"
     )
     model_stats_file_path = model_store_ctx.model_workdir.joinpath(
         model_store_ctx.model_stats_name
@@ -366,7 +369,8 @@ def train_model(user_id: int, model_id: int) -> config.Model:
         model_stats_file.write(
             json.dumps(
                 {
-                    "accuracy": accuracy,
+                    "model_type": model_type,
+                    "accuracy": model_accuracy,
                     "liked_tracks_count": data_stats[LIKED_COLUMN_NAME][1],
                     "disliked_tracks_count": data_stats[LIKED_COLUMN_NAME][0],
                 }
@@ -375,10 +379,56 @@ def train_model(user_id: int, model_id: int) -> config.Model:
     return config.get_model(user_id, model_id)
 
 
+def train_similar_model(
+    *, train_data: pl.DataFrame, test_data: pl.DataFrame, bad_fraction: float
+) -> tuple[object, float | int]:
+
+    model = LinearBoostClassifier(
+        algorithm="SAMME.R", class_weight={0: bad_fraction, 1: 1.0}
+    )
+    model.fit(
+        train_data.select(pl.all().exclude(ID_COLUMN_NAME, LIKED_COLUMN_NAME)),
+        train_data.select(pl.col(LIKED_COLUMN_NAME)),
+    )
+    y_predicted = model.predict(
+        test_data.select(pl.all().exclude(ID_COLUMN_NAME, LIKED_COLUMN_NAME))
+    )
+    model_accuracy = accuracy_score(
+        test_data.select(pl.col(LIKED_COLUMN_NAME)), y_predicted
+    )
+
+    return model, model_accuracy
+
+
+def train_dissimilar_model(
+    *, train_data: pl.DataFrame, test_data: pl.DataFrame, nu: float
+) -> tuple[object, float | int]:
+    model = OneClassSVM(nu=nu, kernel="rbf")
+    model.fit(
+        train_data.filter(pl.col(LIKED_COLUMN_NAME) == 0).select(
+            pl.all().exclude(ID_COLUMN_NAME, LIKED_COLUMN_NAME)
+        ),
+    )
+    one_class_test_data = test_data.with_columns(
+        pl.when(pl.col(LIKED_COLUMN_NAME) == 0)
+        .then(1)
+        .otherwise(-1)
+        .alias(LIKED_COLUMN_NAME)
+    )
+    y_predicted = model.predict(
+        test_data.select(pl.all().exclude(ID_COLUMN_NAME, LIKED_COLUMN_NAME))
+    )
+    model_accuracy = accuracy_score(
+        one_class_test_data.select(pl.col(LIKED_COLUMN_NAME)), y_predicted
+    )
+    return model, model_accuracy
+
+
 async def prepare_model(
     user_id: int,
     bot_client: TelegramClient,
     model_id: int,
+    model_type: Literal["similar", "dissimilar"],
     force: bool = False,
     limit: int | None = None,
 ):
@@ -409,7 +459,7 @@ async def prepare_model(
         )
         # Run the blocking task in the executor
         model = await asyncio.get_running_loop().run_in_executor(
-            config.training_threadpool, train_model, user_id, model_id
+            config.training_threadpool, train_model, user_id, model_id, model_type
         )
         config.set_current_model_id(user_id, model.model_id)
 

@@ -184,9 +184,7 @@ class DataSetFromDataManager(DatasetProcessor[ID]):
         )
         data_file = pathlib.Path(self._intermediate_results_dir).joinpath("merged")
         merged_data = whole_data_df.collect(engine="streaming")
-        print(f"got in RAM")
         merged_data.write_csv(data_file)
-        print(f"merged written")
         return pl.scan_csv(data_file, schema=schema_as_dict)
 
     def _transform_tuple_to_dict(

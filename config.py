@@ -99,6 +99,7 @@ def set_channels(user_id: int, subscription: Subscription):
 @dataclasses.dataclass
 class Model:
     model_id: int
+    model_type: str
     pickle_file_path: pathlib.Path
     accuracy: float
     liked_tracks_count: int
@@ -150,6 +151,8 @@ def set_current_model_id(user_id: int, model_id: int):
 
 @dataclasses.dataclass
 class ModelStoreContext:
+    user_id: int
+    model_id: int
     model_workdir: pathlib.Path
     model_pickle_name: str
     model_stats_name: str
@@ -162,6 +165,8 @@ def get_model_store_path(user_id: int, model_id: int) -> ModelStoreContext:
     model_path.mkdir(parents=True, exist_ok=True)
 
     return ModelStoreContext(
+        user_id=user_id,
+        model_id=model_id,
         model_workdir=model_path,
         model_pickle_name=f"{model_id}.pickle",
         model_stats_name="stats.json",
