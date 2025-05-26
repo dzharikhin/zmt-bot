@@ -417,7 +417,7 @@ def train_dissimilar_model(
         .otherwise(-1)
         .alias(LIKED_COLUMN_NAME)
     )
-    logger.error(f"=====\n{test_data.filter(pl.col(pl.Float32).is_nan())=}")
+    logger.error(f"=====\n{test_data.filter(pl.col(pl.Float32).is_null().or_().is_null())=}")
     y_predicted = model.predict(
         test_data.select(pl.all().exclude(ID_COLUMN_NAME, LIKED_COLUMN_NAME))
     )
