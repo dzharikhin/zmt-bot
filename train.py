@@ -313,7 +313,7 @@ def train_model(user_id: int, model_id: int, model_type: str) -> config.Model:
     data = (
         pl.concat([liked_dataframe, disliked_dataframe])
         .collect(engine="streaming")
-        .drop_nans()
+        .drop_nulls()
         .sample(fraction=1, shuffle=True)
     )
     data_stats = data.group_by(by=pl.col(LIKED_COLUMN_NAME)).agg(
@@ -417,7 +417,7 @@ def train_dissimilar_model(
         .otherwise(-1)
         .alias(LIKED_COLUMN_NAME)
     )
-    logger.error(f"=====\n{test_data.filter(pl.col(pl.Float32).is_null().or_().is_null())=}")
+    logger.error(f"=====\n{test_data.filter(pl.col(pl.Float64).is_null().or_().is_nan())=}")
     y_predicted = model.predict(
         test_data.select(pl.all().exclude(ID_COLUMN_NAME, LIKED_COLUMN_NAME))
     )
