@@ -337,6 +337,8 @@ def train_model(user_id: int, model_id: int, model_type: str) -> config.Model:
     train_data = data.filter(
         pl.col(ID_COLUMN_NAME).is_in(test_track_ids.get_column(ID_COLUMN_NAME)).not_()
     )
+    train_data.write_csv(config.get_user_tmp_dir(user_id).joinpath("train.csv"))
+    test_data.write_csv(config.get_user_tmp_dir(user_id).joinpath("test.csv"))
     if model_type == "similar":
         bad_fraction = data_stats.select(
             pl.col(LIKED_COLUMN_NAME)
@@ -415,6 +417,7 @@ def train_dissimilar_model(
         .otherwise(-1)
         .alias(LIKED_COLUMN_NAME)
     )
+    logger.error(f"=====\n{test_data.filter(pl.col(pl.Float32).is_nan())=}")
     y_predicted = model.predict(
         test_data.select(pl.all().exclude(ID_COLUMN_NAME, LIKED_COLUMN_NAME))
     )
