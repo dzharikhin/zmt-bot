@@ -313,7 +313,7 @@ def train_model(user_id: int, model_id: int, model_type: str) -> config.Model:
     data = (
         pl.concat([liked_dataframe, disliked_dataframe])
         .collect(engine="streaming")
-        .drop_nans()
+        .drop_nulls()
         .sample(fraction=1, shuffle=True)
     )
     data_stats = data.group_by(by=pl.col(LIKED_COLUMN_NAME)).agg(

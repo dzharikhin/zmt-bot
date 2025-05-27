@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "tg-zmt-bot"
-version = "0.1.1"
+version = "0.1.2"
 description = ""
 authors = ["Dmitriy Zharikhin <jorixxx@mail.ru>"]
 readme = "README.md"
@@ -19,7 +19,7 @@ scikit-learn = "^1.6.1"
 dacite = "^1.9.2"
 telethon = "^1.40.0"
 mutagen = "^1.47.0"
-linearboost = "^0.1.0"
+linearboost = "^0.1.2"
 persist-queue = "^1.0.0"
 standard-aifc = "^3.13.0"
 audioread = "^3.0.1"

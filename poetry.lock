@@ -432,14 +432,14 @@ tests = ["matplotlib (>=3.5.0)", "packaging (>=20.0)", "pytest", "pytest-cov", "
 
 [[package]]
 name = "linearboost"
-version = "0.1.1"
+version = "0.1.2"
 description = "LinearBoost Classifier is a rapid and accurate classification algorithm that builds upon a very fast, linear classifier."
 optional = false
 python-versions = "<3.14,>=3.8"
 groups = ["main"]
 files = [
-    {file = "linearboost-0.1.1-py3-none-any.whl", hash = "sha256:db8d88a7fe33b1532798745f9f6ccc17564772e93fbed3d2cec42584aa59620f"},
-    {file = "linearboost-0.1.1.tar.gz", hash = "sha256:8472cfb186260a2772c63659b93e01e2c33bc9358a5bcf0d9f2f7dbd69488d44"},
+    {file = "linearboost-0.1.2-py3-none-any.whl", hash = "sha256:c60490ea64caeeb06173a28f29d26abded86314d307e40d55ba29fcbd7e13101"},
+    {file = "linearboost-0.1.2.tar.gz", hash = "sha256:af2fa9a63cfe9395df71d1e99a2f3c6410d403935bab0958242201677962e6e0"},
 ]
 
 [package.dependencies]
@@ -1561,4 +1561,4 @@ zstd = ["zstandard (>=0.18.0)"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12, <3.13"
-content-hash = "1e33af544c4a0364ed2abb819258945313856ebbfdc3f50379483b0129ddd232"
+content-hash = "7e5ee7f2ba31130ca092d2d98fbccb73301f8362fec397d63cf7340c7c9dd25a"
