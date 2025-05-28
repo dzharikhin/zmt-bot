@@ -403,7 +403,7 @@ def train_similar_model(
 def train_dissimilar_model(
     *, train_data: pl.DataFrame, test_data: pl.DataFrame, nu: float
 ) -> tuple[object, float | int]:
-    model = OneClassSVM(nu=nu, kernel="rbf")
+    model = OneClassSVM(kernel="rbf", gamma="auto", nu=nu)
     model.fit(
         train_data.filter(pl.col(LIKED_COLUMN_NAME) == 0).select(
             pl.all().exclude(ID_COLUMN_NAME, LIKED_COLUMN_NAME)
