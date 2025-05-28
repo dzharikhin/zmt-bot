@@ -81,7 +81,7 @@ async def handle_train_queue_tasks(
             model = config.get_model(user_id, cmd["message_id"])
             await bot_client.send_message(
                 user_id,
-                f"Successfully trained model {model.model_id}: accuracy={model.accuracy} for {model.disliked_tracks_count} disliked tracks and {model.liked_tracks_count} liked tracks",
+                f"Successfully trained model {model.model_id}: accuracy={model.accuracy:.2f} for {model.disliked_tracks_count} disliked tracks and {model.liked_tracks_count} liked tracks",
             )
             queue.ack(cmd)
         except persistqueue.exceptions.Empty:

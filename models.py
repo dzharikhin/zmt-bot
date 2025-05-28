@@ -84,7 +84,7 @@ async def format_model_response(
     )
     models_formatted = "\n".join(
         [
-            f"* {"[current]" if model.model_id == current_model_id else ""} model `{model.model_id}`({model.model_type}): {model.accuracy}(track stats: {model.disliked_tracks_count}disliked / {model.liked_tracks_count} liked)"
+            f"* {"[current]" if model.model_id == current_model_id else ""} model `{model.model_id}`({model.model_type}): {model.accuracy:.2f}(track stats: {model.disliked_tracks_count}disliked / {model.liked_tracks_count}liked)"
             for model in items
         ]
     )
