@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import math
 import pathlib
 import pickle
 import shutil
@@ -13,7 +14,11 @@ import polars as pl
 import telethon
 from linearboost import LinearBoostClassifier
 from mutagen.mp3 import HeaderNotFoundError
+from sklearn.covariance import EllipticEnvelope
+from sklearn.ensemble import IsolationForest
 from sklearn.metrics import accuracy_score
+from sklearn.mixture import GaussianMixture
+from sklearn.neighbors import LocalOutlierFactor
 from sklearn.svm import OneClassSVM
 from soundfile import LibsndfileError
 from telethon import TelegramClient
@@ -348,7 +353,7 @@ def train_model(user_id: int, model_id: int, model_type: str) -> config.Model:
         )
     elif model_type == "dissimilar":
         model, model_accuracy = train_dissimilar_model(
-            train_data=train_data, test_data=test_data, nu=0.05
+            train_data=train_data, test_data=test_data, nu=0.66, contamination_fraction=0.2
         )
     else:
         raise Exception(f"{model_type} is not supported")
@@ -401,13 +406,19 @@ def train_similar_model(
 
 
 def train_dissimilar_model(
-    *, train_data: pl.DataFrame, test_data: pl.DataFrame, nu: float
+    *, train_data: pl.DataFrame, test_data: pl.DataFrame, nu: float, contamination_fraction: float
 ) -> tuple[object, float | int]:
-    model = OneClassSVM(kernel="rbf", gamma="auto", nu=nu)
+    model = OneClassSVM(kernel="rbf", gamma="scale", nu=nu)
+    positive_cases = train_data.filter(pl.col(LIKED_COLUMN_NAME) == 0)
+    negative_cases = train_data.filter(pl.col(LIKED_COLUMN_NAME) == 1).limit(
+        math.ceil(positive_cases.shape[0] * contamination_fraction)
+    )
+    one_class_train_data = pl.concat([positive_cases, negative_cases]).sample(
+        fraction=1, shuffle=True
+    )
+
     model.fit(
-        train_data.filter(pl.col(LIKED_COLUMN_NAME) == 0).select(
-            pl.all().exclude(ID_COLUMN_NAME, LIKED_COLUMN_NAME)
-        ),
+        one_class_train_data.select(pl.all().exclude(ID_COLUMN_NAME, LIKED_COLUMN_NAME))
     )
     one_class_test_data = test_data.with_columns(
         pl.when(pl.col(LIKED_COLUMN_NAME) == 0)
@@ -416,11 +427,12 @@ def train_dissimilar_model(
         .alias(LIKED_COLUMN_NAME)
     )
     y_predicted = model.predict(
-        test_data.select(pl.all().exclude(ID_COLUMN_NAME, LIKED_COLUMN_NAME))
+        one_class_test_data.select(pl.all().exclude(ID_COLUMN_NAME, LIKED_COLUMN_NAME))
     )
     model_accuracy = accuracy_score(
         one_class_test_data.select(pl.col(LIKED_COLUMN_NAME)), y_predicted
     )
+    print(f"{model_accuracy=}")
     return model, model_accuracy
 
 
