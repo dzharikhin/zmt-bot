@@ -185,7 +185,7 @@ async def download_audio_from_channel(
         got_message = time.time()
         if not FILTER.filter_message(message):
             if message:
-                logging.info(
+                logger.info(
                     f"Message {message.stringify()} does not match {FILTER}, skipping"
                 )
             continue
@@ -206,7 +206,7 @@ async def download_audio_from_channel(
     #         async with bot_client.takeout(channels=True) as takeout_client:
     #             async for message in takeout_client.iter_messages(channel):
     #                 if not FILTER.filter_message(message):
-    #                     logging.info(
+    #                     logger.info(
     #                         f"Message {message.stringify()} does not match {FILTER}, skipping"
     #                     )
     #                     continue
@@ -271,7 +271,7 @@ def prepare_audio_features_dataset(
             def analyze_track(row_id: str) -> RowType:
                 def error_hook(row: str, e: Exception) -> RowType:
                     if isinstance(e, (LibsndfileError, HeaderNotFoundError)):
-                        logging.warning(
+                        logger.warning(
                             f"failed to get features for {row}, returning stub",
                             exc_info=e,
                         )
@@ -280,7 +280,7 @@ def prepare_audio_features_dataset(
                             tuple([row] + [None] * (len(ds.row_schema) - 1)),
                         )
 
-                    logging.error(
+                    logger.error(
                         f"Unexpected error while processing row {row}, propagating",
                         exc_info=e,
                     )
@@ -289,7 +289,7 @@ def prepare_audio_features_dataset(
                 return generate_features(audio_dir, row_id, int(is_liked), error_hook)
 
             ds.fill(analyze_track)
-            logging.info(
+            logger.info(
                 f"total feature generation calls/dataset_size stat: {counter.load()}/{ds.to_process_rows_count}"
             )
     return dataset_path
@@ -319,7 +319,7 @@ def train_model(user_id: int, model_id: int, model_type: str) -> config.Model:
     data_stats = data.group_by(by=pl.col(LIKED_COLUMN_NAME)).agg(
         pl.col(LIKED_COLUMN_NAME).count()
     )
-    logging.info(f"Splitting data into train/test")
+    logger.info(f"Splitting data into train/test")
     test_track_ids = (
         data.group_by(pl.col(LIKED_COLUMN_NAME))
         .agg(
@@ -353,13 +353,13 @@ def train_model(user_id: int, model_id: int, model_type: str) -> config.Model:
     else:
         raise Exception(f"{model_type} is not supported")
 
-    logging.info(f"Dumping model")
+    logger.info(f"Dumping model")
     model_file_path = model_store_ctx.model_workdir.joinpath(
         model_store_ctx.model_pickle_name
     )
     with model_file_path.open(mode="wb") as model_file:
         pickle.dump(model, model_file, protocol=5)
-    logging.info(
+    logger.info(
         f"Dumped model user_id={model_store_ctx.user_id} model={model_store_ctx.model_id} to {model_file_path}"
     )
     model_stats_file_path = model_store_ctx.model_workdir.joinpath(
@@ -469,7 +469,7 @@ async def prepare_model(
         ) from e
 
 
-def execute_estimation(user_id: int, track_to_estimate_path: pathlib.Path) -> int:
+def execute_estimation(user_id: int, track_to_estimate_path: pathlib.Path) -> bool:
     actual_model_id = config.get_current_model_id(user_id)
     if not actual_model_id:
         raise EstimationUnrecoverable(f"for user {user_id} no model version set")
@@ -492,24 +492,28 @@ def execute_estimation(user_id: int, track_to_estimate_path: pathlib.Path) -> in
     cached_model_id, model = _estimation_model_cache.get(user_id, (None, None))
 
     if not model or actual_model_id != cached_model_id:
-        with config.get_model(user_id, actual_model_id).pickle_file_path.open(
+        model = config.get_model(user_id, actual_model_id)
+        with model.pickle_file_path.open(
             mode="rb"
         ) as model_data:
             _estimation_model_cache[user_id] = (
                 actual_model_id,
                 pickle.load(model_data),
+                model.model_type
             )
-    _, model = _estimation_model_cache[user_id]
-    return model.predict(
-        pl.DataFrame([data], schema=ROW_SCHEMA).select(
-            pl.all().exclude(ID_COLUMN_NAME, LIKED_COLUMN_NAME)
-        )
-    )[0]
+    _, model, model_type = _estimation_model_cache[user_id]
+    prediction = model.predict(pl.DataFrame([data], schema=ROW_SCHEMA).select(pl.all().exclude(ID_COLUMN_NAME, LIKED_COLUMN_NAME)))[0]
+    if model_type == "similar":
+        return prediction == 1
+    elif model_type == "dissimilar":
+        return prediction == -1
+    else:
+        raise Exception(f"{model_type=} is not supported")
 
 
 async def estimate(
     user_id: int, chat_id: int, message_id: int, bot_client: TelegramClient
-) -> int:
+) -> bool:
     message = await get_message(chat_id, message_id, bot_client)
 
     tmp_dir = config.get_user_tmp_dir(user_id)
@@ -517,9 +521,7 @@ async def estimate(
         track_to_estimate_path = pathlib.Path(tmp).joinpath(f"to-estimate.mp3")
         track_to_estimate_path.unlink(missing_ok=True)
         await message.download_media(file=track_to_estimate_path)
-        return await asyncio.get_running_loop().run_in_executor(
-            config.estimation_threadpool,
-            execute_estimation,
-            user_id,
-            track_to_estimate_path,
-        )
+        is_recommended = await asyncio.get_running_loop().run_in_executor(config.estimation_threadpool, execute_estimation,
+                                                                 user_id, track_to_estimate_path, )
+        logger.info(f"{user_id=} {message_id=}: {is_recommended=}")
+        return is_recommended

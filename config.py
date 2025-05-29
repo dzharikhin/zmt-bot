@@ -4,7 +4,7 @@ import os
 import pathlib
 import re
 from concurrent.futures.thread import ThreadPoolExecutor
-from typing import Optional
+from typing import Optional, Literal
 
 from dacite import from_dict
 
@@ -99,7 +99,7 @@ def set_channels(user_id: int, subscription: Subscription):
 @dataclasses.dataclass
 class Model:
     model_id: int
-    model_type: str
+    model_type: Literal["similar", "dissimilar"]
     pickle_file_path: pathlib.Path
     accuracy: float
     liked_tracks_count: int
