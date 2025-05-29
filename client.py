@@ -138,7 +138,9 @@ async def handle_estimate_queue_tasks(
         try:
             cmd = queue.get_nowait()
             logger.debug(f"Handling estimation cmd={cmd}")
-            is_recommended = await estimate(user_id, cmd["chat_id"], cmd["message_id"], bot_client)
+            is_recommended = await estimate(
+                user_id, cmd["chat_id"], cmd["message_id"], bot_client
+            )
             message = await get_message(cmd["chat_id"], cmd["message_id"], bot_client)
             if message:
                 if is_recommended:

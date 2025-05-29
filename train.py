@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import math
 import pathlib
 import pickle
 import shutil
@@ -348,7 +349,10 @@ def train_model(user_id: int, model_id: int, model_type: str) -> config.Model:
         )
     elif model_type == "dissimilar":
         model, model_accuracy = train_dissimilar_model(
-            train_data=train_data, test_data=test_data, nu=0.05
+            train_data=train_data,
+            test_data=test_data,
+            nu=0.66,
+            contamination_fraction=0.2,
         )
     else:
         raise Exception(f"{model_type} is not supported")
@@ -401,14 +405,25 @@ def train_similar_model(
 
 
 def train_dissimilar_model(
-    *, train_data: pl.DataFrame, test_data: pl.DataFrame, nu: float
+    *,
+    train_data: pl.DataFrame,
+    test_data: pl.DataFrame,
+    nu: float,
+    contamination_fraction: float,
 ) -> tuple[object, float | int]:
-    model = OneClassSVM(kernel="rbf", gamma="auto", nu=nu)
-    model.fit(
-        train_data.filter(pl.col(LIKED_COLUMN_NAME) == 0).select(
-            pl.all().exclude(ID_COLUMN_NAME, LIKED_COLUMN_NAME)
-        ),
+    model = OneClassSVM(kernel="rbf", gamma="scale", nu=nu)
+    positive_cases = train_data.filter(pl.col(LIKED_COLUMN_NAME) == 0)
+    negative_cases = train_data.filter(pl.col(LIKED_COLUMN_NAME) == 1).limit(
+        math.ceil(positive_cases.shape[0] * contamination_fraction)
     )
+    one_class_train_data = (
+        pl.concat([positive_cases, negative_cases])
+        .sample(fraction=1, shuffle=True)
+        .select(pl.all().exclude(ID_COLUMN_NAME, LIKED_COLUMN_NAME))
+    )
+
+    model.fit(one_class_train_data)
+
     one_class_test_data = test_data.with_columns(
         pl.when(pl.col(LIKED_COLUMN_NAME) == 0)
         .then(1)
@@ -416,7 +431,7 @@ def train_dissimilar_model(
         .alias(LIKED_COLUMN_NAME)
     )
     y_predicted = model.predict(
-        test_data.select(pl.all().exclude(ID_COLUMN_NAME, LIKED_COLUMN_NAME))
+        one_class_test_data.select(pl.all().exclude(ID_COLUMN_NAME, LIKED_COLUMN_NAME))
     )
     model_accuracy = accuracy_score(
         one_class_test_data.select(pl.col(LIKED_COLUMN_NAME)), y_predicted
@@ -493,16 +508,18 @@ def execute_estimation(user_id: int, track_to_estimate_path: pathlib.Path) -> bo
 
     if not model or actual_model_id != cached_model_id:
         model = config.get_model(user_id, actual_model_id)
-        with model.pickle_file_path.open(
-            mode="rb"
-        ) as model_data:
+        with model.pickle_file_path.open(mode="rb") as model_data:
             _estimation_model_cache[user_id] = (
                 actual_model_id,
                 pickle.load(model_data),
-                model.model_type
+                model.model_type,
             )
     _, model, model_type = _estimation_model_cache[user_id]
-    prediction = model.predict(pl.DataFrame([data], schema=ROW_SCHEMA).select(pl.all().exclude(ID_COLUMN_NAME, LIKED_COLUMN_NAME)))[0]
+    prediction = model.predict(
+        pl.DataFrame([data], schema=ROW_SCHEMA).select(
+            pl.all().exclude(ID_COLUMN_NAME, LIKED_COLUMN_NAME)
+        )
+    )[0]
     if model_type == "similar":
         return prediction == 1
     elif model_type == "dissimilar":
@@ -521,7 +538,11 @@ async def estimate(
         track_to_estimate_path = pathlib.Path(tmp).joinpath(f"to-estimate.mp3")
         track_to_estimate_path.unlink(missing_ok=True)
         await message.download_media(file=track_to_estimate_path)
-        is_recommended = await asyncio.get_running_loop().run_in_executor(config.estimation_threadpool, execute_estimation,
-                                                                 user_id, track_to_estimate_path, )
+        is_recommended = await asyncio.get_running_loop().run_in_executor(
+            config.estimation_threadpool,
+            execute_estimation,
+            user_id,
+            track_to_estimate_path,
+        )
         logger.info(f"{user_id=} {message_id=}: {is_recommended=}")
         return is_recommended
