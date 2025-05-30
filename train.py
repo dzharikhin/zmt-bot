@@ -504,7 +504,7 @@ def execute_estimation(user_id: int, track_to_estimate_path: pathlib.Path) -> bo
         raise EstimationUnrecoverable(
             f"No features for {track_to_estimate_path}. Skipping"
         )
-    cached_model_id, model = _estimation_model_cache.get(user_id, (None, None))
+    cached_model_id, model, _ = _estimation_model_cache.get(user_id, (None, None, None))
 
     if not model or actual_model_id != cached_model_id:
         model = config.get_model(user_id, actual_model_id)
