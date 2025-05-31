@@ -15,6 +15,8 @@ import telethon
 from linearboost import LinearBoostClassifier
 from mutagen.mp3 import HeaderNotFoundError
 from sklearn.metrics import accuracy_score
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 from sklearn.svm import OneClassSVM
 from soundfile import LibsndfileError
 from telethon import TelegramClient
@@ -351,8 +353,8 @@ def train_model(user_id: int, model_id: int, model_type: str) -> config.Model:
         model, model_accuracy = train_dissimilar_model(
             train_data=train_data,
             test_data=test_data,
-            nu=0.66,
-            contamination_fraction=0.2,
+            contamination_fraction=0.1,
+            nu=0.1,
         )
     else:
         raise Exception(f"{model_type} is not supported")
@@ -408,10 +410,10 @@ def train_dissimilar_model(
     *,
     train_data: pl.DataFrame,
     test_data: pl.DataFrame,
-    nu: float,
     contamination_fraction: float,
+    nu: float,
 ) -> tuple[object, float | int]:
-    model = OneClassSVM(kernel="rbf", gamma="scale", nu=nu)
+    model = Pipeline([("scaler", StandardScaler()), ("clf", OneClassSVM(kernel="rbf", gamma="scale", nu=nu))])
     positive_cases = train_data.filter(pl.col(LIKED_COLUMN_NAME) == 0)
     negative_cases = train_data.filter(pl.col(LIKED_COLUMN_NAME) == 1).limit(
         math.ceil(positive_cases.shape[0] * contamination_fraction)
