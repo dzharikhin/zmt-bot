@@ -14,11 +14,9 @@ import polars as pl
 import telethon
 from linearboost import LinearBoostClassifier
 from mutagen.mp3 import HeaderNotFoundError
-from sklearn.covariance import EllipticEnvelope
-from sklearn.ensemble import IsolationForest
 from sklearn.metrics import accuracy_score
-from sklearn.mixture import GaussianMixture
-from sklearn.neighbors import LocalOutlierFactor
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 from sklearn.svm import OneClassSVM
 from soundfile import LibsndfileError
 from telethon import TelegramClient
@@ -406,9 +404,11 @@ def train_similar_model(
 
 
 def train_dissimilar_model(
-    *, train_data: pl.DataFrame, test_data: pl.DataFrame, nu: float, contamination_fraction: float
+    *, train_data: pl.DataFrame, test_data: pl.DataFrame, contamination_fraction: float
 ) -> tuple[object, float | int]:
-    model = OneClassSVM(kernel="rbf", gamma="scale", nu=nu)
+    model = OneClassSVM(kernel="rbf", nu=0.1, gamma="scale")
+    # model = LocalOutlierFactor(novelty=True, contamination=contamination_fraction, metric="cosine")
+    model = Pipeline([('scaler', StandardScaler()), ('clf', model)])
     positive_cases = train_data.filter(pl.col(LIKED_COLUMN_NAME) == 0)
     negative_cases = train_data.filter(pl.col(LIKED_COLUMN_NAME) == 1).limit(
         math.ceil(positive_cases.shape[0] * contamination_fraction)
