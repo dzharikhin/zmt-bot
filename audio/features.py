@@ -1,4 +1,5 @@
 import math
+import os
 import pathlib
 import types
 from collections import OrderedDict
@@ -14,15 +15,14 @@ from scipy.sparse import csr_matrix
 from sklearn.cluster import AgglomerativeClustering
 from soundfile import SoundFile
 
-FRAMES_NUMBER = 48  # 10 seconds frame for 8 minutes track
+FRAME_DATA_ENABLED = os.environ.get("FRAME_DATA_ENABLED", "True").lower() == "true"
+FRAMES_NUMBER = int(os.environ.get("FRAMES_NUMBER", "48"))  # 10 seconds frame for 8 minutes track
 MFCCS_NUMBER = 48
 CHROMA_NUMBER = 12
 SPECTRAL_CONTRAST_NUMBER = 7
 TONNETZ_NUMBER = 6
-AGGREGATES = OrderedDict(
-    std=lambda col: col.std(),
-    skew=lambda col: col.skew(),
-    kurtosis=lambda col: col.kurtosis(),
+AGGREGATES = OrderedDict(([("mean", lambda col: col.mean())] if not FRAME_DATA_ENABLED else []) +
+    [("std", lambda col: col.std()), ("skew", lambda col: col.skew()), ("kurtosis", lambda col: col.kurtosis())]
 )
 
 
@@ -30,7 +30,7 @@ def build_schema_for_feature(
     feature_prefix: str, feature_values: int
 ) -> OrderedDict[str, Iterable[tuple[str, type]]]:
     columns = OrderedDict(
-        [
+        ([
             (
                 feature_prefix,
                 [
@@ -39,7 +39,7 @@ def build_schema_for_feature(
                     for column in range(feature_values)
                 ],
             )
-        ]
+        ] if FRAME_DATA_ENABLED else [])
         + [
             (
                 f"{feature_prefix}_{aggregation}",
@@ -274,11 +274,14 @@ def extract_features_for_mp3(
             feature_data: np.ndarray, feature_prefix: str
         ) -> pl.DataFrame:
             feature_df = wrap_in_df(feature_data, feature_prefix)
-            clustered_frames_mean_feature = clustered_frames_mean(
-                feature_df, optimal_frame_clusterization
-            )
+
+            clustered_frames_mean_feature = []
+            if FRAME_DATA_ENABLED:
+                clustered_frames_mean_feature = [clustered_frames_mean(
+                    feature_df, optimal_frame_clusterization
+                )]
             return pl.concat(
-                [clustered_frames_mean_feature]
+                clustered_frames_mean_feature
                 + [
                     aggregate_feature(feature_df, aggregation_name, aggregation_action)
                     for aggregation_name, aggregation_action in AGGREGATES.items()

@@ -31,6 +31,8 @@ max_training_threadpool_workers = 10
 max_estimation_threadpool_workers = 10
 min_track_length_seconds = 60
 max_track_length_seconds = 480
+dissimilar_model_contamination_fraction = 0.2
+dissimilar_model_nu = 0.1
 
 
 def override():

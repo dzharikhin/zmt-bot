@@ -27,7 +27,7 @@ from telethon.tl.types import Chat, DocumentAttributeAudio
 
 import config
 from audio import features
-from audio.features import extract_features_for_mp3
+from audio.features import extract_features_for_mp3, FRAMES_NUMBER, FRAME_DATA_ENABLED
 from dataset.persistent_dataset_processor import DataSetFromDataManager
 from utils import unwrap_single_chat, get_message
 
@@ -245,20 +245,26 @@ def generate_features(
 
 
 def prepare_audio_features_dataset(
-    *, user_id: int, results_dir: pathlib.Path, is_liked: bool
+        *, user_id: int, results_dir: pathlib.Path, is_liked: bool
 ) -> pathlib.Path:
     audio_dir = (
         config.get_disliked_file_store_path(user_id)
         if not is_liked
         else config.get_liked_file_store_path(user_id)
     )
+    tmp_dir = config.get_user_tmp_dir(user_id)
+    return _prepare_audio_features_dataset(audio_dir=audio_dir, tmp_dir=tmp_dir, results_dir=results_dir, is_liked=is_liked)
+
+
+
+def _prepare_audio_features_dataset(
+    *, audio_dir: pathlib.Path, tmp_dir: pathlib.Path, results_dir: pathlib.Path, is_liked: bool
+) -> pathlib.Path:
     counter = atomics.atomic(width=4, atype=atomics.INT)
-    dataset_path = results_dir.joinpath(f"audio_features_dataset-{int(is_liked)}.csv")
+    dataset_path = results_dir.joinpath(f"audio_features_dataset_f{FRAMES_NUMBER if FRAME_DATA_ENABLED else 0}-{int(is_liked)}.csv")
 
     fails_path = results_dir.joinpath(f"{dataset_path.stem}-processing_failed.csv")
     fails_path.unlink(missing_ok=True)
-
-    tmp_dir = config.get_user_tmp_dir(user_id)
 
     with tempfile.TemporaryDirectory(dir=tmp_dir) as tmp:
         logger.debug(f"model {results_dir.name}: started to init ds manager")
@@ -351,7 +357,7 @@ def train_model(user_id: int, model_id: int, model_type: str) -> config.Model:
         )
     elif model_type == "dissimilar":
         model, model_accuracy = train_dissimilar_model(
-            train_data=train_data, test_data=test_data, nu=0.66, contamination_fraction=0.2
+            train_data=train_data, test_data=test_data, nu=0.1, contamination_fraction=0.2
         )
     else:
         raise Exception(f"{model_type} is not supported")
@@ -404,14 +410,14 @@ def train_similar_model(
 
 
 def train_dissimilar_model(
-    *, train_data: pl.DataFrame, test_data: pl.DataFrame, contamination_fraction: float
+    *, train_data: pl.DataFrame, test_data: pl.DataFrame
 ) -> tuple[object, float | int]:
-    model = OneClassSVM(kernel="rbf", nu=0.1, gamma="scale")
+    model = OneClassSVM(kernel="rbf", nu=config.dissimilar_model_nu, gamma="scale")
     # model = LocalOutlierFactor(novelty=True, contamination=contamination_fraction, metric="cosine")
     model = Pipeline([('scaler', StandardScaler()), ('clf', model)])
     positive_cases = train_data.filter(pl.col(LIKED_COLUMN_NAME) == 0)
     negative_cases = train_data.filter(pl.col(LIKED_COLUMN_NAME) == 1).limit(
-        math.ceil(positive_cases.shape[0] * contamination_fraction)
+        math.ceil(positive_cases.shape[0] * config.dissimilar_model_contamination_fraction)
     )
     one_class_train_data = pl.concat([positive_cases, negative_cases]).sample(
         fraction=1, shuffle=True
