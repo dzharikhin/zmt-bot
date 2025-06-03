@@ -16,14 +16,21 @@ from sklearn.cluster import AgglomerativeClustering
 from soundfile import SoundFile
 
 FRAME_DATA_ENABLED = os.environ.get("FRAME_DATA_ENABLED", "True").lower() == "true"
+AGGREGATES_ENABLED = os.environ.get("AGGREGATES_ENABLED", "True").lower() == "true"
 FRAMES_NUMBER = int(os.environ.get("FRAMES_NUMBER", "48"))  # 10 seconds frame for 8 minutes track
 MFCCS_NUMBER = 48
 CHROMA_NUMBER = 12
 SPECTRAL_CONTRAST_NUMBER = 7
 TONNETZ_NUMBER = 6
-AGGREGATES = OrderedDict(([("mean", lambda col: col.mean())] if not FRAME_DATA_ENABLED else []) +
+AGGREGATES = OrderedDict(([
+  ("mean", lambda col: col.mean()),
+  ("median", lambda col: col.median()),
+  ("min", lambda col: col.min()),
+  ("max", lambda col: col.max()),
+  ("var", lambda col: col.var()),
+] if not FRAME_DATA_ENABLED else []) +
     [("std", lambda col: col.std()), ("skew", lambda col: col.skew()), ("kurtosis", lambda col: col.kurtosis())]
-)
+) if AGGREGATES_ENABLED else OrderedDict()
 
 
 def build_schema_for_feature(

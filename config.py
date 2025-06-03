@@ -31,8 +31,14 @@ max_training_threadpool_workers = 10
 max_estimation_threadpool_workers = 10
 min_track_length_seconds = 60
 max_track_length_seconds = 480
-dissimilar_model_contamination_fraction = 0.2
-dissimilar_model_nu = 0.1
+test_samples_fraction = 0.25
+dissimilar_model_contamination_fraction = 0.05
+dissimilar_model_clf_params = {
+    "kernel": "rbf",
+    "nu": 0.1,
+    # "tol": 1e-5,
+    # "verbose": True,
+}
 
 
 def override():
