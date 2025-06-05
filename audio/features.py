@@ -18,9 +18,10 @@ from soundfile import SoundFile
 FRAME_DATA_ENABLED = os.environ.get("FRAME_DATA_ENABLED", "True").lower() == "true"
 AGGREGATES_ENABLED = os.environ.get("AGGREGATES_ENABLED", "True").lower() == "true"
 FRAMES_NUMBER = int(os.environ.get("FRAMES_NUMBER", "48"))  # 10 seconds frame for 8 minutes track
-MFCCS_NUMBER = 48
-CHROMA_NUMBER = 12
-SPECTRAL_CONTRAST_NUMBER = 7
+
+MFCCS_NUMBER = int(os.environ.get("MFCCS_NUMBER", "48")) # 20,36; dct_type=1,2,3;norm="ortho",None
+CHROMA_NUMBER = int(os.environ.get("CHROMA_NUMBER", "12")) # 6,24; bins_per_octave - N * CHROMA_NUMBER=2,4; n_octaves=4,10
+SPECTRAL_CONTRAST_NUMBER = int(os.environ.get("SPECTRAL_CONTRAST_NUMBER", "7")) # 3, 10
 TONNETZ_NUMBER = 6
 AGGREGATES = OrderedDict(([
   ("mean", lambda col: col.mean()),
