@@ -272,7 +272,7 @@ def _prepare_audio_features_dataset(
             dataset_path,
             row_schema=ROW_SCHEMA,
             index_generator=(f.stem for f in audio_dir.iterdir() if f.is_file()),
-            intermediate_results_dir=pathlib.Path(tmp),
+            working_dir=pathlib.Path(tmp),
             batch_size=10,
         )
         with dataset_manager as ds:
