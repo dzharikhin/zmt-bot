@@ -27,7 +27,12 @@ from telethon.tl.types import Chat, DocumentAttributeAudio
 
 import config
 from audio import features
-from audio.features import extract_features_for_mp3, FRAMES_NUMBER, FRAME_DATA_ENABLED, AGGREGATES_ENABLED
+from audio.features import (
+    extract_features_for_mp3,
+    FRAMES_NUMBER,
+    FRAME_DATA_ENABLED,
+    AGGREGATES_ENABLED,
+)
 from dataset.persistent_dataset_processor import DataSetFromDataManager
 from utils import unwrap_single_chat, get_message
 
@@ -245,7 +250,7 @@ def generate_features(
 
 
 def prepare_audio_features_dataset(
-        *, user_id: int, results_dir: pathlib.Path, is_liked: bool
+    *, user_id: int, results_dir: pathlib.Path, is_liked: bool
 ) -> pathlib.Path:
     audio_dir = (
         config.get_disliked_file_store_path(user_id)
@@ -253,15 +258,22 @@ def prepare_audio_features_dataset(
         else config.get_liked_file_store_path(user_id)
     )
     tmp_dir = config.get_user_tmp_dir(user_id)
-    return _prepare_audio_features_dataset(audio_dir=audio_dir, tmp_dir=tmp_dir, results_dir=results_dir, is_liked=is_liked)
-
+    return _prepare_audio_features_dataset(
+        audio_dir=audio_dir, tmp_dir=tmp_dir, results_dir=results_dir, is_liked=is_liked
+    )
 
 
 def _prepare_audio_features_dataset(
-    *, audio_dir: pathlib.Path, tmp_dir: pathlib.Path, results_dir: pathlib.Path, is_liked: bool
+    *,
+    audio_dir: pathlib.Path,
+    tmp_dir: pathlib.Path,
+    results_dir: pathlib.Path,
+    is_liked: bool,
 ) -> pathlib.Path:
     counter = atomics.atomic(width=4, atype=atomics.INT)
-    dataset_path = results_dir.joinpath(f"audio_features_dataset_f{(FRAMES_NUMBER if AGGREGATES_ENABLED else -FRAMES_NUMBER) if FRAME_DATA_ENABLED else 0}-{int(is_liked)}.csv")
+    dataset_path = results_dir.joinpath(
+        f"audio_features_dataset_f{(FRAMES_NUMBER if AGGREGATES_ENABLED else -FRAMES_NUMBER) if FRAME_DATA_ENABLED else 0}-{int(is_liked)}.csv"
+    )
 
     fails_path = results_dir.joinpath(f"{dataset_path.stem}-processing_failed.csv")
     fails_path.unlink(missing_ok=True)
@@ -418,12 +430,17 @@ def train_dissimilar_model(
         test_data=test_data,
         model=model,
         contamination_fraction=config.dissimilar_model_contamination_fraction,
-        scale=True
+        scale=True,
     )
 
 
 def _train_dissimilar_model(
-        *, train_data: pl.DataFrame, test_data: pl.DataFrame, model, contamination_fraction: float, scale: bool
+    *,
+    train_data: pl.DataFrame,
+    test_data: pl.DataFrame,
+    model,
+    contamination_fraction: float,
+    scale: bool,
 ) -> tuple[object, float | int]:
     positive_cases = train_data.filter(pl.col(LIKED_COLUMN_NAME) == 0)
     negative_cases = train_data.filter(pl.col(LIKED_COLUMN_NAME) == 1).limit(
@@ -433,7 +450,7 @@ def _train_dissimilar_model(
         fraction=1, shuffle=True
     )
     if scale:
-        model = Pipeline([('scaler', StandardScaler()), ('clf', model)])
+        model = Pipeline([("scaler", StandardScaler()), ("clf", model)])
 
     model.fit(
         one_class_train_data.select(pl.all().exclude(ID_COLUMN_NAME, LIKED_COLUMN_NAME))

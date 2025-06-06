@@ -3,12 +3,14 @@ import shutil
 import sys
 import tempfile
 from collections import OrderedDict
+from functools import partial
 from typing import (
     Generator,
     TypeVar,
     Protocol, Callable, NamedTuple, Generic)
 
 import atomics
+import numpy as np
 import polars as pl
 import polars.datatypes as pldt
 
@@ -22,13 +24,32 @@ class DataSetFromDataManager(Protocol[Id]):
         self._intermediate_increased_data_path.unlink(missing_ok=True)
 
         not_processes_yet_df = self.init_data()
+
+        mapping_result_cache: dict[str, FeatureLineType] = {}
+        def handle_id(column_name: str, row_id: Id) -> FeatureLineType:
+            if row_id not in mapping_result_cache:
+                print(f"processing {row_id}")
+                mapping_result_cache[row_id] = self._mapping.mapper(row_id)
+            return mapping_result_cache[row_id][column_name]
+
+        def drop_row_id_cache(row_id: Id) -> Id:
+            del mapping_result_cache[row_id]
+            return row_id
+
+        column_mapping = {k: pl.nth(0).map_elements(partial(handle_id, k), v_type) for k, v_type in self._mapping.result_types.items()}
+
+
         batch_index = 0
         while not (slice_df := not_processes_yet_df.slice(batch_index * self._batch_size, self._batch_size), slice_df.limit(1).select(pl.nth(0)).collect())[-1].is_empty():
             increment_df = (
                 slice_df
-                .with_columns(pl.nth(0).map_elements(self._mapping.mapper, pl.Struct(self._mapping.result_types)).alias(self.RAW_FEATURES_COLUMN_NAME))
-                .with_columns(pl.col(self.RAW_FEATURES_COLUMN_NAME).struct.unnest())
-                .drop(self.RAW_FEATURES_COLUMN_NAME)
+                .with_columns(
+                    **column_mapping
+                )
+                .with_columns(
+                    foo=pl.nth(0).map_elements(drop_row_id_cache, self._index_generator.result_schema[1])
+                )
+                .drop("foo")
             )
             pl.concat([pl.scan_ipc(self._intermediate_base_data_path), increment_df]).sink_ipc(self._intermediate_increased_data_path, engine="streaming", sync_on_close="all")
             shutil.move(self._intermediate_increased_data_path, self._intermediate_base_data_path)
@@ -97,7 +118,8 @@ if __name__ == "__main__":
 
     def extract_features(row_id: str) -> dict[str, TestFeature]:
         counter.fetch_inc() + 1
-        return dict(a=int(row_id) * 1.0, b=int(row_id) * 2.0, c=int(row_id) * 3.0)
+        a = [[1, 2, 3], [4, 5, 6]]
+        return dict(a=int(row_id) * 1.0, b=int(row_id) * 2.0, c=int(row_id) * 3.0, d=np.array(a).tolist())
 
     (temp_base := pathlib.Path("tmp")).mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(dir=temp_base, delete=False) as tmp:
@@ -107,7 +129,7 @@ if __name__ == "__main__":
                 generator=(f.name for f in pathlib.Path("data").iterdir() if f.is_file()),
                 result_schema=("row_id", pl.String)
             ),
-            mapping=DataSetFromDataManager.MappingParams(extract_features, dict(a=pl.Float64, b=pl.Float64, c=pl.Float64)),
+            mapping=DataSetFromDataManager.MappingParams(extract_features, dict(a=pl.Float64, b=pl.Float64, c=pl.Float64, d=pl.List(pl.List(pl.Int64)))),
             batch_size=1,
         ) as result_frame:
-            result_frame.filter(pl.nth(1).is_null().not_()).sink_csv(path, engine="streaming", sync_on_close="all")
+            result_frame.filter(pl.nth(1).is_null().not_()).select(pl.nth(0)).sink_csv(path, engine="streaming", sync_on_close="all")
