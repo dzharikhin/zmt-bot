@@ -33,7 +33,7 @@ from audio.features import (
     FRAME_DATA_ENABLED,
     AGGREGATES_ENABLED,
 )
-from dataset.persistent_dataset_processor import DataSetFromDataManager
+from dataset.persistent_dataset_processor import DataFrameBuilder
 from utils import unwrap_single_chat, get_message
 
 logging.basicConfig(
@@ -280,7 +280,7 @@ def _prepare_audio_features_dataset(
 
     with tempfile.TemporaryDirectory(dir=tmp_dir) as tmp:
         logger.debug(f"model {results_dir.name}: started to init ds manager")
-        dataset_manager = DataSetFromDataManager(
+        dataset_manager = DataFrameBuilder(
             dataset_path,
             row_schema=ROW_SCHEMA,
             index_generator=(f.stem for f in audio_dir.iterdir() if f.is_file()),

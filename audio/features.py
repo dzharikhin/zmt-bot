@@ -1,33 +1,48 @@
+import dataclasses
 import pathlib
-from collections import OrderedDict
 from typing import Literal
 
 import librosa
-import numpy.typing as npt
 from librosa import feature
 from mutagen.mp3 import MP3
 from soundfile import SoundFile
 
 
-type FeatureType = npt.NDArray | int | float
+@dataclasses.dataclass
+class AudioFeatures:
+    mfcc: list[list[float]]
+    chroma_cqt: list[list[float]]
+    chroma_cens: list[list[float]]
+    chroma_stft: list[list[float]]
+    zcr: list[list[float]]
+    rmse: list[list[float]]
+    spectral_centroid: list[list[float]]
+    spectral_bandwidth: list[list[float]]
+    spectral_flatness: list[list[float]]
+    spectral_contrast: list[list[float]]
+    spectral_rolloff: list[list[float]]
+    tonnetz: list[list[float]]
+    tempo: list[float]
+    duration: float
+    bitrate: int
 
 
 def extract_features_for_mp3(
-    *,
     mp3_path: pathlib.Path,
+    *,
     n_mfcc: int = 48,
     dct_type: Literal[1, 2, 3] = 2,
     n_chroma: int = 12,
     bins_per_octave_multiplier: int = 3,
     n_octaves: int = 7,
     n_bands: int = 7,
-) -> dict[str, FeatureType]:
+    use_hpss: bool = False,
+) -> AudioFeatures:
     f = MP3(mp3_path)
     with SoundFile(mp3_path) as wav:
         audio, sr = librosa.load(wav, sr=None)
-        stft = librosa.stft(audio)
 
-        return OrderedDict(
+        return AudioFeatures(
             mfcc=librosa.feature.mfcc(
                 y=audio, sr=sr, n_mfcc=n_mfcc, dct_type=dct_type
             ).tolist(),
@@ -65,13 +80,7 @@ def extract_features_for_mp3(
                 y=audio, sr=sr
             ).tolist(),  # size always eq(6)
             tempo=librosa.feature.tempo(y=audio, sr=sr).tolist(),
-            **{
-                feature_name: feature_value.tolist()
-                for feature_name, feature_value in zip(
-                    ("harmonic", "percussive"), librosa.decompose.hpss(stft)
-                )
-            },
-            duration=librosa.get_duration(S=stft, sr=sr),
+            duration=librosa.get_duration(y=audio, sr=sr),
             bitrate=f.info.bitrate // 1000,
         )
 
@@ -82,4 +91,8 @@ if __name__ == "__main__":
     row = extract_features_for_mp3(
         mp3_path=track,
     )
-    print(f"row size: {len(row)}")
+
+    as_dict = dataclasses.asdict(row)
+    print(
+        f"row: len={len(as_dict)}, types={ {k: type(v) for k, v in as_dict.items()} }"
+    )
