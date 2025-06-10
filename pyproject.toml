@@ -7,7 +7,7 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = ">=3.12, <3.13"
-requests = "^2.32.3"
+requests = "^2.32.4"
 requests-ratelimiter = "^0.7.0"
 pandas = "^2.2.3"
 path-dict = "^4.0.0"
