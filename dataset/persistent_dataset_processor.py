@@ -6,6 +6,7 @@ import sys
 import tempfile
 from collections import OrderedDict
 from enum import Enum
+from functools import reduce
 from typing import (
     Generator,
     TypeVar,
@@ -15,6 +16,7 @@ from typing import (
     NamedTuple,
     Any,
     Optional,
+    TypedDict,
 )
 
 import atomics
@@ -26,7 +28,16 @@ FeatureLineType = TypeVar("FeatureLineType")
 
 
 class DataFrameBuilder(Generic[Id, FeatureLineType]):
-    SUCCEED_VALUE = "ok"
+    PROCESSING_SUCCEED_VALUE = "ok"
+
+    class MappingParams(TypedDict):
+        mapper: Callable[[Id], FeatureLineType]
+        type_schema: OrderedDict[str, pldt.DataTypeClass | type]
+
+    @dataclasses.dataclass()
+    class Result:
+        ldf: pl.LazyFrame
+        processing_status_column: tuple[str, pldt.DataTypeClass]
 
     @dataclasses.dataclass()
     class ProgressStat:
@@ -39,7 +50,7 @@ class DataFrameBuilder(Generic[Id, FeatureLineType]):
         failed: int
         data_size: int
 
-    def __enter__(self) -> pl.LazyFrame:
+    def __enter__(self) -> Result:
         self._intermediate_increased_data_path.unlink(missing_ok=True)
 
         not_processes_yet_df, init_stat = self._init_data()
@@ -70,7 +81,10 @@ class DataFrameBuilder(Generic[Id, FeatureLineType]):
             )
             (
                 pl.concat(
-                    [pl.scan_ipc(self._intermediate_base_data_path), pl.scan_ipc(slice_file)]
+                    [
+                        pl.scan_ipc(self._intermediate_base_data_path),
+                        pl.scan_ipc(slice_file),
+                    ]
                 ).sink_ipc(
                     self._intermediate_increased_data_path,
                     engine="streaming",
@@ -82,7 +96,11 @@ class DataFrameBuilder(Generic[Id, FeatureLineType]):
                 self._intermediate_increased_data_path,
                 self._intermediate_base_data_path,
             )
-            success_increment, failed_increment = self._get_stat(pl.scan_ipc(slice_file).select(pl.col(self._processing_status_column_definition[0])))
+            success_increment, failed_increment = self._get_stat(
+                pl.scan_ipc(slice_file).select(
+                    pl.col(self._processing_status_column_definition[0])
+                )
+            )
             slice_file.unlink(missing_ok=True)
             init_stat = DataFrameBuilder.ProgressStat(
                 DataFrameBuilder.ProgressStat.StatPhase.ON_ITERATION,
@@ -92,7 +110,10 @@ class DataFrameBuilder(Generic[Id, FeatureLineType]):
             )
             self._trigger_progress(init_stat)
             batch_index += 1
-        return pl.scan_ipc(self._intermediate_base_data_path)
+        return DataFrameBuilder.Result(
+            pl.scan_ipc(self._intermediate_base_data_path),
+            self._processing_status_column_definition,
+        )
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if not exc_val and self._cleanup_on_exit:
@@ -110,7 +131,7 @@ class DataFrameBuilder(Generic[Id, FeatureLineType]):
         self,
         working_dir: pathlib.Path,
         index_generator: GeneratingParams,
-        mappers: list[Callable[[Id], FeatureLineType]],
+        mappers: list[Callable[[Id], FeatureLineType] | MappingParams],
         *,
         batch_size: int = 1000,
         cleanup_on_exit: bool = True,
@@ -181,7 +202,7 @@ class DataFrameBuilder(Generic[Id, FeatureLineType]):
         sizes = (
             united_data.group_by(
                 pl.col(self._processing_status_column_definition[0])
-                .eq(DataFrameBuilder.SUCCEED_VALUE)
+                .eq(DataFrameBuilder.PROCESSING_SUCCEED_VALUE)
                 .alias("is_ok")
             )
             .agg(pl.nth(0).len())
@@ -200,30 +221,35 @@ class DataFrameBuilder(Generic[Id, FeatureLineType]):
     def _init_schema(
         self,
     ) -> tuple[pldt.DataTypeClass, OrderedDict[str, pldt.DataTypeClass]]:
-        return self._index_generator.result_schema[1], OrderedDict(
-            [
-                self._index_generator.result_schema,
-                self._processing_status_column_definition,
-            ]
-        ) | {
-            field.name: pldt.parse_into_dtype(field.type)
-            for mapping in self._mappers
-            for field in dataclasses.fields(get_type_hints(mapping)["return"])
-        }
+        mapping_schema = reduce(
+            lambda a, b: a | b,
+            (self._extract_mapping_schema(mapper) for mapper in self._mappers),
+        )
+        return (
+            self._index_generator.result_schema[1],
+            OrderedDict(
+                [
+                    self._index_generator.result_schema,
+                    self._processing_status_column_definition,
+                ]
+            )
+            | mapping_schema,
+        )
 
     def _parse_mapper(
-        self, mapper_func: Callable[[Id], FeatureLineType]
+        self, mapper: Callable[[Id], FeatureLineType] | MappingParams
     ) -> tuple[Callable[[Id], dict[str, type]], dict[str, pldt.DataTypeClass]]:
-        type_dict = dict([self._processing_status_column_definition]) | {
-            field.name: pldt.parse_into_dtype(field.type)
-            for field in dataclasses.fields(get_type_hints(mapper_func)["return"])
-        }
+        type_dict = OrderedDict(
+            [self._processing_status_column_definition]
+        ) | self._extract_mapping_schema(mapper)
 
         def map_row_by_id(row_id: Id) -> dict[str, Any]:
             try:
-                result = mapper_func(row_id)
+                result = (mapper if callable(mapper) else mapper["mapper"])(row_id)
             except Exception as e:
-                stub = OrderedDict({k: None for k in type_dict.keys()}) | {self._processing_status_column_definition[0]: str(e)}
+                stub = OrderedDict({k: None for k in type_dict.keys()}) | {
+                    self._processing_status_column_definition[0]: str(e)
+                }
                 self.logger.warning(
                     f"Failed to extract features for {row_id=}, returning {stub}",
                     exc_info=e,
@@ -233,18 +259,36 @@ class DataFrameBuilder(Generic[Id, FeatureLineType]):
             if not dataclasses.is_dataclass(result):
                 raise Exception(f"Mapper must return dataclass")
 
-            dict_result = OrderedDict(
+            dict_result_for_polars_struct = OrderedDict(
                 [
                     (
                         self._processing_status_column_definition[0],
-                        DataFrameBuilder.SUCCEED_VALUE,
+                        DataFrameBuilder.PROCESSING_SUCCEED_VALUE,
                     )
                 ]
             ) | dataclasses.asdict(result)
-            self.logger.debug(f"mapped {row_id=}: {dict_result.keys()}")
-            return dict_result
+            self.logger.debug(
+                f"mapped {row_id=}: { {k: f"{type(v)}{v.shape if hasattr(v, "shape") else ""})" for k, v in dict_result_for_polars_struct.items()} }"
+            )
+            return dict_result_for_polars_struct
 
         return map_row_by_id, type_dict
+
+    @staticmethod
+    def _extract_mapping_schema(
+        mapper: Callable[[Id], FeatureLineType] | MappingParams
+    ) -> OrderedDict[str, pldt.DataTypeClass]:
+
+        if isinstance(mapper, OrderedDict):
+            schema_container = mapper["type_schema"]
+        elif callable(mapper):
+            schema_container = {
+                field.name: field.type
+                for field in dataclasses.fields(get_type_hints(mapper)["return"])
+            }
+        else:
+            raise ValueError("Mappings are either Callable or Mapping with schema")
+        return OrderedDict([(k, pldt.parse_into_dtype(v)) for k, v in schema_container.items()])
 
     def _trigger_progress(self, stat: ProgressStat):
         if self._progress_tracker:
@@ -264,6 +308,8 @@ if __name__ == "__main__":
 
     def extract_features(row_id: str) -> TestFeatures:
         counter.fetch_inc() + 1
+        if row_id == "3":
+            raise Exception("failed to process")
         return TestFeatures(
             a=int(row_id) * 1.0,
             b=int(row_id) * 2.0,
@@ -283,11 +329,19 @@ if __name__ == "__main__":
                 ),
                 result_schema=("row_id", pl.String),
             ),
-            mappers=[extract_features],
+            mappers=[
+                OrderedDict(
+                    mapper=extract_features,
+                    type_schema={
+                        "a": pl.Float64,
+                        "b": float,
+                        "c": float,
+                        "d": list[list[int]],
+                    },
+                )
+            ],
             batch_size=1,
         ) as result_frame:
-            result_frame.filter(pl.nth(1).is_null().not_()).select(pl.nth(0)).sink_csv(
-                path,
-                engine="streaming",
-                sync_on_close="all",
-            )
+            df = result_frame.ldf.collect(engine="streaming")
+            print(f"{df=}")
+
