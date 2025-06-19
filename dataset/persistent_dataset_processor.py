@@ -29,6 +29,7 @@ FeatureLineType = TypeVar("FeatureLineType")
 
 class DataFrameBuilder(Generic[Id, FeatureLineType]):
     PROCESSING_SUCCEED_VALUE = "ok"
+    _SLICE_RESULT_FILENAME_BASE = "slice_result"
 
     class MappingParams(TypedDict):
         mapper: Callable[[Id], FeatureLineType]
@@ -52,16 +53,21 @@ class DataFrameBuilder(Generic[Id, FeatureLineType]):
 
     def __enter__(self) -> Result:
         self._intermediate_increased_data_path.unlink(missing_ok=True)
+        for slice_file in self._working_dir.glob(
+            f"{self._SLICE_RESULT_FILENAME_BASE}*.ipc"
+        ):
+            slice_file.unlink(missing_ok=True)
 
         not_processes_yet_df, init_stat = self._init_data()
         self._trigger_progress(init_stat)
         batch_index = 0
-        while not (
-            slice_df := not_processes_yet_df.slice(
+        while (
+            init_stat.succeed + init_stat.failed < init_stat.data_size
+            and self._batch_size * batch_index < init_stat.data_size
+        ):
+            slice_df = not_processes_yet_df.slice(
                 batch_index * self._batch_size, self._batch_size
-            ),
-            slice_df.limit(1).select(pl.nth(0)).collect(),
-        )[-1].is_empty():
+            )
             increment_df = slice_df
             for i, mapper in enumerate(self._mappers):
                 struct_alias = f"mapping_{i}"
@@ -72,7 +78,9 @@ class DataFrameBuilder(Generic[Id, FeatureLineType]):
                     .alias(struct_alias)
                 ).unnest(struct_alias)
 
-            slice_file = self._working_dir.joinpath(f"slice_result_{batch_index}.ipc")
+            slice_file = self._working_dir.joinpath(
+                f"{self._SLICE_RESULT_FILENAME_BASE}_{batch_index}.ipc"
+            )
             increment_df.sink_ipc(
                 slice_file,
                 engine="streaming",
@@ -110,8 +118,18 @@ class DataFrameBuilder(Generic[Id, FeatureLineType]):
             )
             self._trigger_progress(init_stat)
             batch_index += 1
+
+        all_data = pl.scan_ipc(self._intermediate_base_data_path)
+        data_size = (
+            all_data.select(pl.nth(0).count()).collect(engine="streaming").item(0, 0)
+        )
+        if data_size < init_stat.data_size:
+            raise ValueError(
+                f"Processed only {data_size} of {init_stat.data_size} rows. Something is wrong"
+            )
+
         return DataFrameBuilder.Result(
-            pl.scan_ipc(self._intermediate_base_data_path),
+            all_data,
             self._processing_status_column_definition,
         )
 
@@ -288,7 +306,9 @@ class DataFrameBuilder(Generic[Id, FeatureLineType]):
             }
         else:
             raise ValueError("Mappings are either Callable or Mapping with schema")
-        return OrderedDict([(k, pldt.parse_into_dtype(v)) for k, v in schema_container.items()])
+        return OrderedDict(
+            [(k, pldt.parse_into_dtype(v)) for k, v in schema_container.items()]
+        )
 
     def _trigger_progress(self, stat: ProgressStat):
         if self._progress_tracker:
@@ -344,4 +364,3 @@ if __name__ == "__main__":
         ) as result_frame:
             df = result_frame.ldf.collect(engine="streaming")
             print(f"{df=}")
-

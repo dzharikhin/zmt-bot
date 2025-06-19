@@ -92,7 +92,7 @@ def extract_features_for_mp3(
                 librosa.feature.chroma_stft(
                     y=audio,
                     sr=sr,
-                    S=abs_stft ** 2,
+                    S=abs_stft**2,
                     n_chroma=n_chroma,
                     hop_length=hop_length,
                     n_fft=hop_length * fft_hop_multiplier,
@@ -165,10 +165,7 @@ def extract_features_for_mp3(
 if __name__ == "__main__":
     track = pathlib.Path("../data/118517468/liked/CQADAgAD0AADrZa5SR_FU76wvZUrAg.mp3")
 
-    row = extract_features_for_mp3(
-        mp3_path=track,
-        hop_length=512 * 4
-    )
+    row = extract_features_for_mp3(mp3_path=track, hop_length=512 * 4)
 
     as_dict = dataclasses.asdict(row)
     print(
