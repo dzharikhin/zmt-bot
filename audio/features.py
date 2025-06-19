@@ -1,4 +1,5 @@
 import dataclasses
+import math
 import pathlib
 from typing import Literal
 
@@ -130,6 +131,7 @@ def extract_features_for_mp3(
                 y=audio,
                 sr=sr,
                 n_bands=n_bands,
+                fmin=min(math.floor(sr/(2**n_bands)), 200),
                 S=abs_stft,
                 hop_length=hop_length,
                 n_fft=hop_length * fft_hop_multiplier,
