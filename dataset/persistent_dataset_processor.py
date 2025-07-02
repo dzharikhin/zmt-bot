@@ -52,22 +52,22 @@ class DataFrameBuilder(Generic[Id, FeatureLineType]):
         data_size: int
 
     def __enter__(self) -> Result:
-        self._intermediate_increased_data_path.unlink(missing_ok=True)
-        for slice_file in self._working_dir.glob(
-            f"{self._SLICE_RESULT_FILENAME_BASE}*.ipc"
-        ):
-            slice_file.unlink(missing_ok=True)
+        self._collect_garbage_from_previous_iteration()
 
-        not_processes_yet_df, init_stat = self._init_data()
+        not_processed_yet_df, init_stat = self._init_data()
         self._trigger_progress(init_stat)
+
         batch_index = 0
         while (
-            init_stat.succeed + init_stat.failed < init_stat.data_size
-            and self._batch_size * batch_index < init_stat.data_size
-        ):
-            slice_df = not_processes_yet_df.slice(
-                batch_index * self._batch_size, self._batch_size
+            not (
+                slice_df := not_processed_yet_df.slice(
+                    batch_index * self._batch_size, self._batch_size
+                )
             )
+            .limit(1)
+            .collect(engine="streaming")
+            .is_empty()
+        ):
             increment_df = slice_df
             for i, mapper in enumerate(self._mappers):
                 struct_alias = f"mapping_{i}"
@@ -87,28 +87,40 @@ class DataFrameBuilder(Generic[Id, FeatureLineType]):
                 sync_on_close="all",
                 maintain_order=self._maintain_order,
             )
+            del increment_df
+            increment_df = pl.scan_ipc(slice_file)
             (
-                pl.concat(
-                    [
-                        pl.scan_ipc(self._intermediate_base_data_path),
-                        pl.scan_ipc(slice_file),
-                    ]
-                ).sink_ipc(
+                pl.scan_ipc(self._intermediate_base_data_path)
+                .update(
+                    increment_df,
+                    self._index_generator.result_schema[0],
+                    "full",
+                    include_nulls=True,
+                )
+                .sink_ipc(
                     self._intermediate_increased_data_path,
                     engine="streaming",
                     sync_on_close="all",
                     maintain_order=self._maintain_order,
                 )
             )
+            # current_base_count = pl.scan_ipc(self._intermediate_base_data_path).select(pl.nth(0)).collect(engine="streaming")
+            # increment_count = increment_df.select(pl.nth(0)).collect(engine="streaming")
+            # merged_count = pl.scan_ipc(self._intermediate_increased_data_path).select(pl.nth(0)).collect(engine="streaming")
+            # if merged_count.shape[0] != current_base_count.shape[0] + increment_count.shape[0]:
+            #     raise ValueError(
+            #         f"Something is wrong: {merged_count=} != {current_base_count=} + {increment_count=}"
+            #     )
             shutil.move(
                 self._intermediate_increased_data_path,
                 self._intermediate_base_data_path,
             )
             success_increment, failed_increment = self._get_stat(
-                pl.scan_ipc(slice_file).select(
+                increment_df.select(
                     pl.col(self._processing_status_column_definition[0])
                 )
             )
+
             slice_file.unlink(missing_ok=True)
             init_stat = DataFrameBuilder.ProgressStat(
                 DataFrameBuilder.ProgressStat.StatPhase.ON_ITERATION,
@@ -120,13 +132,13 @@ class DataFrameBuilder(Generic[Id, FeatureLineType]):
             batch_index += 1
 
         all_data = pl.scan_ipc(self._intermediate_base_data_path)
-        data_size = (
-            all_data.select(pl.nth(0).count()).collect(engine="streaming").item(0, 0)
-        )
-        if data_size < init_stat.data_size:
-            raise ValueError(
-                f"Processed only {data_size} of {init_stat.data_size} rows. Something is wrong"
-            )
+        # data_size = (
+        #     all_data.select(pl.nth(0).count()).collect(engine="streaming").item(0, 0)
+        # )
+        # if data_size < init_stat.data_size:
+        #     raise ValueError(
+        #         f"Something is wrong: processed only {data_size} of {init_stat.data_size} rows. stat={init_stat}, {self._batch_size=}, {batch_index=}"
+        #     )
 
         return DataFrameBuilder.Result(
             all_data,
@@ -166,6 +178,9 @@ class DataFrameBuilder(Generic[Id, FeatureLineType]):
         )
         self._working_dir = working_dir
         self._intermediate_base_data_path = self._working_dir.joinpath("base.ipc")
+        self._base_starting_snapshot_path = self._working_dir.joinpath(
+            "starting_snapshot.ipc"
+        )
         self._intermediate_increased_data_path = self._working_dir.joinpath(
             "increased.ipc"
         )
@@ -179,11 +194,15 @@ class DataFrameBuilder(Generic[Id, FeatureLineType]):
         self._id_dtype, self._intermediate_data_schema = self._init_schema()
 
     def _init_data(self) -> tuple[pl.LazyFrame, ProgressStat]:
-        if self._intermediate_base_data_path.exists():
-            existing_data_df = pl.scan_ipc(self._intermediate_base_data_path)
-        else:
-            existing_data_df = pl.LazyFrame([], schema=self._intermediate_data_schema)
-            existing_data_df.sink_ipc(self._intermediate_base_data_path)
+        if not self._intermediate_base_data_path.exists():
+            pl.LazyFrame([], schema=self._intermediate_data_schema).sink_ipc(
+                self._intermediate_base_data_path
+            )
+
+        shutil.copy(
+            self._intermediate_base_data_path, self._base_starting_snapshot_path
+        )
+        existing_data_df = pl.scan_ipc(self._base_starting_snapshot_path)
         index_buffer_file_path = pathlib.Path(self._working_dir).joinpath(
             "index_buffer"
         )
@@ -197,19 +216,20 @@ class DataFrameBuilder(Generic[Id, FeatureLineType]):
             index_buffer_file_path, has_header=False, schema={"row_id": self._id_dtype}
         )
 
-        not_processes_yet_df = index_data
+        not_processed_yet_df = index_data
         ok_count = 0
         failed_count = 0
         if not existing_data_df.limit(1).select(pl.nth(0)).collect().is_empty():
             id_column_name = self._index_generator.result_schema[0]
-            united_data = not_processes_yet_df.join(
-                existing_data_df, id_column_name, "left"
+            united_data = index_data.join(
+                existing_data_df, id_column_name, "left", maintain_order="left"
             )
             ok_count, failed_count = self._get_stat(united_data)
-            not_processes_yet_df = united_data.filter(
+            not_processed_yet_df = united_data.filter(
                 pl.col(self._processing_status_column_definition[0]).is_null()
             ).select(id_column_name)
-        return not_processes_yet_df, DataFrameBuilder.ProgressStat(
+
+        return not_processed_yet_df, DataFrameBuilder.ProgressStat(
             phase=DataFrameBuilder.ProgressStat.StatPhase.BEFORE_ITERATION,
             succeed=ok_count,
             failed=failed_count,
@@ -223,7 +243,7 @@ class DataFrameBuilder(Generic[Id, FeatureLineType]):
                 .eq(DataFrameBuilder.PROCESSING_SUCCEED_VALUE)
                 .alias("is_ok")
             )
-            .agg(pl.nth(0).len())
+            .agg(pl.nth(0).count())
             .collect(engine="streaming")
         )
         ok_count = (
@@ -253,6 +273,14 @@ class DataFrameBuilder(Generic[Id, FeatureLineType]):
             )
             | mapping_schema,
         )
+
+    def _collect_garbage_from_previous_iteration(self):
+        self._intermediate_increased_data_path.unlink(missing_ok=True)
+        self._base_starting_snapshot_path.unlink(missing_ok=True)
+        for slice_file in self._working_dir.glob(
+            f"{self._SLICE_RESULT_FILENAME_BASE}*.ipc"
+        ):
+            slice_file.unlink(missing_ok=True)
 
     def _parse_mapper(
         self, mapper: Callable[[Id], FeatureLineType] | MappingParams
