@@ -11,3 +11,15 @@ target "tg-zmt-bot" {
     tags = [ "tg-zmt-bot:${VER}" ]
     output = [{ type = "docker" }]
 }
+variable "TARGET_ESSENTIA_COMMIT" {
+    default = "bd793a3e07caf1c8c44a8425d6f550bfbc96ede9"
+}
+target "essentia-builder" {
+    context = "."
+    dockerfile = "essentia-tensorflow.Dockerfile"
+    args = {
+        TARGET_ESSENTIA_COMMIT = "${TARGET_ESSENTIA_COMMIT}"
+    }
+    tags = [ "essentia-builder:${TARGET_ESSENTIA_COMMIT}" ]
+    output = [{ type = "local", dest = "." }]
+}

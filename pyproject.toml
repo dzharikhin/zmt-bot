@@ -12,7 +12,6 @@ requests-ratelimiter = "^0.7.0"
 pandas = "^2.2.3"
 path-dict = "^4.0.0"
 numba = "^0.61.0"
-librosa = "^0.11.0"
 soundfile = "^0.13.1"
 atomics = "^1.0.2"
 scikit-learn = "^1.6.1"
@@ -28,9 +27,21 @@ poetry-core = "^2.1.2"
 polars = "^1.30.0"
 pyquery = "^2.0.1"
 pyarrow = "^20.0.0"
+aiohttp = "^3.12.11"
+aiohttp-cors = "^0.8.1"
+pyod = "^2.0.5"
+torch = {version = "^2.7.1", source = "pytorch_cpu"}
+hdbscan = "^0.8.40"
+essentia = {path = "essentia-wheels/essentia-2.1b6.dev0-cp312-cp312-manylinux_2_35_x86_64.whl", develop = true}
 
 [tool.poetry.group.dev.dependencies]
 black = "^24.10.0"
+
+
+[[tool.poetry.source]]
+name = "pytorch_cpu"
+url = "https://download.pytorch.org/whl/cpu"
+priority = "explicit"
 
 [build-system]
 requires = ["poetry-core"]
