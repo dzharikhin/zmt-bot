@@ -16,7 +16,7 @@ variable "TARGET_ESSENTIA_COMMIT" {
 }
 target "essentia-builder" {
     context = "."
-    dockerfile = "essentia-tensorflow.Dockerfile"
+    dockerfile = "essentia/essentia-tensorflow.Dockerfile"
     args = {
         TARGET_ESSENTIA_COMMIT = "${TARGET_ESSENTIA_COMMIT}"
     }
