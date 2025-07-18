@@ -611,7 +611,7 @@ optional = false
 python-versions = "*"
 groups = ["main"]
 files = [
-    {file = "essentia-2.1b6.dev0-cp312-cp312-manylinux_2_35_x86_64.whl", hash = "sha256:3082271fa614100fce8344edcf808495f46f128dd5bffaa778731e8ada571c2e"},
+    {file = "essentia-2.1b6.dev0-cp312-cp312-manylinux_2_35_x86_64.whl", hash = "sha256:91ba8d8bbd97e2a157568972e96795a4631a38d082612405223c3584c38c1fb3"},
 ]
 
 [package.dependencies]
@@ -621,7 +621,7 @@ six = "*"
 
 [package.source]
 type = "file"
-url = "essentia_tensorflow_from_pip/essentia-2.1b6.dev0-cp312-cp312-manylinux_2_35_x86_64.whl"
+url = "essentia/essentia-2.1b6.dev0-cp312-cp312-manylinux_2_35_x86_64.whl"
 
 [[package]]
 name = "filelock"
@@ -2756,4 +2756,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12, <3.13"
-content-hash = "b6e0e67b3a3f4301368ddbd3044e25c8faa1aa27128f6a647e706cf5c321215d"
+content-hash = "97422da75441c3ec4776ae4e4a3097764b3b9cfbcc1970585cab99559ab7d347"

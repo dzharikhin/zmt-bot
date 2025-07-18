@@ -2,13 +2,13 @@ FROM python:3.12-bookworm AS os
 RUN echo "deb [arch=amd64] http://storage.googleapis.com/bazel-apt stable jdk1.8" | tee /etc/apt/sources.list.d/bazel.list \
     && curl https://bazel.build/bazel-release.pub.gpg | apt-key add -
 RUN apt update
-ARG BAZEL_VERSION=5.1.1
+ARG BAZEL_VERSION=3.7.2
 RUN apt-get -yq install cmake patchelf curl wget yasm bazel-${BAZEL_VERSION} \
     build-essential \
     libeigen3-dev libyaml-dev libfftw3-dev \
     libsamplerate0-dev libtag1-dev libchromaprint-dev \
-    python3-pip python-is-python3 python3-dev python3-numpy-dev python3-numpy python3-yaml \
-    && ln -s /usr/bin/bazel-${BAZEL_VERSION} /usr/bin/bazel
+    python3-pip python-is-python3 python3-dev python3-numpy-dev python3-numpy python3-yaml python3-six
+RUN ln -s /usr/bin/bazel-${BAZEL_VERSION} /usr/bin/bazel
 RUN pip install --upgrade pip && pip install auditwheel setuptools
 
 FROM os AS sources
@@ -18,12 +18,8 @@ RUN curl -L "https://github.com/MTG/essentia/archive/${TARGET_ESSENTIA_COMMIT}.t
 
 FROM sources AS sources-with-deps
 WORKDIR /essentia
-RUN ./packaging/build_3rdparty_static_debian.sh
-RUN pip install --upgrade numpy six
-COPY essentia/bazel.patch /bazel.patch
-RUN BAZEL_PATCH_CMD="patch -s -p1 < /bazel.patch" && sed -i "s|cd tensorflow-\$TENSORFLOW_VERSION|cd tensorflow-\$TENSORFLOW_VERSION\n$BAZEL_PATCH_CMD|" packaging/debian_3rdparty/build_tensorflow.sh && cat packaging/debian_3rdparty/build_tensorflow.sh # && exit 1
-RUN cd packaging/debian_3rdparty && TF_NEED_CUDA=0 PYTHON_BIN_PATH=/usr/local/bin/python ./build_tensorflow.sh
-# RUN pip install tensorflow-cpu
+RUN TF_NEED_CUDA=0 ./packaging/build_3rdparty_static_debian.sh # --with-tensorflow
+RUN pip install tensorflow-cpu
 
 FROM sources-with-deps AS builder
 WORKDIR /essentia
