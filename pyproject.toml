@@ -31,7 +31,6 @@ aiohttp = "^3.12.11"
 aiohttp-cors = "^0.8.1"
 pyod = "^2.0.5"
 torch = {version = "^2.7.1", source = "pytorch_cpu"}
-hdbscan = "^0.8.40"
 essentia = {path = "essentia/essentia-2.1b6.dev0-cp312-cp312-manylinux_2_35_x86_64.whl", develop = true}
 
 [tool.poetry.group.dev.dependencies]
