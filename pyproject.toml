@@ -1,13 +1,13 @@
 [tool.poetry]
 name = "tg-zmt-bot"
-version = "0.1.7"
+version = "0.1.8"
 description = ""
 authors = ["Dmitriy Zharikhin <jorixxx@mail.ru>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
 python = ">=3.12, <3.13"
-requests = "^2.32.3"
+requests = "^2.32.4"
 requests-ratelimiter = "^0.7.0"
 pandas = "^2.2.3"
 path-dict = "^4.0.0"
@@ -27,7 +27,7 @@ standard-sunau = "^3.13.0"
 poetry-core = "^2.1.2"
 polars = "^1.30.0"
 pyquery = "^2.0.1"
-pyarrow = "^20.0.0"
+pyarrow = "^21.0.0"
 
 [tool.poetry.group.dev.dependencies]
 black = "^24.10.0"

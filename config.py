@@ -13,6 +13,7 @@ api_hash = os.getenv("API_HASH")
 bot_token = os.getenv("BOT_TOKEN")
 owner_user_id = int(os.getenv("OWNER_USER_ID", "0"))
 data_path = pathlib.Path("data")
+local_data_path = pathlib.Path("local_data")
 
 
 def v_name(fstr: str) -> str:
@@ -23,6 +24,7 @@ not_overridable_properties = {
     v_name(f"{bot_token=}"),
     v_name(f"{owner_user_id=}"),
     v_name(f"{data_path=}"),
+    v_name(f"{local_data_path=}"),
 }
 
 user_client_check_period_seconds = 10
@@ -186,11 +188,11 @@ def get_disliked_file_store_path(user_id: int) -> pathlib.Path:
 
 
 def get_train_queue_path(user_id: int) -> pathlib.Path:
-    return data_path.joinpath(str(user_id)).joinpath("train-queue.db")
+    return local_data_path.joinpath(str(user_id)).joinpath("train-queue.db")
 
 
 def get_estimate_queue_path(user_id: int) -> pathlib.Path:
-    return data_path.joinpath(str(user_id)).joinpath("estimate-queue.db")
+    return local_data_path.joinpath(str(user_id)).joinpath("estimate-queue.db")
 
 
 def get_user_tmp_dir(user_id: int) -> pathlib.Path:

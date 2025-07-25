@@ -357,7 +357,7 @@ async def main():
     bot_client = await cast(
         Union[CoroutineType, TelegramClient],
         TelegramClient(
-            config.data_path.joinpath("bot"), config.api_id, config.api_hash
+            config.local_data_path.joinpath("bot"), config.api_id, config.api_hash
         ).start(bot_token=config.bot_token),
     )
     tasks = {}
