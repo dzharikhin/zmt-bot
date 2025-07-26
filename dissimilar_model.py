@@ -21,6 +21,7 @@ from pyod.models.cof import COF
 from pyod.models.ecod import ECOD
 from pyod.models.knn import KNN
 from pyod.models.kpca import KPCA
+from pyod.models.loda import LODA
 from pyod.models.lof import LOF
 from pyod.models.lunar import LUNAR
 from pyod.models.mo_gaal import MO_GAAL
@@ -473,6 +474,10 @@ if __name__ == "__main__":
                     (
                         "lunar",
                         LUNAR(contamination=contamination_fraction,),
+                    ),
+                    (
+                        "loda",
+                        LODA(),
                     ),
                     # (
                     #     "suod",

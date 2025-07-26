@@ -1,21 +1,21 @@
-data_params=('raw', 'aggregates', 'standard_scaling', 'pca', 'contamination_fraction=0.1'): cblof=0.529,+-0.024;abod=0.518,+-0.029;knn-neighbours=20,leaf_size=30=0.517,+-0.033;cof=0.512,+-0.018;mo_gaal=0.512,+-0.027;knn-default=0.510,+-0.010;anogan=0.510,+-0.052;lunar=0.504,+-0.006;ecod=0.501,+-0.015
+data_params=('raw', 'aggregates', 'standard_scaling', 'pca', 'contamination_fraction=0.1'): cblof=0.529,+-0.024;abod=0.518,+-0.029;knn-neighbours=20,leaf_size=30=0.517,+-0.033;cof=0.512,+-0.018;mo_gaal=0.512,+-0.027;loda=0.510,+-0.036;knn-default=0.510,+-0.010;anogan=0.510,+-0.052;lunar=0.504,+-0.006;ecod=0.501,+-0.015
 data_params=('raw', 'aggregates', 'standard_scaling', 'pca', 'contamination_fraction=0.25'): lof-pyod=0.519,+-0.039;lunar=0.501,+-0.004
-data_params=('raw', 'aggregates', 'standard_scaling', 'pca', 'contamination_fraction=0.33'): mo_gaal=0.508,+-0.051
-data_params=('raw', 'aggregates', 'standard_scaling', 'no_pca', 'contamination_fraction=0.1'): knn-neighbours=20,leaf_size=30=0.503,+-0.045;abod=0.503,+-0.040
+data_params=('raw', 'aggregates', 'standard_scaling', 'pca', 'contamination_fraction=0.33'): mo_gaal=0.508,+-0.051;loda=0.505,+-0.027
+data_params=('raw', 'aggregates', 'standard_scaling', 'no_pca', 'contamination_fraction=0.1'): knn-neighbours=20,leaf_size=30=0.503,+-0.045;abod=0.503,+-0.040;loda=0.503,+-0.035
 data_params=('raw', 'aggregates', 'standard_scaling', 'no_pca', 'contamination_fraction=0.25'): ecod=0.528,+-0.052;lunar=0.519,+-0.055;knn-neighbours=20,leaf_size=30=0.514,+-0.039;cblof=0.514,+-0.042;abod=0.512,+-0.042;cof=0.508,+-0.036;knn-default=0.506,+-0.041
 data_params=('raw', 'aggregates', 'standard_scaling', 'no_pca', 'contamination_fraction=0.33'): knn-neighbours=20,leaf_size=30=0.515,+-0.048;abod=0.510,+-0.049;ecod=0.508,+-0.041;lunar=0.506,+-0.053;knn-default=0.501,+-0.038
 data_params=('raw', 'aggregates', 'min_max_scaling', 'pca', 'contamination_fraction=0.1'): cblof=0.524,+-0.017;knn-neighbours=20,leaf_size=30=0.523,+-0.019;abod=0.514,+-0.022;lof-pyod=0.509,+-0.032;knn-default=0.504,+-0.017;ecod=0.503,+-0.035;cof=0.503,+-0.016
 data_params=('raw', 'aggregates', 'min_max_scaling', 'pca', 'contamination_fraction=0.25'): mo_gaal=0.508,+-0.060;lof-pyod=0.504,+-0.035
 data_params=('raw', 'aggregates', 'min_max_scaling', 'pca', 'contamination_fraction=0.33'): ecod=0.523,+-0.027;lunar=0.517,+-0.044;cof=0.513,+-0.032;abod=0.510,+-0.044;mo_gaal=0.510,+-0.045;knn-default=0.508,+-0.050;cblof=0.504,+-0.073;knn-neighbours=20,leaf_size=30=0.503,+-0.051;anogan=0.501,+-0.004
-data_params=('raw', 'aggregates', 'min_max_scaling', 'no_pca', 'contamination_fraction=0.1'): knn-default=0.526,+-0.033;lunar=0.522,+-0.046;knn-neighbours=20,leaf_size=30=0.517,+-0.026;lof-pyod=0.514,+-0.045;abod=0.512,+-0.030;cof=0.506,+-0.026;ecod=0.505,+-0.020;cblof=0.504,+-0.030;mo_gaal=0.504,+-0.017
+data_params=('raw', 'aggregates', 'min_max_scaling', 'no_pca', 'contamination_fraction=0.1'): loda=0.527,+-0.036;knn-default=0.526,+-0.033;lunar=0.522,+-0.046;knn-neighbours=20,leaf_size=30=0.517,+-0.026;lof-pyod=0.514,+-0.045;abod=0.512,+-0.030;cof=0.506,+-0.026;ecod=0.505,+-0.020;cblof=0.504,+-0.030;mo_gaal=0.504,+-0.017
 data_params=('raw', 'aggregates', 'min_max_scaling', 'no_pca', 'contamination_fraction=0.25'): ecod=0.512,+-0.039;abod=0.501,+-0.052
-data_params=('raw', 'aggregates', 'min_max_scaling', 'no_pca', 'contamination_fraction=0.33'): ecod=0.518,+-0.057;lunar=0.504,+-0.068;knn-neighbours=20,leaf_size=30=0.503,+-0.076;lof-pyod=0.501,+-0.080;cblof=0.501,+-0.057;anogan=0.501,+-0.004
+data_params=('raw', 'aggregates', 'min_max_scaling', 'no_pca', 'contamination_fraction=0.33'): loda=0.519,+-0.046;ecod=0.518,+-0.057;lunar=0.504,+-0.068;knn-neighbours=20,leaf_size=30=0.503,+-0.076;lof-pyod=0.501,+-0.080;cblof=0.501,+-0.057;anogan=0.501,+-0.004
 data_params=('raw', 'aggregates', 'abs_max_scaling', 'pca', 'contamination_fraction=0.1'): ecod=0.526,+-0.039;mo_gaal=0.518,+-0.050;knn-default=0.512,+-0.020;cblof=0.508,+-0.026;knn-neighbours=20,leaf_size=30=0.506,+-0.029;anogan=0.505,+-0.019;cof=0.504,+-0.020;lunar=0.504,+-0.006;abod=0.503,+-0.028
 data_params=('raw', 'aggregates', 'abs_max_scaling', 'pca', 'contamination_fraction=0.25'): abod=0.518,+-0.050;cof=0.514,+-0.027;knn-neighbours=20,leaf_size=30=0.513,+-0.044;cblof=0.513,+-0.051
 data_params=('raw', 'aggregates', 'abs_max_scaling', 'pca', 'contamination_fraction=0.33'): cof=0.523,+-0.041;knn-neighbours=20,leaf_size=30=0.518,+-0.070;abod=0.517,+-0.071;ecod=0.509,+-0.052;knn-default=0.508,+-0.068;lunar=0.505,+-0.019;lof-pyod=0.501,+-0.044
 data_params=('raw', 'aggregates', 'abs_max_scaling', 'no_pca', 'contamination_fraction=0.1'): cof=0.504,+-0.028
-data_params=('raw', 'aggregates', 'abs_max_scaling', 'no_pca', 'contamination_fraction=0.25'): abod=0.535,+-0.068;cblof=0.531,+-0.062;lof-pyod=0.528,+-0.068;knn-default=0.526,+-0.064;ecod=0.526,+-0.040;knn-neighbours=20,leaf_size=30=0.521,+-0.060;lunar=0.513,+-0.060;mo_gaal=0.503,+-0.029
-data_params=('raw', 'aggregates', 'abs_max_scaling', 'no_pca', 'contamination_fraction=0.33'): ecod=0.522,+-0.058;mo_gaal=0.501,+-0.041
+data_params=('raw', 'aggregates', 'abs_max_scaling', 'no_pca', 'contamination_fraction=0.25'): loda=0.537,+-0.055;abod=0.535,+-0.068;cblof=0.531,+-0.062;lof-pyod=0.528,+-0.068;knn-default=0.526,+-0.064;ecod=0.526,+-0.040;knn-neighbours=20,leaf_size=30=0.521,+-0.060;lunar=0.513,+-0.060;mo_gaal=0.503,+-0.029
+data_params=('raw', 'aggregates', 'abs_max_scaling', 'no_pca', 'contamination_fraction=0.33'): ecod=0.522,+-0.058;loda=0.508,+-0.048;mo_gaal=0.501,+-0.041
 data_params=('raw', 'aggregates', 'no_scaling', 'pca', 'contamination_fraction=0.1'): 
 data_params=('raw', 'aggregates', 'no_scaling', 'pca', 'contamination_fraction=0.25'): cof=0.501,+-0.019
 data_params=('raw', 'aggregates', 'no_scaling', 'pca', 'contamination_fraction=0.33'): 
@@ -26,19 +26,19 @@ data_params=('raw', 'standard_scaling', 'pca', 'contamination_fraction=0.1'): an
 data_params=('raw', 'standard_scaling', 'pca', 'contamination_fraction=0.25'): lof-pyod=0.519,+-0.043;cof=0.514,+-0.019;knn-default=0.506,+-0.040;knn-neighbours=20,leaf_size=30=0.506,+-0.037;abod=0.504,+-0.036;cblof=0.504,+-0.052
 data_params=('raw', 'standard_scaling', 'pca', 'contamination_fraction=0.33'): mo_gaal=0.528,+-0.044;lunar=0.503,+-0.017;cblof=0.501,+-0.065
 data_params=('raw', 'standard_scaling', 'no_pca', 'contamination_fraction=0.1'): anogan=0.514,+-0.057;cof=0.512,+-0.021;ecod=0.506,+-0.035;mo_gaal=0.506,+-0.046;lunar=0.506,+-0.029;cblof=0.505,+-0.035;knn-default=0.504,+-0.032
-data_params=('raw', 'standard_scaling', 'no_pca', 'contamination_fraction=0.25'): lunar=0.521,+-0.033;anogan=0.512,+-0.039;knn-default=0.510,+-0.047;cof=0.508,+-0.034;lof-pyod=0.508,+-0.073;abod=0.508,+-0.057;knn-neighbours=20,leaf_size=30=0.505,+-0.061;cblof=0.503,+-0.074
-data_params=('raw', 'standard_scaling', 'no_pca', 'contamination_fraction=0.33'): lunar=0.510,+-0.047;mo_gaal=0.504,+-0.064;anogan=0.504,+-0.034
-data_params=('raw', 'min_max_scaling', 'pca', 'contamination_fraction=0.1'): cblof=0.515,+-0.040;knn-default=0.513,+-0.021;cof=0.509,+-0.024;lof-pyod=0.503,+-0.025;knn-neighbours=20,leaf_size=30=0.501,+-0.045;abod=0.501,+-0.047
-data_params=('raw', 'min_max_scaling', 'pca', 'contamination_fraction=0.25'): mo_gaal=0.517,+-0.035;lof-pyod=0.505,+-0.047
+data_params=('raw', 'standard_scaling', 'no_pca', 'contamination_fraction=0.25'): lunar=0.521,+-0.033;anogan=0.512,+-0.039;knn-default=0.510,+-0.047;cof=0.508,+-0.034;lof-pyod=0.508,+-0.073;abod=0.508,+-0.057;knn-neighbours=20,leaf_size=30=0.505,+-0.061;loda=0.504,+-0.051;cblof=0.503,+-0.074
+data_params=('raw', 'standard_scaling', 'no_pca', 'contamination_fraction=0.33'): lunar=0.510,+-0.047;mo_gaal=0.504,+-0.064;anogan=0.504,+-0.034;loda=0.501,+-0.027
+data_params=('raw', 'min_max_scaling', 'pca', 'contamination_fraction=0.1'): cblof=0.515,+-0.040;knn-default=0.513,+-0.021;loda=0.512,+-0.020;cof=0.509,+-0.024;lof-pyod=0.503,+-0.025;knn-neighbours=20,leaf_size=30=0.501,+-0.045;abod=0.501,+-0.047
+data_params=('raw', 'min_max_scaling', 'pca', 'contamination_fraction=0.25'): mo_gaal=0.517,+-0.035;lof-pyod=0.505,+-0.047;loda=0.501,+-0.031
 data_params=('raw', 'min_max_scaling', 'pca', 'contamination_fraction=0.33'): abod=0.509,+-0.038;knn-neighbours=20,leaf_size=30=0.509,+-0.044;knn-default=0.508,+-0.039;cblof=0.506,+-0.067;lunar=0.504,+-0.014
 data_params=('raw', 'min_max_scaling', 'no_pca', 'contamination_fraction=0.1'): knn-default=0.533,+-0.063;cblof=0.522,+-0.088;abod=0.521,+-0.061;lunar=0.521,+-0.065;knn-neighbours=20,leaf_size=30=0.514,+-0.060;anogan=0.506,+-0.018;lof-pyod=0.504,+-0.063;ecod=0.503,+-0.046
 data_params=('raw', 'min_max_scaling', 'no_pca', 'contamination_fraction=0.25'): lof-pyod=0.523,+-0.054;lunar=0.515,+-0.047;cblof=0.514,+-0.043;abod=0.513,+-0.049;knn-neighbours=20,leaf_size=30=0.506,+-0.045;knn-default=0.503,+-0.036;mo_gaal=0.503,+-0.024
-data_params=('raw', 'min_max_scaling', 'no_pca', 'contamination_fraction=0.33'): abod=0.513,+-0.063;knn-neighbours=20,leaf_size=30=0.509,+-0.064;lunar=0.509,+-0.056;mo_gaal=0.505,+-0.022;knn-default=0.501,+-0.066
-data_params=('raw', 'abs_max_scaling', 'pca', 'contamination_fraction=0.1'): mo_gaal=0.521,+-0.050;abod=0.510,+-0.022;cof=0.508,+-0.018;knn-default=0.506,+-0.014;knn-neighbours=20,leaf_size=30=0.505,+-0.017;cblof=0.503,+-0.036
-data_params=('raw', 'abs_max_scaling', 'pca', 'contamination_fraction=0.25'): knn-neighbours=20,leaf_size=30=0.535,+-0.044;abod=0.533,+-0.044;knn-default=0.521,+-0.026;lof-pyod=0.519,+-0.027;cblof=0.518,+-0.035;mo_gaal=0.506,+-0.042;cof=0.503,+-0.021;lunar=0.503,+-0.019
+data_params=('raw', 'min_max_scaling', 'no_pca', 'contamination_fraction=0.33'): abod=0.513,+-0.063;loda=0.510,+-0.024;knn-neighbours=20,leaf_size=30=0.509,+-0.064;lunar=0.509,+-0.056;mo_gaal=0.505,+-0.022;knn-default=0.501,+-0.066
+data_params=('raw', 'abs_max_scaling', 'pca', 'contamination_fraction=0.1'): mo_gaal=0.521,+-0.050;abod=0.510,+-0.022;cof=0.508,+-0.018;knn-default=0.506,+-0.014;loda=0.506,+-0.034;knn-neighbours=20,leaf_size=30=0.505,+-0.017;cblof=0.503,+-0.036
+data_params=('raw', 'abs_max_scaling', 'pca', 'contamination_fraction=0.25'): knn-neighbours=20,leaf_size=30=0.535,+-0.044;abod=0.533,+-0.044;knn-default=0.521,+-0.026;lof-pyod=0.519,+-0.027;cblof=0.518,+-0.035;loda=0.512,+-0.022;mo_gaal=0.506,+-0.042;cof=0.503,+-0.021;lunar=0.503,+-0.019
 data_params=('raw', 'abs_max_scaling', 'pca', 'contamination_fraction=0.33'): cblof=0.540,+-0.062;knn-default=0.536,+-0.033;knn-neighbours=20,leaf_size=30=0.531,+-0.039;lunar=0.526,+-0.026;abod=0.523,+-0.039;mo_gaal=0.521,+-0.043;cof=0.514,+-0.018;ecod=0.501,+-0.056
-data_params=('raw', 'abs_max_scaling', 'no_pca', 'contamination_fraction=0.1'): ecod=0.510,+-0.045;mo_gaal=0.508,+-0.014;abod=0.504,+-0.052;knn-default=0.503,+-0.045;cof=0.501,+-0.021
-data_params=('raw', 'abs_max_scaling', 'no_pca', 'contamination_fraction=0.25'): ecod=0.510,+-0.049;knn-default=0.503,+-0.054;cblof=0.503,+-0.056;lunar=0.503,+-0.048
+data_params=('raw', 'abs_max_scaling', 'no_pca', 'contamination_fraction=0.1'): loda=0.515,+-0.046;ecod=0.510,+-0.045;mo_gaal=0.508,+-0.014;abod=0.504,+-0.052;knn-default=0.503,+-0.045;cof=0.501,+-0.021
+data_params=('raw', 'abs_max_scaling', 'no_pca', 'contamination_fraction=0.25'): loda=0.531,+-0.039;ecod=0.510,+-0.049;knn-default=0.503,+-0.054;cblof=0.503,+-0.056;lunar=0.503,+-0.048
 data_params=('raw', 'abs_max_scaling', 'no_pca', 'contamination_fraction=0.33'): cof=0.504,+-0.033;abod=0.503,+-0.059;ecod=0.503,+-0.033;mo_gaal=0.503,+-0.021
 data_params=('raw', 'no_scaling', 'pca', 'contamination_fraction=0.1'): 
 data_params=('raw', 'no_scaling', 'pca', 'contamination_fraction=0.25'): cof=0.506,+-0.021
@@ -48,22 +48,22 @@ data_params=('raw', 'no_scaling', 'no_pca', 'contamination_fraction=0.25'): ecod
 data_params=('raw', 'no_scaling', 'no_pca', 'contamination_fraction=0.33'): ecod=0.518,+-0.047;cof=0.514,+-0.038
 data_params=('aggregates', 'standard_scaling', 'pca', 'contamination_fraction=0.1'): anogan=0.524,+-0.045;cof=0.508,+-0.028;knn-neighbours=20,leaf_size=30=0.505,+-0.033;knn-default=0.504,+-0.022;ecod=0.503,+-0.026;abod=0.503,+-0.036;lunar=0.503,+-0.013
 data_params=('aggregates', 'standard_scaling', 'pca', 'contamination_fraction=0.25'): lof-pyod=0.519,+-0.070;anogan=0.504,+-0.016;mo_gaal=0.501,+-0.050
-data_params=('aggregates', 'standard_scaling', 'pca', 'contamination_fraction=0.33'): 
-data_params=('aggregates', 'standard_scaling', 'no_pca', 'contamination_fraction=0.1'): mo_gaal=0.532,+-0.023;knn-default=0.529,+-0.032;ecod=0.529,+-0.041;knn-neighbours=20,leaf_size=30=0.528,+-0.032;cblof=0.523,+-0.020;anogan=0.521,+-0.064;cof=0.521,+-0.024;abod=0.518,+-0.032;lunar=0.513,+-0.030;lof-pyod=0.501,+-0.036
-data_params=('aggregates', 'standard_scaling', 'no_pca', 'contamination_fraction=0.25'): lof-pyod=0.509,+-0.038;mo_gaal=0.509,+-0.060;abod=0.503,+-0.052;cblof=0.503,+-0.060;knn-neighbours=20,leaf_size=30=0.501,+-0.050
+data_params=('aggregates', 'standard_scaling', 'pca', 'contamination_fraction=0.33'): loda=0.510,+-0.026
+data_params=('aggregates', 'standard_scaling', 'no_pca', 'contamination_fraction=0.1'): mo_gaal=0.532,+-0.023;knn-default=0.529,+-0.032;ecod=0.529,+-0.041;knn-neighbours=20,leaf_size=30=0.528,+-0.032;cblof=0.523,+-0.020;anogan=0.521,+-0.064;cof=0.521,+-0.024;abod=0.518,+-0.032;loda=0.514,+-0.032;lunar=0.513,+-0.030;lof-pyod=0.501,+-0.036
+data_params=('aggregates', 'standard_scaling', 'no_pca', 'contamination_fraction=0.25'): lof-pyod=0.509,+-0.038;mo_gaal=0.509,+-0.060;abod=0.503,+-0.052;cblof=0.503,+-0.060;loda=0.503,+-0.035;knn-neighbours=20,leaf_size=30=0.501,+-0.050
 data_params=('aggregates', 'standard_scaling', 'no_pca', 'contamination_fraction=0.33'): ecod=0.558,+-0.054;abod=0.517,+-0.042;knn-default=0.512,+-0.045;cof=0.512,+-0.047;knn-neighbours=20,leaf_size=30=0.510,+-0.038;cblof=0.509,+-0.047;lunar=0.504,+-0.059
-data_params=('aggregates', 'min_max_scaling', 'pca', 'contamination_fraction=0.1'): cof=0.510,+-0.024;knn-default=0.508,+-0.016;lof-pyod=0.506,+-0.019;ecod=0.505,+-0.015;cblof=0.503,+-0.029;mo_gaal=0.501,+-0.036
-data_params=('aggregates', 'min_max_scaling', 'pca', 'contamination_fraction=0.25'): lof-pyod=0.535,+-0.035;cblof=0.529,+-0.057;mo_gaal=0.527,+-0.063
+data_params=('aggregates', 'min_max_scaling', 'pca', 'contamination_fraction=0.1'): loda=0.512,+-0.040;cof=0.510,+-0.024;knn-default=0.508,+-0.016;lof-pyod=0.506,+-0.019;ecod=0.505,+-0.015;cblof=0.503,+-0.029;mo_gaal=0.501,+-0.036
+data_params=('aggregates', 'min_max_scaling', 'pca', 'contamination_fraction=0.25'): lof-pyod=0.535,+-0.035;loda=0.531,+-0.024;cblof=0.529,+-0.057;mo_gaal=0.527,+-0.063
 data_params=('aggregates', 'min_max_scaling', 'pca', 'contamination_fraction=0.33'): knn-default=0.522,+-0.030;knn-neighbours=20,leaf_size=30=0.521,+-0.041;mo_gaal=0.519,+-0.042;lunar=0.517,+-0.026;lof-pyod=0.509,+-0.046;abod=0.509,+-0.045;cof=0.509,+-0.046
 data_params=('aggregates', 'min_max_scaling', 'no_pca', 'contamination_fraction=0.1'): cof=0.513,+-0.021;ecod=0.512,+-0.038;abod=0.504,+-0.049;lunar=0.503,+-0.033
-data_params=('aggregates', 'min_max_scaling', 'no_pca', 'contamination_fraction=0.25'): mo_gaal=0.509,+-0.032
-data_params=('aggregates', 'min_max_scaling', 'no_pca', 'contamination_fraction=0.33'): lunar=0.505,+-0.060;cblof=0.501,+-0.035;mo_gaal=0.501,+-0.030
-data_params=('aggregates', 'abs_max_scaling', 'pca', 'contamination_fraction=0.1'): mo_gaal=0.506,+-0.040
+data_params=('aggregates', 'min_max_scaling', 'no_pca', 'contamination_fraction=0.25'): mo_gaal=0.509,+-0.032;loda=0.506,+-0.053
+data_params=('aggregates', 'min_max_scaling', 'no_pca', 'contamination_fraction=0.33'): loda=0.522,+-0.061;lunar=0.505,+-0.060;cblof=0.501,+-0.035;mo_gaal=0.501,+-0.030
+data_params=('aggregates', 'abs_max_scaling', 'pca', 'contamination_fraction=0.1'): loda=0.526,+-0.038;mo_gaal=0.506,+-0.040
 data_params=('aggregates', 'abs_max_scaling', 'pca', 'contamination_fraction=0.25'): mo_gaal=0.529,+-0.040
-data_params=('aggregates', 'abs_max_scaling', 'pca', 'contamination_fraction=0.33'): cof=0.514,+-0.038;knn-neighbours=20,leaf_size=30=0.513,+-0.045;abod=0.508,+-0.037;lunar=0.505,+-0.009
-data_params=('aggregates', 'abs_max_scaling', 'no_pca', 'contamination_fraction=0.1'): knn-default=0.505,+-0.047;mo_gaal=0.503,+-0.030
-data_params=('aggregates', 'abs_max_scaling', 'no_pca', 'contamination_fraction=0.25'): knn-neighbours=20,leaf_size=30=0.522,+-0.049;ecod=0.515,+-0.026;cblof=0.509,+-0.039;abod=0.506,+-0.043;knn-default=0.505,+-0.047
-data_params=('aggregates', 'abs_max_scaling', 'no_pca', 'contamination_fraction=0.33'): abod=0.524,+-0.060;knn-neighbours=20,leaf_size=30=0.523,+-0.062;cof=0.518,+-0.045;knn-default=0.514,+-0.041;cblof=0.514,+-0.035;ecod=0.513,+-0.051;mo_gaal=0.512,+-0.036;lof-pyod=0.504,+-0.041
+data_params=('aggregates', 'abs_max_scaling', 'pca', 'contamination_fraction=0.33'): loda=0.515,+-0.026;cof=0.514,+-0.038;knn-neighbours=20,leaf_size=30=0.513,+-0.045;abod=0.508,+-0.037;lunar=0.505,+-0.009
+data_params=('aggregates', 'abs_max_scaling', 'no_pca', 'contamination_fraction=0.1'): loda=0.508,+-0.034;knn-default=0.505,+-0.047;mo_gaal=0.503,+-0.030
+data_params=('aggregates', 'abs_max_scaling', 'no_pca', 'contamination_fraction=0.25'): knn-neighbours=20,leaf_size=30=0.522,+-0.049;ecod=0.515,+-0.026;loda=0.513,+-0.050;cblof=0.509,+-0.039;abod=0.506,+-0.043;knn-default=0.505,+-0.047
+data_params=('aggregates', 'abs_max_scaling', 'no_pca', 'contamination_fraction=0.33'): abod=0.524,+-0.060;knn-neighbours=20,leaf_size=30=0.523,+-0.062;cof=0.518,+-0.045;loda=0.518,+-0.045;knn-default=0.514,+-0.041;cblof=0.514,+-0.035;ecod=0.513,+-0.051;mo_gaal=0.512,+-0.036;lof-pyod=0.504,+-0.041
 data_params=('aggregates', 'no_scaling', 'pca', 'contamination_fraction=0.1'): 
 data_params=('aggregates', 'no_scaling', 'pca', 'contamination_fraction=0.25'): 
 data_params=('aggregates', 'no_scaling', 'pca', 'contamination_fraction=0.33'): cof=0.504,+-0.023
