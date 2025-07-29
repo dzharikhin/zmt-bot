@@ -475,6 +475,7 @@ def _get_embeddings(
     )
     return embedding_model(audio_parser(model_params))
 
+
 @functools.cache
 def get_or_create_model(model_name: str, model_params: tuple[str, str, str]):
     print(f"creating model {model_name}: {model_params}")
@@ -507,7 +508,7 @@ def _get_features_from_model(
             model_class,
             model_input,
             model_output,
-        )
+        ),
     )
     embeddings = _get_embeddings(model_metadata, audio_parser)
     activations = model(embeddings)

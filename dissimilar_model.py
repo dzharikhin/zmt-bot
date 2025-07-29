@@ -1,10 +1,8 @@
 import dataclasses
-import json
 import logging
 import operator
 import pathlib
 import random
-import re
 import sys
 import typing
 from collections import defaultdict
@@ -14,20 +12,10 @@ from itertools import product
 import numpy
 import numpy as np
 import polars as pl
-from pyod.models.abod import ABOD
-from pyod.models.anogan import AnoGAN
-from pyod.models.cblof import CBLOF
-from pyod.models.cof import COF
-from pyod.models.ecod import ECOD
 from pyod.models.knn import KNN
-from pyod.models.kpca import KPCA
-from pyod.models.loda import LODA
-from pyod.models.lof import LOF
-from pyod.models.lunar import LUNAR
-from pyod.models.mo_gaal import MO_GAAL
 from sklearn.decomposition import PCA
 from sklearn.metrics import accuracy_score
-from sklearn.preprocessing import StandardScaler, MinMaxScaler, MaxAbsScaler
+from sklearn.preprocessing import StandardScaler, MaxAbsScaler
 
 from audio.features import extract_features_for_mp3, AudioFeatures, prepare_extractor
 from dataset.persistent_dataset_processor import DataFrameBuilder
@@ -106,11 +94,21 @@ if __name__ == "__main__":
         mood_party___msd___musicnn___1______non_party: float
         mood_relaxed___msd___musicnn___1______non_relaxed: float
         mood_sad___msd___musicnn___1______non_sad: float
-        moods_mirex___msd___musicnn___1______passionate_rousing_confident_boisterous_rowdy: float
-        moods_mirex___msd___musicnn___1______rollicking_cheerful_fun_sweet_amiable_good_natured: float
-        moods_mirex___msd___musicnn___1______literate_poignant_wistful_bittersweet_autumnal_brooding: float
-        moods_mirex___msd___musicnn___1______humorous_silly_campy_quirky_whimsical_witty_wry: float
-        moods_mirex___msd___musicnn___1______aggressive_fiery_tense_anxious_intense_volatile_visceral: float
+        moods_mirex___msd___musicnn___1______passionate_rousing_confident_boisterous_rowdy: (
+            float
+        )
+        moods_mirex___msd___musicnn___1______rollicking_cheerful_fun_sweet_amiable_good_natured: (
+            float
+        )
+        moods_mirex___msd___musicnn___1______literate_poignant_wistful_bittersweet_autumnal_brooding: (
+            float
+        )
+        moods_mirex___msd___musicnn___1______humorous_silly_campy_quirky_whimsical_witty_wry: (
+            float
+        )
+        moods_mirex___msd___musicnn___1______aggressive_fiery_tense_anxious_intense_volatile_visceral: (
+            float
+        )
         muse___msd___musicnn___2______valence: float
         nsynth_acoustic_electronic___discogs___effnet___1______acoustic: float
         nsynth_bright_dark___discogs___effnet___1______bright: float
@@ -119,22 +117,50 @@ if __name__ == "__main__":
         voice_instrumental___msd___musicnn___1______instrumental: float
 
     test_fraction = 0.33
-    train_tries = 10
-    data_param_options = [tuple(reduce(operator.iconcat, (e if isinstance(e, list) else [e] for e in variant), [])) for variant in product(
-        [["raw", "aggregates"], "raw", "aggregates"],
-        ["standard_scaling", "min_max_scaling", "abs_max_scaling", "no_scaling"],
-        ["pca", "no_pca"],
-        ["contamination_fraction=0.1", "contamination_fraction=0.25", "contamination_fraction=0.33"],
-    )]
+    train_tries = 3
+    data_param_options = [
+        tuple(
+            reduce(
+                operator.iconcat,
+                (e if isinstance(e, list) else [e] for e in variant),
+                [],
+            )
+        )
+        for variant in product(
+            [["raw", "aggregates"], "raw", "aggregates"],
+            ["standard_scaling", "abs_max_scaling"],
+            ["pca", "no_pca"],
+            [
+                "contamination_fraction=0.25",
+                "contamination_fraction=0.33",
+                "contamination_fraction=0.5",
+            ],
+        )
+    ]
     data_report = pathlib.Path("data_report.csv")
-    checked_variants = set()
     if data_report.exists():
-        with data_report.open(mode="rt") as f:
-            checked_variants = {
-                frozenset(json.loads(m.group(0).replace("'", '"')).items())
-                for line in f.readlines()
-                if (m := re.match("{.+}", line))
-            }
+        processed_variants = data_report.read_text().split("\n")
+        data_param_options = [
+            v
+            for v in data_param_options
+            if not any(line.startswith(f"{v}: ") for line in processed_variants)
+        ]
+
+    knn_variants = list(
+        product(
+            *[
+                ["knn_n_neighbors=3", "knn_n_neighbors=5", "knn_n_neighbors=10"],
+                [
+                    "knn_distance_metric=minkowski",
+                    "knn_distance_metric=l1",
+                    "knn_distance_metric=l2",
+                ],
+                ["knn_leaf_size=15", "knn_leaf_size=30", "knn_leaf_size=60"],
+                ["knn_method=largest", "knn_method=mean", "knn_method=median"],
+                ["knn_radius=0.5", "knn_radius=1.0", "knn_radius=2.0"],
+            ]
+        )
+    )
 
     def stats(progress_state: DataFrameBuilder.ProgressStat):
         logger.info(
@@ -146,14 +172,11 @@ if __name__ == "__main__":
 
     extractor = prepare_extractor()
 
-
     def common_extractor(
         audio_path: pathlib.Path, is_liked: bool, track_id: str
     ) -> MappedAudioFeatures:
-        features = extract_features_for_mp3(
-            audio_path.joinpath(track_id),
-            extractor
-        )
+        features = extract_features_for_mp3(audio_path.joinpath(track_id), extractor)
+
         def unwrap(v):
             if hasattr(v, "tolist"):
                 return v.tolist()
@@ -161,9 +184,9 @@ if __name__ == "__main__":
                 return v.item()
             else:
                 return v
+
         remapped_values = {
-            k: unwrap(v)
-            for k, v in dataclasses.asdict(features).items()
+            k: unwrap(v) for k, v in dataclasses.asdict(features).items()
         }
         logger.debug(f"[{is_liked=}]extracted features for {track_id=}")
         return MappedAudioFeatures(**remapped_values, liked=int(is_liked))
@@ -191,9 +214,7 @@ if __name__ == "__main__":
         DataFrameBuilder(
             working_dir=pathlib.Path("data/tmp/liked_dir"),
             index_generator=DataFrameBuilder.GeneratingParams(
-                generator=(
-                    f.name for f in liked_audio_path.iterdir() if f.is_file()
-                ),
+                generator=(f.name for f in liked_audio_path.iterdir() if f.is_file()),
                 result_schema=("row_id", pl.String),
             ),
             mappers=[liked_feature_extractor],
@@ -210,16 +231,14 @@ if __name__ == "__main__":
                 pl.col(disliked_frame_result.processing_status_column[0])
                 == DataFrameBuilder.PROCESSING_SUCCEED_VALUE
             )
-            .select(
-                pl.all().exclude(disliked_frame_result.processing_status_column[0])
-            )
+            .select(pl.all().exclude(disliked_frame_result.processing_status_column[0]))
         )
 
         metric_sizes = {
             field.name: size_literal[0]
             for field in dataclasses.fields(AudioFeatures)
             if (root_args := typing.get_args(field.type))
-               and (size_literal := typing.get_args(typing.get_args(root_args[0])[0]))
+            and (size_literal := typing.get_args(typing.get_args(root_args[0])[0]))
         }
 
         container_field_names = set(
@@ -259,27 +278,64 @@ if __name__ == "__main__":
             "Bb": keys["A#"],
             "Cb": keys["B"],
         }
-        key_mapping = {k: {"sin": numpy.sin(2 * numpy.pi * v / len(keys)), "cos": numpy.cos(2 * numpy.pi * v / len(keys))} for k, v in (keys | alias_keys).items()}
+        key_mapping = {
+            k: {
+                "sin": numpy.sin(2 * numpy.pi * v / len(keys)),
+                "cos": numpy.cos(2 * numpy.pi * v / len(keys)),
+            }
+            for k, v in (keys | alias_keys).items()
+        }
 
-        key_columns = [field.name
-        for field in dataclasses.fields(MappedAudioFeatures) if field.type == str and field.name.endswith("_key")]
+        key_columns = [
+            field.name
+            for field in dataclasses.fields(MappedAudioFeatures)
+            if field.type == str and field.name.endswith("_key")
+        ]
 
-        scale_columns = [field.name
-        for field in dataclasses.fields(MappedAudioFeatures) if field.type == str and field.name.endswith("_scale")]
+        scale_columns = [
+            field.name
+            for field in dataclasses.fields(MappedAudioFeatures)
+            if field.type == str and field.name.endswith("_scale")
+        ]
         processed_data = processed_data.with_columns(
             *[
-                pl.col(column_name).replace_strict(key_mapping, return_dtype=pl.Struct({f"{column_name}-sin": pl.Float64, f"{column_name}-cos": pl.Float64})) for column_name in key_columns
+                pl.col(column_name).replace_strict(
+                    key_mapping,
+                    return_dtype=pl.Struct(
+                        {
+                            f"{column_name}-sin": pl.Float64,
+                            f"{column_name}-cos": pl.Float64,
+                        }
+                    ),
+                )
+                for column_name in key_columns
             ],
             *[
-                pl.col(column_name).replace_strict(scale_mapping, return_dtype=pl.Int64) for column_name in scale_columns
-            ]
+                pl.col(column_name).replace_strict(scale_mapping, return_dtype=pl.Int64)
+                for column_name in scale_columns
+            ],
         ).unnest(key_columns)
 
-        accuracies: dict[tuple[str, ...], dict[str, list[float]] | list[tuple[str, tuple[float, float]]]] = defaultdict(lambda: defaultdict(list))
-        for data_params in data_param_options:
-            contamination_fraction = float([fract for fract in data_params if fract.startswith("contamination_fraction=")][0].split("=", 2)[1])
+        def extract_param(param_row, name, converter=None):
+            val = [fract for fract in param_row if fract.startswith(f"{name}=")][
+                0
+            ].split("=", 2)[1]
+            return converter(val) if converter else val
+
+        for dn, data_params in enumerate(data_param_options, 1):
+            accuracies = defaultdict(list)
+            contamination_fraction = float(
+                [
+                    fract
+                    for fract in data_params
+                    if fract.startswith("contamination_fraction=")
+                ][0].split("=", 2)[1]
+            )
             data_variant = processed_data
-            logger.info(f"{data_params=}: {data_variant.collect_schema().len()=}")
+            logger.info(
+                f"<{dn}/{len(data_param_options)}>{data_params=}: {data_variant.collect_schema().len()=}"
+            )
+
             for field_name, field_size in metric_sizes.items():
                 if "aggregates" in data_params:
                     data_variant = data_variant.with_columns(
@@ -290,22 +346,18 @@ if __name__ == "__main__":
                         pl.col(field_name).list.max().alias(f"{field_name}_max"),
                     )
                 if "raw" in data_params:
-                    data_variant = (
-                        data_variant.with_columns(
-                            pl.col(field_name).list.to_struct(
-                                fields=[
-                                    f"{field_name}_{idx}"
-                                    for idx in range(field_size)
-                                ],
-                                upper_bound=field_size,
-                            )
+                    data_variant = data_variant.with_columns(
+                        pl.col(field_name).list.to_struct(
+                            fields=[f"{field_name}_{idx}" for idx in range(field_size)],
+                            upper_bound=field_size,
                         )
-                        .unnest(field_name)
-                    )
+                    ).unnest(field_name)
                 else:
                     data_variant = data_variant.drop(field_name)
 
-            logger.info(f"{data_params=}: {data_variant.collect_schema().len()=}")
+            logger.info(
+                f"<{dn}/{len(data_param_options)}>{data_params=}: {data_variant.collect_schema().len()=}"
+            )
 
             for try_n in range(train_tries):
                 shuffle_seed = random.randint(0, 100)
@@ -378,47 +430,51 @@ if __name__ == "__main__":
                     )
 
                 train_data = (
-                    data_variant.join(
-                        train_track_ids, "row_id", "left", coalesce=False
-                    )
+                    data_variant.join(train_track_ids, "row_id", "left", coalesce=False)
                     .filter(pl.col("row_id_right").is_null().not_())
                     .select(pl.all().exclude("row_id_right"))
                 )
 
-                test_data = data_variant.join(
-                        test_track_ids, "row_id", "left", coalesce=False
-                    ).filter(pl.col("row_id_right").is_null().not_()).select(pl.all().exclude("row_id_right"))
-
-
-                logger.info(
-                    f"{train_data.group_by(by="liked").agg(pl.nth(0).len()).collect(engine="streaming")=}"
+                test_data = (
+                    data_variant.join(test_track_ids, "row_id", "left", coalesce=False)
+                    .filter(pl.col("row_id_right").is_null().not_())
+                    .select(pl.all().exclude("row_id_right"))
                 )
+
+                # logger.info(
+                #     f"{train_data.group_by(by="liked").agg(pl.nth(0).len()).collect(engine="streaming")=}"
+                # )
                 if logger.isEnabledFor(logging.DEBUG):
                     train_nulls = train_data.null_count().collect(engine="streaming")
                     logger.debug(
                         f"{train_nulls.select(col.name for col in train_nulls.select(pl.all() > 0) if col.all())=}"
                     )
-                logger.info(
-                    f"{test_data.group_by(by="liked").agg(pl.nth(0).len()).collect(engine="streaming")=}"
-                )
+                # logger.info(
+                #     f"{test_data.group_by(by="liked").agg(pl.nth(0).len()).collect(engine="streaming")=}"
+                # )
                 if logger.isEnabledFor(logging.DEBUG):
                     test_nulls = test_data.null_count().collect(engine="streaming")
                     logger.debug(
                         f"{test_nulls.select(col.name for col in test_nulls.select(pl.all() > 0) if col.all())=}"
                     )
 
-                train_dataset = train_data.select(pl.all().exclude("row_id", "liked")).collect(engine="streaming").fill_null(0.0).fill_nan(0.0).sample(fraction=1.0, shuffle=True)
+                train_dataset = (
+                    train_data.select(pl.all().exclude("row_id", "liked"))
+                    .collect(engine="streaming")
+                    .fill_null(0.0)
+                    .fill_nan(0.0)
+                    .sample(fraction=1.0, shuffle=True)
+                )
 
-                one_class_test_data = test_data.collect(engine="streaming").fill_null(0.0).fill_nan(0.0)
-                test_feature_data = one_class_test_data.select(pl.all().exclude("row_id", "liked")).sample(fraction=1.0, shuffle=True)
+                one_class_test_data = (
+                    test_data.collect(engine="streaming").fill_null(0.0).fill_nan(0.0)
+                )
+                test_feature_data = one_class_test_data.select(
+                    pl.all().exclude("row_id", "liked")
+                ).sample(fraction=1.0, shuffle=True)
 
-                if "no_scaling" in data_params:
-                    train_dataset_numpy = train_dataset.to_numpy()
-                elif "standard_scaling" in data_params:
+                if "standard_scaling" in data_params:
                     scaler = StandardScaler()
-                    train_dataset_numpy = scaler.fit_transform(train_dataset)
-                elif "min_max_scaling" in data_params:
-                    scaler = MinMaxScaler()
                     train_dataset_numpy = scaler.fit_transform(train_dataset)
                 elif "abs_max_scaling" in data_params:
                     scaler = MaxAbsScaler()
@@ -428,89 +484,53 @@ if __name__ == "__main__":
                     pca = PCA(min(train_dataset.shape[0], test_feature_data.shape[0]))
                     train_dataset_numpy = pca.fit_transform(train_dataset_numpy)
 
-                for model_name, model in [
-                    (
-                        "lof-pyod",
-                        LOF(contamination=contamination_fraction, novelty=True,
-                            n_neighbors=20,
-                            leaf_size=30,metric="cosine"),
-                    ),
-                    (
-                        "knn-default",
-                        KNN(contamination=contamination_fraction, metric="l1"),
-                    ),
-                    (
-                        "knn-neighbours=20,leaf_size=30",
-                        KNN(contamination=contamination_fraction, n_neighbors=20, leaf_size=30, metric="l2"),
-                    ),
-                    (
-                        "ecod",
-                        ECOD(contamination=contamination_fraction,),
-                    ),
-                    (
-                        "abod",
-                        ABOD(contamination=contamination_fraction, method="default"),
-                    ),
-                    (
-                        "kpca",
-                        KPCA(contamination=contamination_fraction,),
-                    ),
-                    (
-                        "cof",
-                        COF(contamination=contamination_fraction,),
-                    ),
-                    (
-                        "cblof",
-                        CBLOF(contamination=contamination_fraction,),
-                    ),
-                    (
-                        "mo_gaal",
-                        MO_GAAL(contamination=contamination_fraction,),
-                    ),
-                    (
-                        "anogan",
-                        AnoGAN(contamination=contamination_fraction,),
-                    ),
-                    (
-                        "lunar",
-                        LUNAR(contamination=contamination_fraction,),
-                    ),
-                    (
-                        "loda",
-                        LODA(),
-                    ),
-                    # (
-                    #     "suod",
-                    #     SUOD(base_estimators= [LOF(n_neighbors=15, contamination=contamination_fraction), KNN(contamination=contamination_fraction),
-                    #                            COPOD(contamination=contamination_fraction), IForest(n_estimators=100, contamination=contamination_fraction),
-                    #                            ABOD(contamination=contamination_fraction,), KNN(contamination=contamination_fraction,),
-                    #                            AnoGAN(contamination=contamination_fraction,),], n_jobs=2, combination='average',
-                    #          verbose=False),
-                    # ),
-                ]:
+                for vn, knn_variant in enumerate(knn_variants, 1):
+                    model_name, model = (
+                        f"knn[{knn_variant}]",
+                        KNN(
+                            contamination=contamination_fraction,
+                            n_neighbors=extract_param(
+                                knn_variant, "knn_n_neighbors", int
+                            ),
+                            metric=extract_param(knn_variant, "knn_distance_metric"),
+                            leaf_size=extract_param(knn_variant, "knn_leaf_size", int),
+                            method=extract_param(knn_variant, "knn_method"),
+                            radius=extract_param(knn_variant, "knn_radius", float),
+                        ),
+                    )
 
                     model.fit(train_dataset_numpy)
                     if "no_scaler" in data_params:
                         test_feature_processed_data = test_feature_data.to_numpy()
                     else:
-                        test_feature_processed_data = scaler.fit_transform(test_feature_data)
+                        test_feature_processed_data = scaler.fit_transform(
+                            test_feature_data
+                        )
                     if "pca" in data_params:
-                        test_feature_processed_data = pca.fit_transform(test_feature_processed_data)
+                        test_feature_processed_data = pca.fit_transform(
+                            test_feature_processed_data
+                        )
 
                     y_predicted = model.predict(test_feature_processed_data)
                     model_accuracy = accuracy_score(
                         one_class_test_data.select(pl.col("liked")), y_predicted
                     )
                     logger.info(
-                        f"{model_name}[{data_params}], try={try_n + 1}: {model_accuracy:.3f}"
+                        f"<{dn}/{len(data_param_options)}>{data_params}: {model_name}({vn}/{len(knn_variants)}), try={try_n + 1}: {model_accuracy:.3f}"
                     )
-                    accuracies[data_params][model_name].append(model_accuracy)
+                    accuracies[model_name].append(model_accuracy)
 
-            accuracies[data_params] = list(sorted({k: (float(np.mean(v)), float(np.std(v))) for k, v in accuracies[data_params].items()}.items(), key=lambda e: e[1][0], reverse=True))
-            print(f"{data_params=}: {";".join([f"{model_name}={mean:.3f},+-{std:.3f}" for model_name, (mean, std) in accuracies[data_params] if mean > 0.5])}")
-
-        with data_report.open("at") as f:
-            lines = [
-                f"{data_params=}: {";".join([f"{model_name}={mean:.3f},+-{std:.3f}" for model_name, (mean, std) in model_stats if mean > 0.5])}\n" for data_params, model_stats in accuracies.items()
-            ]
-            f.writelines(lines + ["\n"])
+            data_variant_results = list(
+                sorted(
+                    {
+                        k: (float(np.mean(v)), float(np.std(v)))
+                        for k, v in accuracies.items()
+                    }.items(),
+                    key=lambda e: e[1][0],
+                    reverse=True,
+                )
+            )
+            line = f"{data_params}: {";".join([f"{model_name}->{mean:.3f}+-{std:.3f}" for model_name, (mean, std) in data_variant_results if mean > 0.5])}"
+            with data_report.open("at") as f:
+                f.writelines([line] + ["\n"])
+            logger.info(f"<{dn}/{len(data_param_options)}>{line}")
