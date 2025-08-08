@@ -12,7 +12,13 @@ from itertools import product
 import numpy
 import numpy as np
 import polars as pl
+from pyod.models.combination import majority_vote
+from pyod.models.ecod import ECOD
+from pyod.models.feature_bagging import FeatureBagging
 from pyod.models.knn import KNN
+from pyod.models.loda import LODA
+from pyod.models.lscp import LSCP
+from pyod.models.suod import SUOD
 from sklearn.decomposition import PCA
 from sklearn.metrics import accuracy_score
 from sklearn.preprocessing import StandardScaler, MaxAbsScaler
@@ -28,6 +34,21 @@ if __name__ == "__main__":
         handlers=[handler],
     )
     logger = logging.getLogger(__file__)
+
+    class Majority:
+
+        def __init__(self, estimators):
+            self.estimators = estimators
+
+        def fit(self, train_dataset_numpy):
+            for estimator in self.estimators:
+                estimator.fit(train_dataset_numpy)
+
+        def predict(self, test_data):
+            predictions = np.stack(
+                [estimator.predict(test_data) for estimator in self.estimators], axis=1
+            )
+            return majority_vote(predictions)
 
     # for tweak in options:
     @dataclasses.dataclass
@@ -117,7 +138,7 @@ if __name__ == "__main__":
         voice_instrumental___msd___musicnn___1______instrumental: float
 
     test_fraction = 0.33
-    train_tries = 3
+    train_tries = 5
     data_param_options = [
         tuple(
             reduce(
@@ -146,21 +167,51 @@ if __name__ == "__main__":
             if not any(line.startswith(f"{v}: ") for line in processed_variants)
         ]
 
-    knn_variants = list(
+    suod_variants = [
+        ["suod_combination=average", "suod_combination=maximization"],
+    ]
+
+    feature_bagging_variants = [
+        [
+            "feature_bagging_type=ecod",
+            "feature_bagging_type=loda",
+            "feature_bagging_type=knn",
+            "feature_bagging_type=None",
+        ],
+        [
+            "feature_bagging_n_estimators=5",
+            "feature_bagging_n_estimators=10",
+            "feature_bagging_n_estimators=20",
+        ],
+    ]
+
+    lscp_variants = [
+        ["lscp_n_bins=5", "lscp_n_bins=10", "lscp_n_bins=20"],
+        [
+            "lscp_local_region_size=15",
+            "lscp_local_region_size=30",
+            "lscp_local_region_size=60",
+        ],
+    ]
+
+    ensemble_variants = list(
+        product(*suod_variants, *feature_bagging_variants, *lscp_variants)
+    )
+    del suod_variants, feature_bagging_variants, lscp_variants
+
+    loda_variants = list(
         product(
             *[
-                ["knn_n_neighbors=3", "knn_n_neighbors=5", "knn_n_neighbors=10"],
                 [
-                    "knn_distance_metric=minkowski",
-                    "knn_distance_metric=l1",
-                    "knn_distance_metric=l2",
+                    "loda_n_random_cuts=50",
+                    "loda_n_random_cuts=100",
+                    "loda_n_random_cuts=200",
                 ],
-                ["knn_leaf_size=15", "knn_leaf_size=30", "knn_leaf_size=60"],
-                ["knn_method=largest", "knn_method=mean", "knn_method=median"],
-                ["knn_radius=0.5", "knn_radius=1.0", "knn_radius=2.0"],
             ]
         )
     )
+
+    model_variants = list(product(loda_variants, ensemble_variants))
 
     def stats(progress_state: DataFrameBuilder.ProgressStat):
         logger.info(
@@ -484,41 +535,101 @@ if __name__ == "__main__":
                     pca = PCA(min(train_dataset.shape[0], test_feature_data.shape[0]))
                     train_dataset_numpy = pca.fit_transform(train_dataset_numpy)
 
-                for vn, knn_variant in enumerate(knn_variants, 1):
-                    model_name, model = (
-                        f"knn[{knn_variant}]",
-                        KNN(
-                            contamination=contamination_fraction,
-                            n_neighbors=extract_param(
-                                knn_variant, "knn_n_neighbors", int
+                if "no_scaler" in data_params:
+                    test_feature_processed_data = test_feature_data.to_numpy()
+                else:
+                    test_feature_processed_data = scaler.fit_transform(
+                        test_feature_data
+                    )
+                if "pca" in data_params:
+                    test_feature_processed_data = pca.fit_transform(
+                        test_feature_processed_data
+                    )
+
+                for vn, (estimators_variant, ensemble_variant) in enumerate(
+                    model_variants, 1
+                ):
+
+                    def create_estimators():
+                        loda_n_random_cuts = extract_param(
+                            estimators_variant, "loda_n_random_cuts", int
+                        )
+                        return {
+                            "ecod": ECOD(contamination=contamination_fraction),
+                            # CBLOF(contamination=contamination_fraction),
+                            "loda": LODA(
+                                contamination=contamination_fraction,
+                                n_random_cuts=loda_n_random_cuts,
                             ),
-                            metric=extract_param(knn_variant, "knn_distance_metric"),
-                            leaf_size=extract_param(knn_variant, "knn_leaf_size", int),
-                            method=extract_param(knn_variant, "knn_method"),
-                            radius=extract_param(knn_variant, "knn_radius", float),
+                            "knn": KNN(
+                                contamination=contamination_fraction,
+                                n_neighbors=3,
+                                metric="l1",
+                                method="mean",
+                            ),
+                            # ABOD(contamination=contamination_fraction, method="default", n_neighbors=knn_n_neighbors),
+                        }
+
+                    def create_ensembles():
+                        suod_combination = extract_param(
+                            ensemble_variant, "suod_combination"
+                        )
+                        feature_bagging_n_estimators = extract_param(
+                            ensemble_variant, "feature_bagging_n_estimators", int
+                        )
+                        feature_bagging_type = extract_param(
+                            ensemble_variant, "feature_bagging_type"
+                        )
+                        lscp_n_bins = extract_param(
+                            ensemble_variant, "lscp_n_bins", int
+                        )
+                        lscp_local_region_size = extract_param(
+                            ensemble_variant, "lscp_local_region_size", int
+                        )
+                        return {
+                            f"suod[{suod_combination=},{",".join(estimators_variant)}]": SUOD(
+                                base_estimators=list(create_estimators().values()),
+                                contamination=contamination_fraction,
+                                combination=suod_combination,
+                            ),
+                            f"feature_bagging[{feature_bagging_type=},{feature_bagging_n_estimators=},{",".join(estimators_variant)}]": FeatureBagging(
+                                base_estimator=(
+                                    create_estimators()[feature_bagging_type]
+                                    if feature_bagging_type != "None"
+                                    else None
+                                ),
+                                contamination=contamination_fraction,
+                                n_estimators=feature_bagging_n_estimators,
+                            ),
+                            f"lscp[{lscp_n_bins=},{lscp_local_region_size=},{",".join(estimators_variant)}]": LSCP(
+                                detector_list=list(create_estimators().values()),
+                                contamination=contamination_fraction,
+                                n_bins=lscp_n_bins,
+                                local_region_size=lscp_local_region_size,
+                            ),
+                        }
+
+                    for model_name, model in [
+                        *create_ensembles().items(),
+                        (
+                            f"majority_estimators[{",".join(estimators_variant)}]",
+                            Majority(list(create_estimators().values())),
                         ),
-                    )
+                        (
+                            f"majority_ensembles[{",".join(ensemble_variant)},{",".join(estimators_variant)}]",
+                            Majority(list(create_ensembles().values())),
+                        ),
+                    ]:
 
-                    model.fit(train_dataset_numpy)
-                    if "no_scaler" in data_params:
-                        test_feature_processed_data = test_feature_data.to_numpy()
-                    else:
-                        test_feature_processed_data = scaler.fit_transform(
-                            test_feature_data
+                        model.fit(train_dataset_numpy)
+                        y_predicted = model.predict(test_feature_processed_data)
+                        model_accuracy = accuracy_score(
+                            one_class_test_data.select(pl.col("liked")), y_predicted
                         )
-                    if "pca" in data_params:
-                        test_feature_processed_data = pca.fit_transform(
-                            test_feature_processed_data
+                        logger.info(
+                            f"<{dn}/{len(data_param_options)}>{data_params}: {model_name}({vn}/{len(model_variants)}), try={try_n + 1}: {model_accuracy:.3f}"
                         )
-
-                    y_predicted = model.predict(test_feature_processed_data)
-                    model_accuracy = accuracy_score(
-                        one_class_test_data.select(pl.col("liked")), y_predicted
-                    )
-                    logger.info(
-                        f"<{dn}/{len(data_param_options)}>{data_params}: {model_name}({vn}/{len(knn_variants)}), try={try_n + 1}: {model_accuracy:.3f}"
-                    )
-                    accuracies[model_name].append(model_accuracy)
+                        accuracies[model_name].append(model_accuracy)
 
             data_variant_results = list(
                 sorted(
