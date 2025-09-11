@@ -417,22 +417,12 @@ def extract_features_for_mp3(
     return AudioFeatures(**feature_mapping)
 
 
-def prepare_extractor() -> (
+def prepare_extractor(path_to_profile: pathlib.Path) -> (
     Callable[[pathlib.Path], dict[str, str | float | int | list | numpy.ndarray]]
 ):
-    with tempfile.TemporaryDirectory() as tmp:
-        # extractor = es.Extractor(rhythm=False)
-        # raw_features = extractor(get_audio_data({"inference": {"sample_rate": sr}}))
-        # aggregationPool = es.PoolAggregator(
-        #     defaultStats = [ "mean", "stdev" ],
-        #     # exceptions={},
-        # )(features)
-        tmp_path = pathlib.Path(tmp)
-        options_file = tmp_path.joinpath("options.yaml")
-        options_file.write_text(yaml.dump(_music_extractor_profile))
-        func = es.MusicExtractor(
-            lowlevelStats=["mean", "var", "min", "max"], profile=str(options_file)
-        )
+    func = es.MusicExtractor(
+        lowlevelStats=["mean", "var", "min", "max"], profile=str(path_to_profile)
+    )
 
     def extract_dict(audio_path: pathlib.Path):
         result = func(str(audio_path))[0]
@@ -523,16 +513,6 @@ def _get_features_from_model(
     )
 
 
-_music_extractor_profile = {
-    "lowlevel": {
-        "frameSize": 2048,
-        "hopSize": 1024,
-        "zeroPadding": 0,
-        "silentFrames": "keep",
-        "windowType": "blackmanharris62",
-    },
-}
-
 _ml_models = (
     "danceability-msd-musicnn-1",
     "engagement_regression-discogs-effnet-1",
@@ -612,7 +592,7 @@ def __generate_dto_class(numpy_prefix: str):
         "metadata.audio_properties.analysis.downmix",
         "metadata.audio_properties.codec",
     ]
-    extractor = prepare_extractor()
+    extractor = prepare_extractor(pathlib.Path("../music_config.yaml"))
     features = extractor(
         pathlib.Path("../data/118517468/liked/CQADAgAD0AIAAlbXeUr25_ycgx2WEgI.mp3")
     )
@@ -656,14 +636,15 @@ def __generate_dto_class(numpy_prefix: str):
 
 
 if __name__ == "__main__":
-    # __generate_dto_class("numpy")
+    __generate_dto_class("numpy")
 
     track = pathlib.Path("../data/118517468/liked/CQADAgAD0AIAAlbXeUr25_ycgx2WEgI.mp3")
     start = time.perf_counter()
-    data = extract_features_for_mp3(track, prepare_extractor())
+    extractor = prepare_extractor(pathlib.Path("../music_config.yaml"))
+    data = extract_features_for_mp3(track, extractor)
     first_attempt = time.perf_counter() - start
     start = time.perf_counter()
-    data = extract_features_for_mp3(track, prepare_extractor())
+    data = extract_features_for_mp3(track, extractor)
     second_attempt = time.perf_counter() - start
     print(f"processed in: {first_attempt=} seconds, {second_attempt=} seconds")
     print(f"{data=}")

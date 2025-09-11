@@ -6,14 +6,15 @@ import random
 import sys
 import typing
 from collections import defaultdict
+from datetime import datetime
 from functools import reduce
 from itertools import product
-from typing import Callable
 
 import numpy
 import numpy as np
 import polars as pl
-from pyod.models.combination import majority_vote
+from pyod.models.base import BaseDetector
+from pyod.models.combination import majority_vote, maximization
 from pyod.models.ecod import ECOD
 from pyod.models.feature_bagging import FeatureBagging
 from pyod.models.knn import KNN
@@ -41,28 +42,52 @@ if __name__ == "__main__":
         def __init__(self, estimators):
             self.estimators = estimators
 
-        def fit(self, train_dataset_numpy):
+        def fit(self, train_dataset_numpy, *args, **kwargs):
             for estimator in self.estimators:
                 estimator.fit(train_dataset_numpy)
 
-        def predict(self, test_data):
+        def predict(self, test_data, *angs, **kwargs):
             predictions = np.stack(
                 [estimator.predict(test_data) for estimator in self.estimators], axis=1
             )
             return majority_vote(predictions)
 
+    class Maximization:
 
-    class Pipe:
+        def __init__(self, estimators):
+            self.estimators = estimators
 
-        def __init__(self, estimator, input_transformer: Callable):
+        def fit(self, train_dataset_numpy, *args, **kwargs):
+            for estimator in self.estimators:
+                estimator.fit(train_dataset_numpy)
+
+        def predict(self, test_data, *angs, **kwargs):
+            predictions = np.stack(
+                [estimator.predict(test_data) for estimator in self.estimators], axis=1
+            )
+            return maximization(predictions)
+
+    class Pipe(BaseDetector):
+
+        def __init__(self, estimator: BaseDetector, input_transformer: typing.Callable):
             self.estimator = estimator
             self.input_transformer = input_transformer
 
-        def fit(self, train_dataset_numpy):
-            return self.estimator.fit(self.input_transformer(train_dataset_numpy))
+        def fit(self, X, y=None):
+            fit = self.estimator.fit(self.input_transformer(X))
+            return fit
 
-        def predict(self, test_data):
-            return self.estimator.predict(self.input_transformer(test_data))
+        def predict(self, X, return_confidence=False):
+            return self.estimator.predict(
+                self.input_transformer(X), return_confidence=return_confidence
+            )
+
+        def decision_function(self, X):
+            return self.estimator.decision_function(self.input_transformer(X))
+
+        @property
+        def decision_scores_(self):
+            return self.estimator.decision_scores_
 
     # for tweak in options:
     @dataclasses.dataclass
@@ -155,7 +180,7 @@ if __name__ == "__main__":
     bps_flag = n_jobs != 1
     contamination_fraction = 0.33
     test_fraction = 0.33
-    train_tries = 5
+    train_tries = 100
     # feature_bagging_n_estimators=20
     # feature_bagging_type=None,ecod,knn,loda
     # lscp_local_region_size=60(->15)
@@ -173,7 +198,7 @@ if __name__ == "__main__":
         )
         for variant in [["contamination_fraction=0.33"]]
     ]
-    data_report = pathlib.Path("data_report.csv")
+    data_report = pathlib.Path(f"data_report_{datetime.now().strftime("%Y%m%d%H%M%S")}.csv")
     if data_report.exists():
         processed_variants = data_report.read_text().split("\n")
         data_param_options = [
@@ -190,7 +215,7 @@ if __name__ == "__main__":
     liked_audio_path = pathlib.Path("data/118517468/liked")
     disliked_audio_path = pathlib.Path("data/118517468/disliked")
 
-    extractor = prepare_extractor()
+    extractor = prepare_extractor(pathlib.Path("music_config.yaml"))
 
     def common_extractor(
         audio_path: pathlib.Path, is_liked: bool, track_id: str
@@ -356,10 +381,6 @@ if __name__ == "__main__":
                     pl.col(field_name).list.min().alias(f"{field_name}_min"),
                     pl.col(field_name).list.max().alias(f"{field_name}_max"),
                 )
-                if "with_var_agg" in data_params:
-                    data_variant = data_variant.with_columns(
-                        pl.col(field_name).list.var().alias(f"{field_name}_var")
-                    )
                 data_variant = data_variant.with_columns(
                     pl.col(field_name).list.to_struct(
                         fields=[f"{field_name}_{idx}" for idx in range(field_size)],
@@ -370,7 +391,6 @@ if __name__ == "__main__":
             logger.info(
                 f"<{dn}/{len(data_param_options)}>{data_params=}: {data_variant.collect_schema().len()=}"
             )
-
             for try_n in range(train_tries):
                 shuffle_seed = random.randint(0, 100)
                 test_disliked_track_ids = (
@@ -487,15 +507,36 @@ if __name__ == "__main__":
 
                 scaler = StandardScaler()
                 train_dataset_numpy = scaler.fit_transform(train_dataset)
-                test_feature_processed_data = scaler.fit_transform(
-                    test_feature_data
+                test_feature_processed_data = scaler.fit_transform(test_feature_data)
+                logger.info(f"<{dn}/{len(data_param_options)}>{data_params=}, {train_dataset_numpy.shape=}, {test_feature_processed_data.shape=}: starting try={try_n + 1}")
+                pca = PCA(
+                    min(
+                        train_dataset.shape[1],
+                        train_dataset.shape[0],
+                        test_feature_data.shape[0],
+                    )
                 )
-                logger.info(f"Starting try={try_n + 1}")
-                model_cfgs = []
+                pca.fit(train_dataset)
+
+                def apply_pca(data):
+                    return pca.transform(data)
+
+                class PCAApplier:
+
+                    def __init__(self):
+                        self.pca: PCA | None = None
+
+                    def __call__(self, data, **kwargs):
+                        if self.pca is None:
+                            self.pca = PCA(min(data.shape[1], data.shape[0]))
+                            self.pca.fit(data)
+                        return self.pca.transform(data)
 
                 def create_estimators():
                     return {
-                        "ecod": ECOD(contamination=contamination_fraction, n_jobs=n_jobs),
+                        "ecod": ECOD(
+                            contamination=contamination_fraction, n_jobs=n_jobs
+                        ),
                         "loda": LODA(
                             contamination=contamination_fraction,
                             n_random_cuts=150,
@@ -509,7 +550,7 @@ if __name__ == "__main__":
                         ),
                     }
 
-                def create_ensembles():
+                def create_ensembles(*, suod_combinations, feature_bagging_estimator_types):
                     suods = {
                         f"suod[{combination=}]": SUOD(
                             base_estimators=list(create_estimators().values()),
@@ -518,7 +559,9 @@ if __name__ == "__main__":
                             bps_flag=bps_flag,
                             n_jobs=n_jobs,
                         )
-                        for combination in ["average", "maximization"]
+                        for combination in
+                        # ["average", "maximization"]
+                        suod_combinations
                     }
                     feature_baggings = {
                         f"feature_bagging[estimator_type={etype}]": FeatureBagging(
@@ -527,7 +570,14 @@ if __name__ == "__main__":
                             n_estimators=20,
                             n_jobs=n_jobs,
                         )
-                        for etype, base_estimator in [((etype, estimators[etype]) if etype else (None, None)) for etype, estimators in product([None, "ecod", "knn", "loda"], [create_estimators()]) ]
+                        for etype, base_estimator in [
+                            ((etype, estimators[etype]) if etype else (None, None))
+                            for etype, estimators in product(
+                                # [None, "ecod", "knn", "loda"],
+                                feature_bagging_estimator_types,
+                                [create_estimators()]
+                            )
+                        ]
                     }
                     lscps = {
                         f"lscp": LSCP(
@@ -539,139 +589,176 @@ if __name__ == "__main__":
                     }
                     return suods | feature_baggings | lscps
 
-                def create_combinations():
-                    suods_of_feature_baggings = {
-                        f"suod_of_feature_baggings[{combination=},base_estimators={"+".join([e[0].replace("[", "{").replace("]", "}") for e in feature_baggings])}]": SUOD(
-                            base_estimators=[e[1] for e in feature_baggings],
-                            contamination=contamination_fraction,
-                            combination=combination,
-                            bps_flag=bps_flag,
-                            n_jobs=n_jobs,
-                        ) for combination, feature_baggings in product(
-                            ["average", "maximization"],
-                            [[e for e in create_ensembles().items() if isinstance(e[1], FeatureBagging)]],
-                        )
-                    }
-                    suods_of_feature_bagging_and_lscp = {
-                        f"suod_of_feature_bagging_and_lscp[{combination=},base_estimators={"+".join([e[0].replace("[", "{").replace("]", "}") for e in lscps])}]": SUOD(
-                            base_estimators=[e[1] for e in lscps],
-                            contamination=contamination_fraction,
-                            combination=combination,
-                            bps_flag=bps_flag,
-                            n_jobs=n_jobs,
-                        ) for combination, lscps in product(
-                            ["average", "maximization"],
-                            [[e for e in create_ensembles().items() if isinstance(e[1], (LSCP, FeatureBagging))]],
-                        )
-                    }
-                    suods_of_feature_bagging_and_lscp = {
-                        f"suod_of_feature_bagging_and_lscp[{combination=},base_estimators={"+".join([e[0].replace("[", "{").replace("]", "}") for e in lscps])}]": SUOD(
-                            base_estimators=[e[1] for e in lscps],
-                            contamination=contamination_fraction,
-                            combination=combination,
-                            bps_flag=bps_flag,
-                            n_jobs=n_jobs,
-                        ) for combination, lscps in product(
-                            ["average", "maximization"],
-                            [[e for e in create_ensembles().items() if isinstance(e[1], (LSCP, FeatureBagging))]],
-                        )
-                    }
-                    # feature_baggings_of_suods = {
-                    #     f"feature_baggings_of_suods[base_estimator={suod[0].replace("[", "{").replace("]", "}")}]": FeatureBagging(
-                    #         base_estimator=suod[1],
-                    #         contamination=contamination_fraction,
-                    #         n_estimators=20,
-                    #         n_jobs=n_jobs,
-                    #     )
-                    #     for suod in [e for e in create_ensembles().items() if isinstance(e[1], SUOD)]
-                    # }
-                    # feature_baggings_of_lscps = {
-                    #     f"feature_bagging_of_lscps[base_estimator={lscp[0].replace("[", "{").replace("]", "}")}]": FeatureBagging(
-                    #         base_estimator=lscp[1],
-                    #         contamination=contamination_fraction,
-                    #         n_estimators=20,
-                    #         n_jobs=n_jobs,
-                    #     )
-                    #     for lscp in [e for e in create_ensembles().items() if isinstance(e[1], LSCP)]
-                    # }
-                    lscps_of_feature_baggings = {
-                        f"lscp_of_feature_baggings[detector_list={"+".join([e[0].replace("[", "{").replace("]", "}") for e in feature_baggings])}]": LSCP(
-                            detector_list=[e[1] for e in feature_baggings],
-                            contamination=contamination_fraction,
-                            n_bins=15,
-                            local_region_size=27,
-                        )
-                        for feature_baggings in [[e for e in create_ensembles().items() if isinstance(e[1], FeatureBagging)]]
-                    }
-                    lscps_of_feature_baggings_and_suods = {
-                        f"lscp_of_feature_baggings_and_suods[detector_list={"+".join([e[0].replace("[", "{").replace("]", "}") for e in feature_baggings])}]": LSCP(
-                            detector_list=[e[1] for e in feature_baggings],
-                            contamination=contamination_fraction,
-                            n_bins=15,
-                            local_region_size=27,
-                        )
-                        for feature_baggings in [[e for e in create_ensembles().items() if isinstance(e[1], (FeatureBagging, SUOD))]]
-                    }
-                    return (suods_of_feature_baggings | suods_of_feature_bagging_and_lscp
-                    # | feature_baggings_of_suods | feature_baggings_of_lscps
-                    | lscps_of_feature_baggings | lscps_of_feature_baggings_and_suods)
-
-                pca = PCA(min(train_dataset.shape[0], test_feature_data.shape[0]))
-                pca.fit(train_dataset)
-                model_cfgs.extend([
+                model_cfgs = [
                     *create_estimators().items(),
-                    *{f"pca_{name}": Pipe(value, lambda data: pca.transform(data)) for name, value in create_estimators().items()}.items(),
-                    *create_ensembles().items(),
-                    *{f"pca_{name}": Pipe(value, lambda data: pca.transform(data)) for name, value in create_ensembles().items()}.items(),
-                    *create_combinations().items(),
-                    *{f"pca_{name}": Pipe(value, lambda data: pca.transform(data)) for name, value in create_combinations().items()}.items(),
+                    # *{
+                    #     f"pca_{name}": Pipe(value, apply_pca)
+                    #     for name, value in create_estimators().items()
+                    # }.items(),
+                    *create_ensembles(suod_combinations=["average", "maximization"], feature_bagging_estimator_types=[None, "ecod", "knn", "loda"]).items(),
+                    # *{
+                    #     f"pca_{name}": Pipe(value, apply_pca)
+                    #     for name, value in create_ensembles().items()
+                    # }.items(),
                     (
                         f"majority_estimators",
                         Majority(list(create_estimators().values())),
                     ),
+                    # (
+                    #     f"maximization_estimators",
+                    #     Maximization(list(create_estimators().values())),
+                    # ),
+                    # (
+                    #     f"majority_pca_estimators",
+                    #     Majority(
+                    #         [
+                    #             Pipe(value, apply_pca)
+                    #             for value in create_estimators().values()
+                    #         ]
+                    #     ),
+                    # ),
+                    # (
+                    #     f"maximization_pca_estimators",
+                    #     Majority(
+                    #         [
+                    #             Pipe(value, apply_pca)
+                    #             for value in create_estimators().values()
+                    #         ]
+                    #     ),
+                    # ),
+                    *[
+                        (
+                            f"majority_ensembles[{"+".join([e[0].replace("[", "{").replace("]", "}") for e in ensemles])}]",
+                            Majority([e[1] for e in ensemles]),
+                        )
+                        for suod_combination in ["average", "maximization"] for ensemles in [create_ensembles(suod_combinations=[suod_combination], feature_bagging_estimator_types=[None, "ecod", "knn", "loda"]).items()]
+                    ],
+                    # *[
+                    #     (
+                    #         f"maximization_ensembles[{"+".join([e[0].replace("[", "{").replace("]", "}") for e in ensemles])}]",
+                    #         Maximization([e[1] for e in ensemles]),
+                    #     )
+                    #     for ensemles in [create_ensembles().items()]
+                    # ],
+                    # *[
+                    #     (
+                    #         f"majority_pca_ensembles[{"+".join([e[0].replace("[", "{").replace("]", "}") for e in ensemles])}]",
+                    #         Majority([Pipe(e[1], apply_pca) for e in ensemles]),
+                    #     )
+                    #     for ensemles in [create_ensembles().items()]
+                    # ],
+                    # *[
+                    #     (
+                    #         f"maximization_pca_ensembles[{"+".join([e[0].replace("[", "{").replace("]", "}") for e in ensemles])}]",
+                    #         Maximization([Pipe(e[1], apply_pca) for e in ensemles]),
+                    #     )
+                    #     for ensemles in [create_ensembles().items()]
+                    # ],
                     (
-                        f"pca_majority_estimators",
-                        Pipe(Majority(list(create_estimators().values())), lambda data: pca.transform(data)),
+                        f"lscp_of_ensembles",
+                        LSCP(
+                            detector_list=list(create_ensembles(suod_combinations=["maximization"], feature_bagging_estimator_types=[None, "ecod", "knn", "loda"]).values()),
+                            contamination=contamination_fraction,
+                            n_bins=15,
+                            local_region_size=27,
+                        ),
                     ),
-                    *[(
-                        f"majority_ensembles[{"+".join([e[0].replace("[", "{").replace("]", "}") for e in ensemles])}]",
-                        Majority([e[1] for e in ensemles]),
-                    ) for ensemles in [create_ensembles().items()]],
-                    *[(
-                        f"pca_majority_ensembles[{"+".join([e[0].replace("[", "{").replace("]", "}") for e in ensemles])}]",
-                        Pipe(Majority([e[1] for e in ensemles]), lambda data: pca.transform(data)),
-                    ) for ensemles in [create_ensembles().items()]],
-                    # *[(
-                    #     f"majority_combinations[{"+".join([e[0].replace("[", "{").replace("]", "}") for e in combinations])}]",
-                    #     Majority([e[1] for e in combinations]),
-                    # ) for combinations in [create_combinations().items()]],
-                ])
+                    *[
+                        (
+                            f"my_{aggregator.__name__}1",
+                            aggregator(
+                                [
+                                    LSCP(
+                                        detector_list=list(create_estimators().values()),
+                                        contamination=contamination_fraction,
+                                        n_bins=15,
+                                        local_region_size=27,
+                                    ),
+                                    SUOD(
+                                        base_estimators=list(create_estimators().values()),
+                                        contamination=contamination_fraction,
+                                        combination="maximization",
+                                        bps_flag=bps_flag,
+                                        n_jobs=n_jobs,
+                                    ),
+                                    *[
+                                        FeatureBagging(
+                                            base_estimator=base_estimator,
+                                            contamination=contamination_fraction,
+                                            n_estimators=20,
+                                            n_jobs=n_jobs,
+                                        )
+                                        for etype, base_estimator in [
+                                            ((etype, estimators[etype]) if etype else (None, None))
+                                            for etype, estimators in product(
+                                                [None, "ecod", "knn"], [create_estimators()]
+                                            )
+                                        ]
+                                    ],
+                                ]
+                            )
+                        )
+                        for aggregator in [Majority]
+                    ],
+                    *[
+                        (
+                            f"my_{aggregator.__name__}2",
+                            aggregator(
+                                [
+                                    SUOD(
+                                        base_estimators=list(create_estimators().values()),
+                                        contamination=contamination_fraction,
+                                        combination="maximization",
+                                        bps_flag=bps_flag,
+                                        n_jobs=n_jobs,
+                                    ),
+                                    *[
+                                        FeatureBagging(
+                                            base_estimator=base_estimator,
+                                            contamination=contamination_fraction,
+                                            n_estimators=20,
+                                            n_jobs=n_jobs,
+                                        )
+                                        for etype, base_estimator in [
+                                            ((etype, estimators[etype]) if etype else (None, None))
+                                            for etype, estimators in product(
+                                                [None, "ecod", "knn", "loda"], [create_estimators()]
+                                            )
+                                        ]
+                                    ],
+                                ]
+                            )
+                        )
+                        for aggregator in [Majority]
+                    ],
+                ]
+
                 vc = 0
                 total_models = len(model_cfgs)
                 while model_cfgs and (v := model_cfgs.pop(0)):
                     model_name, model = v
-                    vc +=1
+                    vc += 1
                     model.fit(train_dataset_numpy)
                     y_predicted = model.predict(test_feature_processed_data)
                     model_accuracy = accuracy_score(
                         one_class_test_data.select(pl.col("liked")), y_predicted
                     )
                     logger.info(
-                        f"<{dn}/{len(data_param_options)}>{data_params}, try={try_n + 1} -> {model_name}({vc}/{total_models}): {model_accuracy:.3f}"
+                        f"<{dn}/{len(data_param_options)}>{data_params}, try={try_n + 1}, {vc}/{total_models} -> {model_name}: {model_accuracy:.3f}"
                     )
                     accuracies[model_name].append(model_accuracy)
 
             data_variant_results = list(
                 sorted(
                     {
-                        k: (float(np.mean(v)), float(np.std(v)))
+                        k: (float(np.mean(v)), float(np.std(v)), float(np.max(v)))
                         for k, v in accuracies.items()
                     }.items(),
                     key=lambda e: e[1][0],
                     reverse=True,
                 )
             )
-            line = f"{data_params}: {";".join([f"{model_name}->{mean:.3f}+-{std:.3f}" for model_name, (mean, std) in data_variant_results if mean > 0.5])}"
+            line = f"{data_params}: {";".join([f"{model_name}->{mean:.3f}+-{std:.3f}({maximum:.3f})" for model_name, (mean, std, maximum) in data_variant_results if mean > 0.5])}"
             with data_report.open("at") as f:
                 f.writelines([line] + ["\n"])
             logger.info(f"<{dn}/{len(data_param_options)}>{line}")
