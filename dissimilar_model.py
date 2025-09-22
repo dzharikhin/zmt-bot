@@ -3,26 +3,29 @@ import logging
 import operator
 import pathlib
 import random
+import shutil
 import sys
+import tempfile
 import typing
 from collections import defaultdict
 from functools import reduce
 from itertools import product
-from typing import Callable
 
 import numpy
 import numpy as np
 import polars as pl
-from pyod.models.combination import majority_vote
-from pyod.models.ecod import ECOD
-from pyod.models.feature_bagging import FeatureBagging
-from pyod.models.knn import KNN
-from pyod.models.loda import LODA
-from pyod.models.lscp import LSCP
-from pyod.models.suod import SUOD
+from clustpy.alternative import AutoNR
+from clustpy.deep import VaDE, DDC, DeepECT, DipDECK
+from clustpy.density import MultiDensityDBSCAN
+from clustpy.partition import XMeans, DipMeans, DipNSub, GapStatistic, GMeans, PGMeans, ProjectedDipMeans, SkinnyDip, \
+    SpecialK
+from sklearn.cluster import HDBSCAN
 from sklearn.decomposition import PCA
-from sklearn.metrics import accuracy_score
-from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import BaseCrossValidator
+from sklearn.pipeline import Pipeline, make_pipeline
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.utils.validation import check_is_fitted
+from skopt import BayesSearchCV
 
 from audio.features import extract_features_for_mp3, AudioFeatures, prepare_extractor
 from dataset.persistent_dataset_processor import DataFrameBuilder
@@ -36,33 +39,77 @@ if __name__ == "__main__":
     )
     logger = logging.getLogger(__file__)
 
-    class Majority:
-
-        def __init__(self, estimators):
-            self.estimators = estimators
-
-        def fit(self, train_dataset_numpy):
-            for estimator in self.estimators:
-                estimator.fit(train_dataset_numpy)
-
-        def predict(self, test_data):
-            predictions = np.stack(
-                [estimator.predict(test_data) for estimator in self.estimators], axis=1
-            )
-            return majority_vote(predictions)
+    def _get_labels(estimator: Pipeline):
+        """Gets the cluster labels from an estimator or pipeline."""
+        if isinstance(estimator, Pipeline):
+            check_is_fitted(estimator.steps[-1][1], ["labels_"])
+            labels = estimator.steps[-1][1].labels_
+        else:
+            check_is_fitted(estimator, ["labels_"])
+            labels = estimator.labels_
+        return labels
 
 
-    class Pipe:
+    class NoCV(BaseCrossValidator):
 
-        def __init__(self, estimator, input_transformer: Callable):
-            self.estimator = estimator
-            self.input_transformer = input_transformer
+        def get_n_splits(self, X=None, y=None, groups=None):
+            return 1
 
-        def fit(self, train_dataset_numpy):
-            return self.estimator.fit(self.input_transformer(train_dataset_numpy))
+        def split(self, X, y=None, groups=None):
+            yield np.arange(X.shape[0]), np.arange(X.shape[0])
 
-        def predict(self, test_data):
-            return self.estimator.predict(self.input_transformer(test_data))
+
+    class LabelScorerUnsupervised:
+
+        def __init__(self, scoring_func):
+            super().__init__()
+            self._scoring_func = scoring_func
+
+        def _score(self, estimator, X):
+            """Evaluate cluster labels on X.
+
+            Parameters
+            ----------
+            estimator : object
+                Trained estimator to use for scoring. Must have `labels_` attribute.
+
+            X : {array-like, sparse matrix}
+                Data that will be used to evaluate cluster labels.
+
+            labels_true: array-like
+                Does nothing. Here for API compatability.
+
+            Returns
+            -------
+            score : float
+                Score function applied to cluster labels.
+            """
+            labels = _get_labels(estimator)
+            if isinstance(estimator, Pipeline):
+                X = estimator[:-1].transform(X)
+            # X, labels = _remove_noise_cluster(X, labels, labels=labels)
+            return self._scoring_func(labels)
+
+        def __call__(self, estimator, X, labels_true=None):
+            """Evaluate predicted target values for X relative to y_true.
+
+            Parameters
+            ----------
+            estimator : object
+                Trained estimator to use for scoring. Must have `labels_` attribute.
+
+            X : {array-like, sparse matrix}
+                Data that will be used to evaluate cluster labels.
+
+            labels_true: array-like
+                Does nothing. Here for API compatability.
+
+            Returns
+            -------
+            score : float
+                Score function applied cluster labels.
+            """
+            return self._score(estimator,X)
 
     # for tweak in options:
     @dataclasses.dataclass
@@ -155,13 +202,9 @@ if __name__ == "__main__":
     bps_flag = n_jobs != 1
     contamination_fraction = 0.33
     test_fraction = 0.33
-    train_tries = 5
-    # feature_bagging_n_estimators=20
-    # feature_bagging_type=None,ecod,knn,loda
-    # lscp_local_region_size=60(->15)
-    # loda_n_random_cuts=100(->200)
-    # lscp_n_bins=10(->20)
-    # suod_combination=average,maximization
+    train_tries = 1
+    optimization_iterations = 50
+    disliked_fraction_cluster_threshold = 0.7
 
     data_param_options = [
         tuple(
@@ -171,16 +214,23 @@ if __name__ == "__main__":
                 [],
             )
         )
-        for variant in [["contamination_fraction=0.33"]]
+        for variant in product([["raw", "aggregates"], "raw", "aggregates"], ["with_var_agg", "no_var_agg"])
     ]
     data_report = pathlib.Path("data_report.csv")
-    if data_report.exists():
-        processed_variants = data_report.read_text().split("\n")
-        data_param_options = [
-            v
-            for v in data_param_options
-            if not any(line.startswith(f"{v}: ") for line in processed_variants)
-        ]
+    def filter_pipelines(pipelines, data_opts):
+        if data_report.exists():
+            processed_variants = data_report.read_text().split("\n")
+            return [pipeline for pipeline in pipelines if not [l for l in processed_variants if l.startswith(f"{data_opts}&{pipeline.steps[-1][0]}")]]
+        return pipelines
+
+
+    # if data_report.exists():
+    #     processed_variants = data_report.read_text().split("\n")
+    #     data_param_options = [
+    #         v
+    #         for v in data_param_options
+    #         if not any(line.startswith(f"{v}: ") for line in processed_variants)
+    #     ]
 
     def stats(progress_state: DataFrameBuilder.ProgressStat):
         logger.info(
@@ -336,342 +386,330 @@ if __name__ == "__main__":
             ],
         ).unnest(key_columns)
 
-        def extract_param(param_row, name, converter=None):
-            val = [fract for fract in param_row if fract.startswith(f"{name}=")][
-                0
-            ].split("=", 2)[1]
-            return converter(val) if converter else val
-
         for dn, data_params in enumerate(data_param_options, 1):
             accuracies = defaultdict(list)
             data_variant = processed_data
             logger.info(
-                f"<{dn}/{len(data_param_options)}>{data_params=}: {data_variant.collect_schema().len()=}"
+                f"<{dn}/{len(data_param_options)}>{data_params=}: initial {data_variant.collect_schema().len()=}"
             )
 
             for field_name, field_size in metric_sizes.items():
-                data_variant = data_variant.with_columns(
-                    pl.col(field_name).list.mean().alias(f"{field_name}_mean"),
-                    pl.col(field_name).list.std().alias(f"{field_name}_std"),
-                    pl.col(field_name).list.min().alias(f"{field_name}_min"),
-                    pl.col(field_name).list.max().alias(f"{field_name}_max"),
-                )
-                if "with_var_agg" in data_params:
+                if "aggregates" in data_params:
                     data_variant = data_variant.with_columns(
-                        pl.col(field_name).list.var().alias(f"{field_name}_var")
+                        pl.col(field_name).list.mean().alias(f"{field_name}_mean"),
+                        pl.col(field_name).list.std().alias(f"{field_name}_std"),
+                        pl.col(field_name).list.min().alias(f"{field_name}_min"),
+                        pl.col(field_name).list.max().alias(f"{field_name}_max"),
                     )
-                data_variant = data_variant.with_columns(
-                    pl.col(field_name).list.to_struct(
-                        fields=[f"{field_name}_{idx}" for idx in range(field_size)],
-                        upper_bound=field_size,
+                    if "with_var_agg" in data_params:
+                        data_variant = data_variant.with_columns(
+                            pl.col(field_name).list.var().alias(f"{field_name}_var")
+                        )
+                if "raw" in data_params:
+                    data_variant = (
+                        data_variant.with_columns(
+                            pl.col(field_name).list.to_struct(
+                                fields=[
+                                    f"{field_name}_{idx}"
+                                    for idx in range(field_size)
+                                ],
+                                upper_bound=field_size,
+                            )
+                        )
+                        .unnest(field_name)
                     )
-                ).unnest(field_name)
+                else:
+                    data_variant = data_variant.drop(field_name)
 
             logger.info(
-                f"<{dn}/{len(data_param_options)}>{data_params=}: {data_variant.collect_schema().len()=}"
+                f"<{dn}/{len(data_param_options)}>{data_params=}: transformed {data_variant.collect_schema().len()=}"
             )
+            data_variant = data_variant.select(pl.all().exclude("row_id")).collect(engine="streaming").fill_null(0.0).fill_nan(0.0)
 
             for try_n in range(train_tries):
                 shuffle_seed = random.randint(0, 100)
-                test_disliked_track_ids = (
-                    data_variant.filter(pl.col("liked") == 0)
-                    .select(pl.col("row_id"))
-                    .with_columns(pl.col("row_id").shuffle(seed=shuffle_seed))
-                    .with_row_index()
-                    .filter(pl.col("index") < pl.col("index").max() * test_fraction)
-                    .select(pl.all().exclude("index"))
-                )
-                test_liked_track_ids = (
-                    data_variant.filter(pl.col("liked") == 1)
-                    .select(pl.col("row_id"))
-                    .with_columns(pl.col("row_id").shuffle(seed=shuffle_seed))
-                    .with_row_index()
-                    .join(test_disliked_track_ids.with_row_index(), "index", "left")
-                    .filter(pl.col("row_id_right").is_null().not_())
-                    .select(pl.all().exclude("index", "row_id_right"))
-                )
+                data_variant = data_variant.sample(fraction=1.0, shuffle=True, seed=shuffle_seed)
+                X_numpy = data_variant.select(pl.all().exclude("liked")).to_numpy()
+                Y_numpy = data_variant.select(pl.col("liked")).to_numpy()
 
-                test_track_ids = pl.concat(
-                    [
-                        test_disliked_track_ids,
-                        test_liked_track_ids,
-                    ]
-                )
+                def disliked_matching_score(labels, **kwargs) -> float:
+                    cluster_column = pl.Series(name="cluster", values=labels)
+                    clustered_data_variant = data_variant.with_columns(cluster_column)
 
-                train_disliked_track_ids = (
-                    data_variant.filter(pl.col("liked") == 0)
-                    .select(pl.col("row_id"))
-                    .join(test_disliked_track_ids, "row_id", "left", coalesce=False)
-                    .filter(pl.col("row_id_right").is_null())
-                    .select(pl.all().exclude("row_id_right"))
-                )
-                contamination_count = train_disliked_track_ids.with_row_index().filter(
-                    pl.col("index") < pl.col("index").max() * contamination_fraction
-                )
-                train_liked_track_ids = (
-                    data_variant.filter(pl.col("liked") == 1)
-                    .select(pl.col("row_id"))
-                    .join(test_liked_track_ids, "row_id", "left", coalesce=False)
-                    .filter(pl.col("row_id_right").is_null())
-                    .select(pl.col("row_id"))
-                    .with_columns(pl.col("row_id").shuffle(seed=shuffle_seed))
-                    .with_row_index()
-                    .join(contamination_count, "index", "left")
-                    .filter(pl.col("row_id_right").is_null().not_())
-                    .select(pl.col("row_id"))
-                )
-
-                train_track_ids = pl.concat(
-                    [train_disliked_track_ids, train_liked_track_ids]
-                )
-
-                if (
-                    not (
-                        train_test_cross := train_track_ids.join(
-                            test_track_ids, "row_id"
-                        ).collect(engine="streaming")
-                    ).is_empty()
-                    or not (
-                        test_train_cross := test_track_ids.join(
-                            train_track_ids, "row_id"
-                        ).collect(engine="streaming")
-                    ).is_empty()
-                ):
-                    raise Exception(
-                        f"Bad split:\n{train_test_cross=}\n{test_train_cross}"
+                    cluster_outlier_member_fraction = clustered_data_variant.select(pl.col("cluster"), pl.col("liked")).group_by("cluster").agg(
+                        (pl.col("cluster").filter(pl.col("liked") == 0).count() / pl.col("cluster").count()).alias(
+                            "disliked_fraction"),
+                        pl.col("cluster").filter(pl.col("liked") == 0).count().alias("disliked"),
+                        pl.col("cluster").count().alias("all"),
                     )
+                    outlier_clusters = cluster_outlier_member_fraction.filter(pl.col("disliked_fraction") > disliked_fraction_cluster_threshold).get_column("cluster").to_list()
+                    model_accuracy = 0.0
+                    if outlier_clusters:
+                        model_accuracy = clustered_data_variant.filter(pl.col("liked") == 0).select(pl.col("cluster")).select(
+                            pl.col("cluster").filter(pl.col("cluster").is_in(outlier_clusters)).count()/pl.col("cluster").count(),
+                            pl.col("cluster").filter(pl.col("cluster").is_in(outlier_clusters)).count().alias("outliers"),
+                            pl.col("cluster").count().alias("total"),
+                            ).item(0, 0)
+                    return model_accuracy
 
-                train_data = (
-                    data_variant.join(train_track_ids, "row_id", "left", coalesce=False)
-                    .filter(pl.col("row_id_right").is_null().not_())
-                    .select(pl.all().exclude("row_id_right"))
-                )
+                scorer = LabelScorerUnsupervised(disliked_matching_score)
 
-                test_data = (
-                    data_variant.join(test_track_ids, "row_id", "left", coalesce=False)
-                    .filter(pl.col("row_id_right").is_null().not_())
-                    .select(pl.all().exclude("row_id_right"))
-                )
+                standard_scaler = make_pipeline(StandardScaler())
+                pca = make_pipeline(PCA())
+                minmax_scaler = make_pipeline(MinMaxScaler())
+                transformation_variants = [
+                    [],
+                    [*pca.steps],
+                    [*standard_scaler.steps],
+                    [*standard_scaler.steps, *pca.steps],
+                    [*pca.steps, *standard_scaler.steps],
+                    [*minmax_scaler.steps, *pca.steps],
+                    [*pca.steps, *minmax_scaler.steps],
+                    [*standard_scaler.steps, *minmax_scaler.steps, *pca.steps],
+                    [*pca.steps, *standard_scaler.steps, *minmax_scaler.steps],
+                    [*standard_scaler.steps, *minmax_scaler.steps],
+                    [*minmax_scaler.steps],
+                ]
 
-                # logger.info(
-                #     f"{train_data.group_by(by="liked").agg(pl.nth(0).len()).collect(engine="streaming")=}"
-                # )
-                if logger.isEnabledFor(logging.DEBUG):
-                    train_nulls = train_data.null_count().collect(engine="streaming")
-                    logger.debug(
-                        f"{train_nulls.select(col.name for col in train_nulls.select(pl.all() > 0) if col.all())=}"
-                    )
-                # logger.info(
-                #     f"{test_data.group_by(by="liked").agg(pl.nth(0).len()).collect(engine="streaming")=}"
-                # )
-                if logger.isEnabledFor(logging.DEBUG):
-                    test_nulls = test_data.null_count().collect(engine="streaming")
-                    logger.debug(
-                        f"{test_nulls.select(col.name for col in test_nulls.select(pl.all() > 0) if col.all())=}"
-                    )
-
-                train_dataset = (
-                    train_data.select(pl.all().exclude("row_id", "liked"))
-                    .collect(engine="streaming")
-                    .fill_null(0.0)
-                    .fill_nan(0.0)
-                    .sample(fraction=1.0, shuffle=True)
-                )
-
-                one_class_test_data = (
-                    test_data.collect(engine="streaming").fill_null(0.0).fill_nan(0.0)
-                )
-                test_feature_data = one_class_test_data.select(
-                    pl.all().exclude("row_id", "liked")
-                ).sample(fraction=1.0, shuffle=True)
-
-                scaler = StandardScaler()
-                train_dataset_numpy = scaler.fit_transform(train_dataset)
-                test_feature_processed_data = scaler.fit_transform(
-                    test_feature_data
-                )
-                logger.info(f"Starting try={try_n + 1}")
-                model_cfgs = []
-
-                def create_estimators():
-                    return {
-                        "ecod": ECOD(contamination=contamination_fraction, n_jobs=n_jobs),
-                        "loda": LODA(
-                            contamination=contamination_fraction,
-                            n_random_cuts=150,
-                        ),
-                        "knn": KNN(
-                            contamination=contamination_fraction,
-                            n_neighbors=5,
-                            metric="l1",
-                            method="mean",
-                            n_jobs=n_jobs,
-                        ),
-                    }
-
-                def create_ensembles():
-                    suods = {
-                        f"suod[{combination=}]": SUOD(
-                            base_estimators=list(create_estimators().values()),
-                            contamination=contamination_fraction,
-                            combination=combination,
-                            bps_flag=bps_flag,
-                            n_jobs=n_jobs,
+                def make_search_pipelines(estimator_name, estimator, grid, scoring=scorer):
+                    def create_optimizer():
+                        return BayesSearchCV(
+                            estimator=estimator,
+                            search_spaces=grid,
+                            n_iter=optimization_iterations,
+                            scoring=scoring,
+                            error_score=0.0,
+                            cv=NoCV(),
                         )
-                        for combination in ["average", "maximization"]
-                    }
-                    feature_baggings = {
-                        f"feature_bagging[estimator_type={etype}]": FeatureBagging(
-                            base_estimator=base_estimator,
-                            contamination=contamination_fraction,
-                            n_estimators=20,
-                            n_jobs=n_jobs,
-                        )
-                        for etype, base_estimator in [((etype, estimators[etype]) if etype else (None, None)) for etype, estimators in product([None, "ecod", "knn", "loda"], [create_estimators()]) ]
-                    }
-                    lscps = {
-                        f"lscp": LSCP(
-                            detector_list=list(create_estimators().values()),
-                            contamination=contamination_fraction,
-                            n_bins=15,
-                            local_region_size=27,
-                        )
-                    }
-                    return suods | feature_baggings | lscps
+                    def build_last_step_name(variation):
+                        return "|".join([*[step[0] for step in variation], estimator_name])
 
-                def create_combinations():
-                    suods_of_feature_baggings = {
-                        f"suod_of_feature_baggings[{combination=},base_estimators={"+".join([e[0].replace("[", "{").replace("]", "}") for e in feature_baggings])}]": SUOD(
-                            base_estimators=[e[1] for e in feature_baggings],
-                            contamination=contamination_fraction,
-                            combination=combination,
-                            bps_flag=bps_flag,
-                            n_jobs=n_jobs,
-                        ) for combination, feature_baggings in product(
-                            ["average", "maximization"],
-                            [[e for e in create_ensembles().items() if isinstance(e[1], FeatureBagging)]],
-                        )
-                    }
-                    suods_of_feature_bagging_and_lscp = {
-                        f"suod_of_feature_bagging_and_lscp[{combination=},base_estimators={"+".join([e[0].replace("[", "{").replace("]", "}") for e in lscps])}]": SUOD(
-                            base_estimators=[e[1] for e in lscps],
-                            contamination=contamination_fraction,
-                            combination=combination,
-                            bps_flag=bps_flag,
-                            n_jobs=n_jobs,
-                        ) for combination, lscps in product(
-                            ["average", "maximization"],
-                            [[e for e in create_ensembles().items() if isinstance(e[1], (LSCP, FeatureBagging))]],
-                        )
-                    }
-                    suods_of_feature_bagging_and_lscp = {
-                        f"suod_of_feature_bagging_and_lscp[{combination=},base_estimators={"+".join([e[0].replace("[", "{").replace("]", "}") for e in lscps])}]": SUOD(
-                            base_estimators=[e[1] for e in lscps],
-                            contamination=contamination_fraction,
-                            combination=combination,
-                            bps_flag=bps_flag,
-                            n_jobs=n_jobs,
-                        ) for combination, lscps in product(
-                            ["average", "maximization"],
-                            [[e for e in create_ensembles().items() if isinstance(e[1], (LSCP, FeatureBagging))]],
-                        )
-                    }
-                    # feature_baggings_of_suods = {
-                    #     f"feature_baggings_of_suods[base_estimator={suod[0].replace("[", "{").replace("]", "}")}]": FeatureBagging(
-                    #         base_estimator=suod[1],
-                    #         contamination=contamination_fraction,
-                    #         n_estimators=20,
-                    #         n_jobs=n_jobs,
-                    #     )
-                    #     for suod in [e for e in create_ensembles().items() if isinstance(e[1], SUOD)]
-                    # }
-                    # feature_baggings_of_lscps = {
-                    #     f"feature_bagging_of_lscps[base_estimator={lscp[0].replace("[", "{").replace("]", "}")}]": FeatureBagging(
-                    #         base_estimator=lscp[1],
-                    #         contamination=contamination_fraction,
-                    #         n_estimators=20,
-                    #         n_jobs=n_jobs,
-                    #     )
-                    #     for lscp in [e for e in create_ensembles().items() if isinstance(e[1], LSCP)]
-                    # }
-                    lscps_of_feature_baggings = {
-                        f"lscp_of_feature_baggings[detector_list={"+".join([e[0].replace("[", "{").replace("]", "}") for e in feature_baggings])}]": LSCP(
-                            detector_list=[e[1] for e in feature_baggings],
-                            contamination=contamination_fraction,
-                            n_bins=15,
-                            local_region_size=27,
-                        )
-                        for feature_baggings in [[e for e in create_ensembles().items() if isinstance(e[1], FeatureBagging)]]
-                    }
-                    lscps_of_feature_baggings_and_suods = {
-                        f"lscp_of_feature_baggings_and_suods[detector_list={"+".join([e[0].replace("[", "{").replace("]", "}") for e in feature_baggings])}]": LSCP(
-                            detector_list=[e[1] for e in feature_baggings],
-                            contamination=contamination_fraction,
-                            n_bins=15,
-                            local_region_size=27,
-                        )
-                        for feature_baggings in [[e for e in create_ensembles().items() if isinstance(e[1], (FeatureBagging, SUOD))]]
-                    }
-                    return (suods_of_feature_baggings | suods_of_feature_bagging_and_lscp
-                    # | feature_baggings_of_suods | feature_baggings_of_lscps
-                    | lscps_of_feature_baggings | lscps_of_feature_baggings_and_suods)
+                    return [Pipeline([*variation, (build_last_step_name(variation), create_optimizer())]) for variation in transformation_variants]
 
-                pca = PCA(min(train_dataset.shape[0], test_feature_data.shape[0]))
-                pca.fit(train_dataset)
-                model_cfgs.extend([
-                    *create_estimators().items(),
-                    *{f"pca_{name}": Pipe(value, lambda data: pca.transform(data)) for name, value in create_estimators().items()}.items(),
-                    *create_ensembles().items(),
-                    *{f"pca_{name}": Pipe(value, lambda data: pca.transform(data)) for name, value in create_ensembles().items()}.items(),
-                    *create_combinations().items(),
-                    *{f"pca_{name}": Pipe(value, lambda data: pca.transform(data)) for name, value in create_combinations().items()}.items(),
-                    (
-                        f"majority_estimators",
-                        Majority(list(create_estimators().values())),
+                # logger.info(f"Starting try={try_n + 1}")
+                pipelines = sum([
+                    # make_search_pipelines(
+                    #     "OneClassSVM",
+                    #     OneClassSVM(),
+                    #     {
+                    #         "kernel": ["linear", "poly", "rbf", "sigmoid"],
+                    #         "degree": [2, 3, 4, 5],
+                    #         "nu": np.arange(0.1, 1, 0.05),
+                    #     },
+                    #     scoring="accuracy",
+                    # ),
+                    make_search_pipelines(
+                        "hdbscan",
+                        HDBSCAN(allow_single_cluster=False, algorithm="brute"),
+                        {
+                            "min_cluster_size": np.arange(3, 60, 3),
+                            "metric": ["euclidean", "cosine"],
+                            "cluster_selection_method": ["eom", "leaf"],
+                            "cluster_selection_epsilon": np.arange(0.0, 1, 0.1),
+                            "leaf_size": np.arange(10, 100, 10),
+                            "alpha": [0.5, 1.0, 2.0, 5.0],
+                        },
                     ),
-                    (
-                        f"pca_majority_estimators",
-                        Pipe(Majority(list(create_estimators().values())), lambda data: pca.transform(data)),
+                    make_search_pipelines(
+                        "DipMeans",
+                        DipMeans(),
+                        {
+                            "significance": [0.001, 0.003, 0.0005],
+                            "split_viewers_threshold": [0.01, 0.005, 0.02],
+                            "n_boots": [500, 1000, 2000],
+                            "n_split_trials": [5, 10, 20],
+                            "n_clusters_init": [1, 5, 10],
+                            "max_n_clusters": [50, 75, 100, 150, 200, np.inf],
+                        },
                     ),
-                    *[(
-                        f"majority_ensembles[{"+".join([e[0].replace("[", "{").replace("]", "}") for e in ensemles])}]",
-                        Majority([e[1] for e in ensemles]),
-                    ) for ensemles in [create_ensembles().items()]],
-                    *[(
-                        f"pca_majority_ensembles[{"+".join([e[0].replace("[", "{").replace("]", "}") for e in ensemles])}]",
-                        Pipe(Majority([e[1] for e in ensemles]), lambda data: pca.transform(data)),
-                    ) for ensemles in [create_ensembles().items()]],
-                    # *[(
-                    #     f"majority_combinations[{"+".join([e[0].replace("[", "{").replace("]", "}") for e in combinations])}]",
-                    #     Majority([e[1] for e in combinations]),
-                    # ) for combinations in [create_combinations().items()]],
-                ])
-                vc = 0
-                total_models = len(model_cfgs)
-                while model_cfgs and (v := model_cfgs.pop(0)):
-                    model_name, model = v
-                    vc +=1
-                    model.fit(train_dataset_numpy)
-                    y_predicted = model.predict(test_feature_processed_data)
-                    model_accuracy = accuracy_score(
-                        one_class_test_data.select(pl.col("liked")), y_predicted
-                    )
+                    make_search_pipelines(
+                        "DipNSub",
+                        DipNSub(),
+                        {
+                            "significance": [0.005, 0.01, 0.05, 0.1],
+                            "threshold": [0.1, 0.15, 0.2],
+                            "step_size": [0.05, 0.1, 0.2],
+                            "momentum": [0.5, 0.75, 0.95, 1, 1.5],
+                            "add_tails": [True, False],
+                            "outliers": [True, False],
+                        },
+                    ),
+                    make_search_pipelines(
+                        "GapStatistic",
+                        GapStatistic(use_principal_components = False),
+                        {
+                            "min_n_clusters": [2, 10, 30, 50, 100],
+                            "max_n_clusters": [10, 50, 100, 150, 200, 300],
+                            "n_boots": [5, 10, 20],
+                            "use_log": [True, False],
+                        },
+                    ),
+                    make_search_pipelines(
+                        "GMeans",
+                        GMeans(),
+                        {
+                            "significance": [0.00005, 0.0001, 0.0002, 0.001],
+                            "n_clusters_init": [2, 5, 10, 30],
+                            "max_n_clusters": [10, 50, 100, 150, 200, np.inf],
+                            "n_split_trials": [5, 10, 20],
+                        },
+                    ),
+                    make_search_pipelines(
+                        "PGMeans",
+                        PGMeans(),
+                        {
+                            "significance": [0.0005, 0.001, 0.002, 0.1],
+                            "n_new_centers": [3, 5, 10],
+                            "amount_random_centers": [0.25, 0.5, 0.75],
+                            "n_clusters_init": [2, 5, 10, 30],
+                            "max_n_clusters": [10, 50, 100, 150, 200, np.inf],
+                        },
+                    ),
+                    make_search_pipelines(
+                        "ProjectedDipMeans",
+                        ProjectedDipMeans(),
+                        {
+                            "significance": [0.0005, 0.001, 0.002, 0.1],
+                            "n_random_projections": [0, 5, 10],
+                            "n_boots": [500, 1000, 2000],
+                            "n_split_trials": [5, 10, 20],
+                            "n_clusters_init": [2, 5, 10, 30],
+                            "max_n_clusters": [10, 50, 100, 150, 200, np.inf],
+                        },
+                    ),
+                    make_search_pipelines(
+                        "SkinnyDip",
+                        SkinnyDip(),
+                        {
+                            "significance": [0.005, 0.05, 0.1],
+                            "n_boots": [500, 1000, 2000],
+                            "add_tails": [True, False],
+                            "outliers": [True, False],
+                            "max_cluster_size_diff_factor": [1.5, 2, 3, 4],
+                        },
+                    ),
+                    make_search_pipelines(
+                        "SpecialK",
+                        SpecialK(),
+                        {
+                            "significance": [0.005, 0.01, 0.02, 0.1],
+                            "n_dimensions": [100, 200, 300],
+                            "similarity_matrix": ["NAM", "SAM"],
+                            "n_neighbors": [3, 5, 10],
+                            "percentage": [0.7, 0.9, 0.99],
+                            "n_cluster_pairs_to_consider": [5, 10, 20, None],
+                            "max_n_clusters": [10, 50, 100, 150, 200, np.inf],
+                        },
+                    ),
+                    make_search_pipelines(
+                        "XMeans",
+                        XMeans(),
+                        {
+                            "allow_merging": [True, False],
+                            "n_clusters_init": [2, 10, 50],
+                            "max_n_clusters": [100, 200, 300, np.inf],
+                            "n_split_trials": [10, 20, 30],
+                        },
+                    ),
+                    make_search_pipelines(
+                        "MultiDensityDBSCAN",
+                        MultiDensityDBSCAN(),
+                        {
+                            "k": np.arange(5, 50, 5),
+                            "var": [1.5, 2.5, 5],
+                            "min_cluster_size": [3, 5, 10],
+                        },
+                    ),
+                    make_search_pipelines(
+                        "AutoNR",
+                        AutoNR(),
+                        {
+                            "nrkmeans_repetitions": [10, 15, 30],
+                            "outliers": [True, False],
+                            "max_n_clusters": [10, 50, 100, 150, 200, None],
+                            "mdl_for_noisespace": [True, False],
+                            "similarity_threshold": [1e-6, 1e-5, 1e-4],
+                        },
+                    ),
+                    make_search_pipelines(
+                        "DDC",
+                        DDC(),
+                        {
+                            "ratio": [0.05, 0.1, 0.3],
+                            "batch_size": [128, 256, 512],
+                            "pretrain_epochs": [50, 100, 200],
+                            "embedding_size": [5, 10, 20, 50],
+                        },
+                    ),
+                    make_search_pipelines(
+                        "DeepECT",
+                        DeepECT(),
+                        {
+                            "max_n_leaf_nodes": [10, 20, 50],
+                            "batch_size": [128, 256, 512],
+                            "pretrain_epochs": [50, 100, 200],
+                            "clustering_epochs": [100, 150, 200],
+                            "grow_interval": [1, 2, 4],
+                            "pruning_threshold": [0.05, 0.1, 0.2],
+                            "embedding_size": [5, 10, 20, 50],
+                        },
+                    ),
+                    make_search_pipelines(
+                        "DipDECK",
+                        DipDECK(),
+                        {
+                            "n_clusters_init": [2, 10, 20, 35],
+                            "dip_merge_threshold": [0.75, 0.9, 0.95],
+                            "max_n_clusters": [100, 200, 300, np.inf],
+                            "min_n_clusters": [2, 10, 30, 50, 100],
+                            "batch_size": [128, 256, 512],
+                            "pretrain_epochs": [50, 100, 200],
+                            "clustering_epochs": [50, 100, 150, 200],
+                            "embedding_size": [3, 5, 10, 20, 50],
+                            "max_cluster_size_diff_factor": [1.5, 2, 3],
+                        },
+                    ),
+                    make_search_pipelines(
+                        "VaDE",
+                        make_pipeline(MinMaxScaler(clip=True), VaDE()),
+                        {
+                            "vade__batch_size": [256, 512],
+                            "vade__clustering_loss_weight": [0.5, 1.0, 2],
+                            "vade__ssl_loss_weight": [0.5, 1.0, 2],
+                            "vade__embedding_size": [5, 10, 20],
+                        },
+                    ),
+                ], [])
+                pipelines = filter_pipelines(pipelines, data_params)
+                processed_models_count = 0
+                total_models = len(pipelines)
+                while pipelines and (pipeline := pipelines.pop(0)):
+                    model_name = pipeline.steps[-1][0]
+                    pipeline.fit(X_numpy)
+                    processed_models_count +=1
+
+                    search = pipeline.named_steps[model_name]
+                    if hasattr(search.best_estimator_, "labels_"):
+                        logger.info(
+                            f"<{dn}/{len(data_param_options)}>{data_params} -> {model_name}: unique_clusters={len(numpy.unique(search.best_estimator_.labels_))}"
+                        )
                     logger.info(
-                        f"<{dn}/{len(data_param_options)}>{data_params}, try={try_n + 1} -> {model_name}({vc}/{total_models}): {model_accuracy:.3f}"
+                        f"<{dn}/{len(data_param_options)}>{data_params} -> {model_name}({processed_models_count}/{total_models})}} {search.best_score_:.3f} for params {search.best_params_}"
                     )
-                    accuracies[model_name].append(model_accuracy)
+                    line = f"{data_params}&{model_name}: {search.best_score_:.3f} -> {search.best_params_}"
 
-            data_variant_results = list(
-                sorted(
-                    {
-                        k: (float(np.mean(v)), float(np.std(v)))
-                        for k, v in accuracies.items()
-                    }.items(),
-                    key=lambda e: e[1][0],
-                    reverse=True,
-                )
-            )
-            line = f"{data_params}: {";".join([f"{model_name}->{mean:.3f}+-{std:.3f}" for model_name, (mean, std) in data_variant_results if mean > 0.5])}"
-            with data_report.open("at") as f:
-                f.writelines([line] + ["\n"])
-            logger.info(f"<{dn}/{len(data_param_options)}>{line}")
+                    lines = []
+                    if data_report.exists():
+                        with data_report.open("rt") as f:
+                            lines = f.read().splitlines(keepends=True)
+
+                    max_score = float(lines[0].split(":", 2)[1].split("->", 2)[0]) if lines else 0.0
+
+                    if search.best_score_ >= max_score:
+                        with tempfile.NamedTemporaryFile(mode='at', delete=False) as tmp_report:
+                            tmp_report.write(f"{line}\n")
+                            tmp_report.writelines(lines)
+                        shutil.move(tmp_report.name, data_report)
+                    else:
+                        with data_report.open("at") as f:
+                            f.write(f"{line}\n")
