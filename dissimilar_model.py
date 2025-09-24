@@ -65,51 +65,14 @@ if __name__ == "__main__":
             super().__init__()
             self._scoring_func = scoring_func
 
-        def _score(self, estimator, X):
-            """Evaluate cluster labels on X.
 
-            Parameters
-            ----------
-            estimator : object
-                Trained estimator to use for scoring. Must have `labels_` attribute.
 
-            X : {array-like, sparse matrix}
-                Data that will be used to evaluate cluster labels.
-
-            labels_true: array-like
-                Does nothing. Here for API compatability.
-
-            Returns
-            -------
-            score : float
-                Score function applied to cluster labels.
-            """
+        def __call__(self, estimator, X, labels_true=None):
             labels = _get_labels(estimator)
             if isinstance(estimator, Pipeline):
                 X = estimator[:-1].transform(X)
             # X, labels = _remove_noise_cluster(X, labels, labels=labels)
             return self._scoring_func(labels)
-
-        def __call__(self, estimator, X, labels_true=None):
-            """Evaluate predicted target values for X relative to y_true.
-
-            Parameters
-            ----------
-            estimator : object
-                Trained estimator to use for scoring. Must have `labels_` attribute.
-
-            X : {array-like, sparse matrix}
-                Data that will be used to evaluate cluster labels.
-
-            labels_true: array-like
-                Does nothing. Here for API compatability.
-
-            Returns
-            -------
-            score : float
-                Score function applied cluster labels.
-            """
-            return self._score(estimator,X)
 
     # for tweak in options:
     @dataclasses.dataclass
@@ -205,6 +168,7 @@ if __name__ == "__main__":
     train_tries = 1
     optimization_iterations = 50
     disliked_fraction_cluster_threshold = 0.7
+    interesting_clusterization_limit = 0.66
 
     data_param_options = [
         tuple(
@@ -216,21 +180,24 @@ if __name__ == "__main__":
         )
         for variant in product([["raw", "aggregates"], "raw", "aggregates"], ["with_var_agg", "no_var_agg"])
     ]
-    data_report = pathlib.Path("data_report.csv")
+
+    report_root = pathlib.Path("model_reports")
+    def build_model_report_prefix(data_options, full_model_name):
+        return f"{data_options}&{full_model_name}"
+    def build_full_model_name(base_name, preprocess_steps):
+        return "|".join([*preprocess_steps, base_name])
+    def get_base_model_name(full_name):
+        return full_name.split("|")[-1].lower()
     def filter_pipelines(pipelines, data_opts):
-        if data_report.exists():
-            processed_variants = data_report.read_text().split("\n")
-            return [pipeline for pipeline in pipelines if not [l for l in processed_variants if l.startswith(f"{data_opts}&{pipeline.steps[-1][0]}")]]
-        return pipelines
+        def is_already_processed(pipeline):
+            m_name = pipeline.steps[-1][0]
+            base_model_name = get_base_model_name(m_name)
+            processed_variants = []
+            if (model_report := report_root.joinpath(f"{base_model_name}.csv")).exists():
+                processed_variants = model_report.read_text().split("\n")
+            return any(l for l in processed_variants if l.startswith(f"{data_opts}&{m_name}"))
 
-
-    # if data_report.exists():
-    #     processed_variants = data_report.read_text().split("\n")
-    #     data_param_options = [
-    #         v
-    #         for v in data_param_options
-    #         if not any(line.startswith(f"{v}: ") for line in processed_variants)
-    #     ]
+        return [pipeline for pipeline in pipelines if not is_already_processed(pipeline)]
 
     def stats(progress_state: DataFrameBuilder.ProgressStat):
         logger.info(
@@ -480,9 +447,10 @@ if __name__ == "__main__":
                             scoring=scoring,
                             error_score=0.0,
                             cv=NoCV(),
+                            verbose=1,
                         )
                     def build_last_step_name(variation):
-                        return "|".join([*[step[0] for step in variation], estimator_name])
+                        return build_full_model_name(estimator_name, [step[0] for step in variation])
 
                     return [Pipeline([*variation, (build_last_step_name(variation), create_optimizer())]) for variation in transformation_variants]
 
@@ -518,30 +486,8 @@ if __name__ == "__main__":
                             "split_viewers_threshold": [0.01, 0.005, 0.02],
                             "n_boots": [500, 1000, 2000],
                             "n_split_trials": [5, 10, 20],
-                            "n_clusters_init": [1, 5, 10],
+                            "n_clusters_init": [2, 5, 10],
                             "max_n_clusters": [50, 75, 100, 150, 200, np.inf],
-                        },
-                    ),
-                    make_search_pipelines(
-                        "DipNSub",
-                        DipNSub(),
-                        {
-                            "significance": [0.005, 0.01, 0.05, 0.1],
-                            "threshold": [0.1, 0.15, 0.2],
-                            "step_size": [0.05, 0.1, 0.2],
-                            "momentum": [0.5, 0.75, 0.95, 1, 1.5],
-                            "add_tails": [True, False],
-                            "outliers": [True, False],
-                        },
-                    ),
-                    make_search_pipelines(
-                        "GapStatistic",
-                        GapStatistic(use_principal_components = False),
-                        {
-                            "min_n_clusters": [2, 10, 30, 50, 100],
-                            "max_n_clusters": [10, 50, 100, 150, 200, 300],
-                            "n_boots": [5, 10, 20],
-                            "use_log": [True, False],
                         },
                     ),
                     make_search_pipelines(
@@ -549,45 +495,22 @@ if __name__ == "__main__":
                         GMeans(),
                         {
                             "significance": [0.00005, 0.0001, 0.0002, 0.001],
-                            "n_clusters_init": [2, 5, 10, 30],
-                            "max_n_clusters": [10, 50, 100, 150, 200, np.inf],
+                            "n_clusters_init": [2, 5, 10],
+                            "max_n_clusters": [15, 50, 100, 150, 200, np.inf],
                             "n_split_trials": [5, 10, 20],
                         },
                     ),
-                    make_search_pipelines(
-                        "PGMeans",
-                        PGMeans(),
-                        {
-                            "significance": [0.0005, 0.001, 0.002, 0.1],
-                            "n_new_centers": [3, 5, 10],
-                            "amount_random_centers": [0.25, 0.5, 0.75],
-                            "n_clusters_init": [2, 5, 10, 30],
-                            "max_n_clusters": [10, 50, 100, 150, 200, np.inf],
-                        },
-                    ),
-                    make_search_pipelines(
-                        "ProjectedDipMeans",
-                        ProjectedDipMeans(),
-                        {
-                            "significance": [0.0005, 0.001, 0.002, 0.1],
-                            "n_random_projections": [0, 5, 10],
-                            "n_boots": [500, 1000, 2000],
-                            "n_split_trials": [5, 10, 20],
-                            "n_clusters_init": [2, 5, 10, 30],
-                            "max_n_clusters": [10, 50, 100, 150, 200, np.inf],
-                        },
-                    ),
-                    make_search_pipelines(
-                        "SkinnyDip",
-                        SkinnyDip(),
-                        {
-                            "significance": [0.005, 0.05, 0.1],
-                            "n_boots": [500, 1000, 2000],
-                            "add_tails": [True, False],
-                            "outliers": [True, False],
-                            "max_cluster_size_diff_factor": [1.5, 2, 3, 4],
-                        },
-                    ),
+                    # make_search_pipelines(
+                    #     "PGMeans",
+                    #     PGMeans(),
+                    #     {
+                    #         "significance": [0.0005, 0.001, 0.002, 0.1],
+                    #         "n_new_centers": [3, 5, 10],
+                    #         "amount_random_centers": [0.25, 0.5, 0.75],
+                    #         "n_clusters_init": [2, 5, 10],
+                    #         "max_n_clusters": [15, 50, 100, 150, 200, np.inf],
+                    #     },
+                    # ),
                     make_search_pipelines(
                         "SpecialK",
                         SpecialK(),
@@ -606,8 +529,8 @@ if __name__ == "__main__":
                         XMeans(),
                         {
                             "allow_merging": [True, False],
-                            "n_clusters_init": [2, 10, 50],
-                            "max_n_clusters": [100, 200, 300, np.inf],
+                            "n_clusters_init": [2, 10],
+                            "max_n_clusters": [50, 100, 200, 300, np.inf],
                             "n_split_trials": [10, 20, 30],
                         },
                     ),
@@ -618,6 +541,26 @@ if __name__ == "__main__":
                             "k": np.arange(5, 50, 5),
                             "var": [1.5, 2.5, 5],
                             "min_cluster_size": [3, 5, 10],
+                        },
+                    ),
+                    make_search_pipelines(
+                        "GapStatistic",
+                        GapStatistic(use_principal_components = False),
+                        {
+                            "min_n_clusters": [2, 10],
+                            "max_n_clusters": [15, 35, 100, 150, 200, 300],
+                            "n_boots": [5, 10, 20],
+                            "use_log": [True, False],
+                        },
+                    ),
+                    make_search_pipelines(
+                        "VaDE",
+                        make_pipeline(MinMaxScaler(clip=True), VaDE()),
+                        {
+                            "vade__batch_size": [256, 512],
+                            "vade__clustering_loss_weight": [0.5, 1.0, 2],
+                            "vade__ssl_loss_weight": [0.5, 1.0, 2],
+                            "vade__embedding_size": [5, 10, 20],
                         },
                     ),
                     make_search_pipelines(
@@ -670,15 +613,41 @@ if __name__ == "__main__":
                         },
                     ),
                     make_search_pipelines(
-                        "VaDE",
-                        make_pipeline(MinMaxScaler(clip=True), VaDE()),
+                        "ProjectedDipMeans",
+                        ProjectedDipMeans(),
                         {
-                            "vade__batch_size": [256, 512],
-                            "vade__clustering_loss_weight": [0.5, 1.0, 2],
-                            "vade__ssl_loss_weight": [0.5, 1.0, 2],
-                            "vade__embedding_size": [5, 10, 20],
+                            "significance": [0.0005, 0.001, 0.002, 0.1],
+                            "n_random_projections": [0, 5, 10],
+                            "n_boots": [500, 1000, 2000],
+                            "n_split_trials": [5, 10, 20],
+                            "n_clusters_init": [2, 5, 10],
+                            "max_n_clusters": [15, 50, 100, 150, 200, np.inf],
                         },
                     ),
+                    make_search_pipelines(
+                        "SkinnyDip",
+                        SkinnyDip(),
+                        {
+                            "significance": [0.005, 0.05, 0.1],
+                            "n_boots": [500, 1000, 2000],
+                            "add_tails": [True, False],
+                            "outliers": [True, False],
+                            "max_cluster_size_diff_factor": [1.5, 2, 3, 4],
+                        },
+                    ),
+                    make_search_pipelines(
+                        "DipNSub",
+                        DipNSub(),
+                        {
+                            "significance": [0.005, 0.01, 0.05, 0.1],
+                            "threshold": [0.1, 0.15, 0.2],
+                            "step_size": [0.05, 0.1, 0.2],
+                            "momentum": [0.5, 0.75, 0.95, 1, 1.5],
+                            "add_tails": [True, False],
+                            "outliers": [True, False],
+                        },
+                    ),
+
                 ], [])
                 pipelines = filter_pipelines(pipelines, data_params)
                 processed_models_count = 0
@@ -689,23 +658,24 @@ if __name__ == "__main__":
                     processed_models_count +=1
 
                     search = pipeline.named_steps[model_name]
+                    unique_clusters = 0
                     if hasattr(search.best_estimator_, "labels_"):
+                        unique_clusters = len(numpy.unique(search.best_estimator_.labels_))
                         logger.info(
-                            f"<{dn}/{len(data_param_options)}>{data_params} -> {model_name}: unique_clusters={len(numpy.unique(search.best_estimator_.labels_))}"
+                            f"<{dn}/{len(data_param_options)}>{data_params} -> {model_name}: {unique_clusters=}"
                         )
                     logger.info(
-                        f"<{dn}/{len(data_param_options)}>{data_params} -> {model_name}({processed_models_count}/{total_models})}} {search.best_score_:.3f} for params {search.best_params_}"
+                        f"<{dn}/{len(data_param_options)}>{data_params} -> {model_name}({processed_models_count}/{total_models})}} {search.best_score_:.3f} for params {search.best_params_} resulting {unique_clusters=}"
                     )
-                    line = f"{data_params}&{model_name}: {search.best_score_:.3f} -> {search.best_params_}"
+                    line = f"{build_model_report_prefix(data_params, model_name)}: {search.best_score_:.3f} -> {search.best_params_}[{unique_clusters=}]"
 
                     lines = []
+                    data_report = report_root.joinpath(f"{get_base_model_name(model_name)}.csv")
                     if data_report.exists():
                         with data_report.open("rt") as f:
                             lines = f.read().splitlines(keepends=True)
 
-                    max_score = float(lines[0].split(":", 2)[1].split("->", 2)[0]) if lines else 0.0
-
-                    if search.best_score_ >= max_score:
+                    if search.best_score_ >= interesting_clusterization_limit:
                         with tempfile.NamedTemporaryFile(mode='at', delete=False) as tmp_report:
                             tmp_report.write(f"{line}\n")
                             tmp_report.writelines(lines)
