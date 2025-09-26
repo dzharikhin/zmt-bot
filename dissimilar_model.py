@@ -14,16 +14,13 @@ from itertools import product
 import numpy
 import numpy as np
 import polars as pl
-from clustpy.alternative import AutoNR
-from clustpy.deep import VaDE, DDC, DeepECT, DipDECK
-from clustpy.density import MultiDensityDBSCAN
-from clustpy.partition import XMeans, DipMeans, DipNSub, GapStatistic, GMeans, PGMeans, ProjectedDipMeans, SkinnyDip, \
-    SpecialK
+from clustpy.partition import XMeans, GMeans
 from sklearn.cluster import HDBSCAN
 from sklearn.decomposition import PCA
 from sklearn.model_selection import BaseCrossValidator
 from sklearn.pipeline import Pipeline, make_pipeline
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.svm import OneClassSVM
 from sklearn.utils.validation import check_is_fitted
 from skopt import BayesSearchCV
 
@@ -166,7 +163,7 @@ if __name__ == "__main__":
     contamination_fraction = 0.33
     test_fraction = 0.33
     train_tries = 1
-    optimization_iterations = 50
+    optimization_iterations = 512
     disliked_fraction_cluster_threshold = 0.7
     interesting_clusterization_limit = 0.66
 
@@ -178,7 +175,12 @@ if __name__ == "__main__":
                 [],
             )
         )
-        for variant in product([["raw", "aggregates"], "raw", "aggregates"], ["with_var_agg", "no_var_agg"])
+        for variant in product(
+            [["raw", "aggregates"], "raw", "aggregates"],
+            ["with_var_agg", "no_var_agg"],
+            ["outliers_removal=0.05", "without_outliers_removal", "outliers_removal=0.1", "outliers_removal=0.2"],
+            ["outliers_standard_scaling", "outliers_no_scaling", "outliers_minmax_scaling"],
+        )
     ]
 
     report_root = pathlib.Path("model_reports")
@@ -391,7 +393,37 @@ if __name__ == "__main__":
             logger.info(
                 f"<{dn}/{len(data_param_options)}>{data_params=}: transformed {data_variant.collect_schema().len()=}"
             )
-            data_variant = data_variant.select(pl.all().exclude("row_id")).collect(engine="streaming").fill_null(0.0).fill_nan(0.0)
+            if outlier_removal_param := next((param for param in data_params if param.startswith("outliers_removal=")), None):
+                outliers_fraction = float(outlier_removal_param.split("=")[1])
+                if "outliers_standard_scaling" in data_params:
+                    data_with_outliers = StandardScaler().fit_transform(
+                        data_variant.select(pl.all().exclude("row_id", "liked")).collect(engine="streaming").fill_null(0.0).fill_nan(0.0)
+                    )
+                elif "outliers_minmax_scaling" in data_params:
+                    data_with_outliers = MinMaxScaler(clip=True).fit_transform(
+                        data_variant.select(pl.all().exclude("row_id", "liked")).collect(engine="streaming").fill_null(0.0).fill_nan(0.0)
+                    )
+                else:
+                    data_with_outliers = data_variant.select(pl.all().exclude("row_id", "liked")).collect(engine="streaming").fill_null(0.0).fill_nan(0.0).to_numpy()
+
+                data_with_outliers = pl.from_numpy(data_with_outliers).with_columns(
+                    data_variant.select(pl.col("liked")).collect(engine="streaming").to_series()
+                )
+
+                scaled_data_liked = data_with_outliers.filter(pl.col("liked") == 1).select(pl.all().exclude("liked"))
+                data_variant_liked = data_variant.filter(pl.col("liked") == 1).with_columns(
+                    pl.Series(name="outlier", values=OneClassSVM(nu=outliers_fraction).fit_predict(scaled_data_liked))
+                ).filter(pl.col("outlier") != -1).select(pl.all().exclude("outlier"))
+
+                scaled_data_disliked = data_with_outliers.filter(pl.col("liked") == 0).select(pl.all().exclude("liked"))
+                data_variant_disliked = data_variant.filter(pl.col("liked") == 0).with_columns(
+                    pl.Series(name="outlier", values=OneClassSVM(nu=outliers_fraction).fit_predict(scaled_data_disliked))
+                ).filter(pl.col("outlier") != -1).select(pl.all().exclude("outlier"))
+
+            data_variant = pl.concat([data_variant_liked, data_variant_disliked]).select(pl.all().exclude("row_id")).collect(engine="streaming").fill_null(0.0).fill_nan(0.0)
+            logger.info(
+                f"<{dn}/{len(data_param_options)}>{data_params=}: outlier removed {data_variant.shape=}"
+            )
 
             for try_n in range(train_tries):
                 shuffle_seed = random.randint(0, 100)
@@ -399,7 +431,7 @@ if __name__ == "__main__":
                 X_numpy = data_variant.select(pl.all().exclude("liked")).to_numpy()
                 Y_numpy = data_variant.select(pl.col("liked")).to_numpy()
 
-                def disliked_matching_score(labels, **kwargs) -> float:
+                def disliked_matching_score(labels, **kwargs):
                     cluster_column = pl.Series(name="cluster", values=labels)
                     clustered_data_variant = data_variant.with_columns(cluster_column)
 
@@ -410,13 +442,16 @@ if __name__ == "__main__":
                         pl.col("cluster").count().alias("all"),
                     )
                     outlier_clusters = cluster_outlier_member_fraction.filter(pl.col("disliked_fraction") > disliked_fraction_cluster_threshold).get_column("cluster").to_list()
-                    model_accuracy = 0.0
+                    model_accuracy = {"disliked_cluster_coverage": 0.0, "guiding_score": 0.0}
                     if outlier_clusters:
-                        model_accuracy = clustered_data_variant.filter(pl.col("liked") == 0).select(pl.col("cluster")).select(
+                        cluster_coverage_fraction = clustered_data_variant.filter(pl.col("liked") == 0).select(pl.col("cluster")).select(
                             pl.col("cluster").filter(pl.col("cluster").is_in(outlier_clusters)).count()/pl.col("cluster").count(),
                             pl.col("cluster").filter(pl.col("cluster").is_in(outlier_clusters)).count().alias("outliers"),
                             pl.col("cluster").count().alias("total"),
                             ).item(0, 0)
+                        average_cluster_size = data_variant.shape[0] / cluster_column.n_unique()
+                        guiding_score = cluster_coverage_fraction + ((cluster_coverage_fraction - 0.5) * average_cluster_size)
+                        model_accuracy = {"disliked_cluster_coverage": cluster_coverage_fraction, "guiding_score": guiding_score}
                     return model_accuracy
 
                 scorer = LabelScorerUnsupervised(disliked_matching_score)
@@ -447,7 +482,9 @@ if __name__ == "__main__":
                             scoring=scoring,
                             error_score=0.0,
                             cv=NoCV(),
+                            refit="guiding_score",
                             verbose=1,
+                            n_points=len(grid.keys())
                         )
                     def build_last_step_name(variation):
                         return build_full_model_name(estimator_name, [step[0] for step in variation])
@@ -478,26 +515,26 @@ if __name__ == "__main__":
                             "alpha": [0.5, 1.0, 2.0, 5.0],
                         },
                     ),
-                    make_search_pipelines(
-                        "DipMeans",
-                        DipMeans(),
-                        {
-                            "significance": [0.001, 0.003, 0.0005],
-                            "split_viewers_threshold": [0.01, 0.005, 0.02],
-                            "n_boots": [500, 1000, 2000],
-                            "n_split_trials": [5, 10, 20],
-                            "n_clusters_init": [2, 5, 10],
-                            "max_n_clusters": [50, 75, 100, 150, 200, np.inf],
-                        },
-                    ),
+                    # make_search_pipelines(
+                    #     "DipMeans",
+                    #     DipMeans(),
+                    #     {
+                    #         "significance": [0.001, 0.003, 0.0005],
+                    #         "split_viewers_threshold": [0.01, 0.005, 0.02],
+                    #         "n_boots": [500, 1000, 2000],
+                    #         "n_split_trials": [5, 10, 20],
+                    #         "n_clusters_init": [2, 5, 10],
+                    #         "max_n_clusters": [50, 75, 100, 150, 200, X_numpy.shape[0] // 2],
+                    #     },
+                    # ),
                     make_search_pipelines(
                         "GMeans",
                         GMeans(),
                         {
                             "significance": [0.00005, 0.0001, 0.0002, 0.001],
                             "n_clusters_init": [2, 5, 10],
-                            "max_n_clusters": [15, 50, 100, 150, 200, np.inf],
-                            "n_split_trials": [5, 10, 20],
+                            "max_n_clusters": [15, 50, 100, 150, *np.arange(200, X_numpy.shape[0], 50)],
+                            "n_split_trials": [5, 10, 20, 50],
                         },
                     ),
                     # make_search_pipelines(
@@ -508,146 +545,145 @@ if __name__ == "__main__":
                     #         "n_new_centers": [3, 5, 10],
                     #         "amount_random_centers": [0.25, 0.5, 0.75],
                     #         "n_clusters_init": [2, 5, 10],
-                    #         "max_n_clusters": [15, 50, 100, 150, 200, np.inf],
+                    #         "max_n_clusters": [15, 50, 100, 150, 200, 300, 400, X_numpy.shape[0] // 2],
                     #     },
                     # ),
-                    make_search_pipelines(
-                        "SpecialK",
-                        SpecialK(),
-                        {
-                            "significance": [0.005, 0.01, 0.02, 0.1],
-                            "n_dimensions": [100, 200, 300],
-                            "similarity_matrix": ["NAM", "SAM"],
-                            "n_neighbors": [3, 5, 10],
-                            "percentage": [0.7, 0.9, 0.99],
-                            "n_cluster_pairs_to_consider": [5, 10, 20, None],
-                            "max_n_clusters": [10, 50, 100, 150, 200, np.inf],
-                        },
-                    ),
+                    # make_search_pipelines(
+                    #     "SpecialK",
+                    #     SpecialK(),
+                    #     {
+                    #         "significance": [0.005, 0.01, 0.02, 0.1],
+                    #         "n_dimensions": [100, 200, 300],
+                    #         "similarity_matrix": ["NAM", "SAM"],
+                    #         "n_neighbors": [3, 5, 10],
+                    #         "percentage": [0.7, 0.9, 0.99],
+                    #         "n_cluster_pairs_to_consider": [5, 10, 20, None],
+                    #         "max_n_clusters": [15, 50, 100, 150, 200, 300, 400, X_numpy.shape[0] // 2],
+                    #     },
+                    # ),
                     make_search_pipelines(
                         "XMeans",
                         XMeans(),
                         {
                             "allow_merging": [True, False],
-                            "n_clusters_init": [2, 10],
-                            "max_n_clusters": [50, 100, 200, 300, np.inf],
-                            "n_split_trials": [10, 20, 30],
-                        },
-                    ),
-                    make_search_pipelines(
-                        "MultiDensityDBSCAN",
-                        MultiDensityDBSCAN(),
-                        {
-                            "k": np.arange(5, 50, 5),
-                            "var": [1.5, 2.5, 5],
-                            "min_cluster_size": [3, 5, 10],
-                        },
-                    ),
-                    make_search_pipelines(
-                        "GapStatistic",
-                        GapStatistic(use_principal_components = False),
-                        {
-                            "min_n_clusters": [2, 10],
-                            "max_n_clusters": [15, 35, 100, 150, 200, 300],
-                            "n_boots": [5, 10, 20],
-                            "use_log": [True, False],
-                        },
-                    ),
-                    make_search_pipelines(
-                        "VaDE",
-                        make_pipeline(MinMaxScaler(clip=True), VaDE()),
-                        {
-                            "vade__batch_size": [256, 512],
-                            "vade__clustering_loss_weight": [0.5, 1.0, 2],
-                            "vade__ssl_loss_weight": [0.5, 1.0, 2],
-                            "vade__embedding_size": [5, 10, 20],
-                        },
-                    ),
-                    make_search_pipelines(
-                        "AutoNR",
-                        AutoNR(),
-                        {
-                            "nrkmeans_repetitions": [10, 15, 30],
-                            "outliers": [True, False],
-                            "max_n_clusters": [10, 50, 100, 150, 200, None],
-                            "mdl_for_noisespace": [True, False],
-                            "similarity_threshold": [1e-6, 1e-5, 1e-4],
-                        },
-                    ),
-                    make_search_pipelines(
-                        "DDC",
-                        DDC(),
-                        {
-                            "ratio": [0.05, 0.1, 0.3],
-                            "batch_size": [128, 256, 512],
-                            "pretrain_epochs": [50, 100, 200],
-                            "embedding_size": [5, 10, 20, 50],
-                        },
-                    ),
-                    make_search_pipelines(
-                        "DeepECT",
-                        DeepECT(),
-                        {
-                            "max_n_leaf_nodes": [10, 20, 50],
-                            "batch_size": [128, 256, 512],
-                            "pretrain_epochs": [50, 100, 200],
-                            "clustering_epochs": [100, 150, 200],
-                            "grow_interval": [1, 2, 4],
-                            "pruning_threshold": [0.05, 0.1, 0.2],
-                            "embedding_size": [5, 10, 20, 50],
-                        },
-                    ),
-                    make_search_pipelines(
-                        "DipDECK",
-                        DipDECK(),
-                        {
-                            "n_clusters_init": [2, 10, 20, 35],
-                            "dip_merge_threshold": [0.75, 0.9, 0.95],
-                            "max_n_clusters": [100, 200, 300, np.inf],
-                            "min_n_clusters": [2, 10, 30, 50, 100],
-                            "batch_size": [128, 256, 512],
-                            "pretrain_epochs": [50, 100, 200],
-                            "clustering_epochs": [50, 100, 150, 200],
-                            "embedding_size": [3, 5, 10, 20, 50],
-                            "max_cluster_size_diff_factor": [1.5, 2, 3],
-                        },
-                    ),
-                    make_search_pipelines(
-                        "ProjectedDipMeans",
-                        ProjectedDipMeans(),
-                        {
-                            "significance": [0.0005, 0.001, 0.002, 0.1],
-                            "n_random_projections": [0, 5, 10],
-                            "n_boots": [500, 1000, 2000],
-                            "n_split_trials": [5, 10, 20],
                             "n_clusters_init": [2, 5, 10],
-                            "max_n_clusters": [15, 50, 100, 150, 200, np.inf],
+                            "max_n_clusters": [15, 50, 100, 150, *np.arange(200, X_numpy.shape[0], 50)],
+                            "n_split_trials": [10, 20, 30, 50],
                         },
                     ),
-                    make_search_pipelines(
-                        "SkinnyDip",
-                        SkinnyDip(),
-                        {
-                            "significance": [0.005, 0.05, 0.1],
-                            "n_boots": [500, 1000, 2000],
-                            "add_tails": [True, False],
-                            "outliers": [True, False],
-                            "max_cluster_size_diff_factor": [1.5, 2, 3, 4],
-                        },
-                    ),
-                    make_search_pipelines(
-                        "DipNSub",
-                        DipNSub(),
-                        {
-                            "significance": [0.005, 0.01, 0.05, 0.1],
-                            "threshold": [0.1, 0.15, 0.2],
-                            "step_size": [0.05, 0.1, 0.2],
-                            "momentum": [0.5, 0.75, 0.95, 1, 1.5],
-                            "add_tails": [True, False],
-                            "outliers": [True, False],
-                        },
-                    ),
-
+                    # make_search_pipelines(
+                    #     "MultiDensityDBSCAN",
+                    #     MultiDensityDBSCAN(),
+                    #     {
+                    #         "k": np.arange(5, 50, 5),
+                    #         "var": [1.5, 2.5, 5],
+                    #         "min_cluster_size": [3, 5, 10],
+                    #     },
+                    # ),
+                    # make_search_pipelines(
+                    #     "GapStatistic",
+                    #     GapStatistic(use_principal_components = False),
+                    #     {
+                    #         "min_n_clusters": [2, 10],
+                    #         "max_n_clusters": [15, 50, 100, 150, 200, 300, 400, X_numpy.shape[0] // 2],
+                    #         "n_boots": [5, 10, 20],
+                    #         "use_log": [True, False],
+                    #     },
+                    # ),
+                    # make_search_pipelines(
+                    #     "VaDE",
+                    #     make_pipeline(MinMaxScaler(clip=True), VaDE()),
+                    #     {
+                    #         # "vade__batch_size": [256, 512],
+                    #         "vade__clustering_loss_weight": [0.5, 1.0, 2],
+                    #         "vade__ssl_loss_weight": [0.5, 1.0, 2],
+                    #         # "vade__embedding_size": [5, 10, 20],
+                    #     },
+                    # ),
+                    # make_search_pipelines(
+                    #     "AutoNR",
+                    #     AutoNR(),
+                    #     {
+                    #         "nrkmeans_repetitions": [10, 15, 30],
+                    #         "outliers": [True, False],
+                    #         "max_n_clusters": [10, 50, 100, 150, 200, None],
+                    #         "mdl_for_noisespace": [True, False],
+                    #         "similarity_threshold": [1e-6, 1e-5, 1e-4],
+                    #     },
+                    # ),
+                    # make_search_pipelines(
+                    #     "DDC",
+                    #     DDC(),
+                    #     {
+                    #         "ratio": [0.05, 0.1, 0.3],
+                    #         "batch_size": [128, 256, 512],
+                    #         "pretrain_epochs": [50, 100, 200],
+                    #         "embedding_size": [5, 10, 20, 50],
+                    #     },
+                    # ),
+                    # make_search_pipelines(
+                    #     "DeepECT",
+                    #     DeepECT(),
+                    #     {
+                    #         "max_n_leaf_nodes": [10, 20, 50],
+                    #         "batch_size": [128, 256, 512],
+                    #         "pretrain_epochs": [50, 100, 200],
+                    #         "clustering_epochs": [100, 150, 200],
+                    #         "grow_interval": [1, 2, 4],
+                    #         "pruning_threshold": [0.05, 0.1, 0.2],
+                    #         "embedding_size": [5, 10, 20, 50],
+                    #     },
+                    # ),
+                    # make_search_pipelines(
+                    #     "DipDECK",
+                    #     DipDECK(),
+                    #     {
+                    #         "n_clusters_init": [2, 10, 20, 35],
+                    #         "dip_merge_threshold": [0.75, 0.9, 0.95],
+                    #         "max_n_clusters": [100, 200, 300, np.inf],
+                    #         "min_n_clusters": [2, 10, 30, 50, 100],
+                    #         "batch_size": [128, 256, 512],
+                    #         "pretrain_epochs": [50, 100, 200],
+                    #         "clustering_epochs": [50, 100, 150, 200],
+                    #         "embedding_size": [3, 5, 10, 20, 50],
+                    #         "max_cluster_size_diff_factor": [1.5, 2, 3],
+                    #     },
+                    # ),
+                    # make_search_pipelines(
+                    #     "ProjectedDipMeans",
+                    #     ProjectedDipMeans(),
+                    #     {
+                    #         "significance": [0.0005, 0.001, 0.002, 0.1],
+                    #         "n_random_projections": [0, 5, 10],
+                    #         "n_boots": [500, 1000, 2000],
+                    #         "n_split_trials": [5, 10, 20],
+                    #         "n_clusters_init": [2, 5, 10],
+                    #         "max_n_clusters": [15, 50, 100, 150, 200, np.inf],
+                    #     },
+                    # ),
+                    # make_search_pipelines(
+                    #     "SkinnyDip",
+                    #     SkinnyDip(),
+                    #     {
+                    #         "significance": [0.005, 0.05, 0.1],
+                    #         "n_boots": [500, 1000, 2000],
+                    #         "add_tails": [True, False],
+                    #         "outliers": [True, False],
+                    #         "max_cluster_size_diff_factor": [1.5, 2, 3, 4],
+                    #     },
+                    # ),
+                    # make_search_pipelines(
+                    #     "DipNSub",
+                    #     DipNSub(),
+                    #     {
+                    #         "significance": [0.005, 0.01, 0.05, 0.1],
+                    #         "threshold": [0.1, 0.15, 0.2],
+                    #         "step_size": [0.05, 0.1, 0.2],
+                    #         "momentum": [0.5, 0.75, 0.95, 1, 1.5],
+                    #         "add_tails": [True, False],
+                    #         "outliers": [True, False],
+                    #     },
+                    # ),
                 ], [])
                 pipelines = filter_pipelines(pipelines, data_params)
                 processed_models_count = 0
@@ -664,10 +700,11 @@ if __name__ == "__main__":
                         logger.info(
                             f"<{dn}/{len(data_param_options)}>{data_params} -> {model_name}: {unique_clusters=}"
                         )
+                    best_disliked_cluster_coverage = search.cv_results_[f"mean_test_disliked_cluster_coverage"][search.best_index_]
                     logger.info(
-                        f"<{dn}/{len(data_param_options)}>{data_params} -> {model_name}({processed_models_count}/{total_models})}} {search.best_score_:.3f} for params {search.best_params_} resulting {unique_clusters=}"
+                        f"<{dn}/{len(data_param_options)}>{data_params} -> {model_name}({processed_models_count}/{total_models})}} {best_disliked_cluster_coverage:.3f}[intergal_metric={search.best_score_:.3f}] for params {search.best_params_} resulting {unique_clusters=}"
                     )
-                    line = f"{build_model_report_prefix(data_params, model_name)}: {search.best_score_:.3f} -> {search.best_params_}[{unique_clusters=}]"
+                    line = f"{build_model_report_prefix(data_params, model_name)}: {best_disliked_cluster_coverage:.3f}[intergal_metric={search.best_score_:.3f}] -> {search.best_params_}[{unique_clusters=}]"
 
                     lines = []
                     data_report = report_root.joinpath(f"{get_base_model_name(model_name)}.csv")
@@ -675,7 +712,7 @@ if __name__ == "__main__":
                         with data_report.open("rt") as f:
                             lines = f.read().splitlines(keepends=True)
 
-                    if search.best_score_ >= interesting_clusterization_limit:
+                    if best_disliked_cluster_coverage >= interesting_clusterization_limit:
                         with tempfile.NamedTemporaryFile(mode='at', delete=False) as tmp_report:
                             tmp_report.write(f"{line}\n")
                             tmp_report.writelines(lines)
