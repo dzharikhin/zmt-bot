@@ -15,8 +15,7 @@ from itertools import product
 import numpy
 import numpy as np
 import polars as pl
-from clustpy.partition import XMeans, GMeans
-from sklearn.cluster import HDBSCAN
+from clustpy.partition import GMeans
 from sklearn.decomposition import PCA
 from sklearn.model_selection import BaseCrossValidator
 from sklearn.pipeline import Pipeline, make_pipeline
@@ -161,7 +160,7 @@ if __name__ == "__main__":
     test_fraction = 0.33
     train_tries = 1
     optimization_iterations = math.floor(math.e**4)
-    disliked_fraction_cluster_threshold = 0.9
+    disliked_fraction_cluster_threshold = 0.66
     interesting_clusterization_limit = 0.66
 
     data_param_options = [
@@ -173,9 +172,16 @@ if __name__ == "__main__":
             )
         )
         for variant in product(
-            ["aggregates", ["aggregates", "with_var_agg"]],
+            [["aggregates", "with_var_agg"]],
             ["outliers_removal=0.1"],
-            ["guiding_score=average", "guiding_score=sum"],
+            ["guiding_score=average_to_all",
+             "guiding_score=average_to_all_norm",
+             "guiding_score=average_to_all_norm_weighted",
+             "guiding_score=average_to_all_weighted_max2",
+             "guiding_score=average_to_all_weighted_max5",
+             "guiding_score=average_to_max",
+             "guiding_score=average_to_max_norm_max",
+             ],
         )
     ]
 
@@ -289,9 +295,9 @@ if __name__ == "__main__":
         container_field_names = set(
             field.name
             for field in dataclasses.fields(MappedAudioFeatures)
-            if field.type
+            if typing.get_origin(field.type)
             in [
-                list[float],
+                list,
             ]
         )
         if diff := (container_field_names - metric_sizes.keys()):
@@ -537,21 +543,68 @@ if __name__ == "__main__":
                         average_cluster_size = (
                             data_variant.shape[0] / cluster_column.n_unique()
                         )
-                        if "guiding_score=sum" in data_params:
-                            guiding_score = cluster_coverage_fraction_score + (
-                                (cluster_coverage_fraction_score - 0.5)
-                                * average_cluster_size
-                            )
-                        elif "guiding_score=average" in data_params:
-                            clustering_efficiency_score = (
-                                (cluster_coverage_fraction_score - 0.5) / 0.5
-                            ) * average_cluster_size
+                        max_cluster_size = (
+                            cluster_column.value_counts().max().item(0, 1)
+                        )
+                        group_clusters_count = (
+                            cluster_column.value_counts().filter(pl.nth(1) > 1).shape[0]
+                        )
+                        if "guiding_score=average_to_all" in data_params:
                             guiding_score = sum(
                                 scores := [
                                     cluster_coverage_fraction_score,
-                                    clustering_efficiency_score,
+                                    group_clusters_count / data_variant.shape[0],
+                                    max_cluster_size / data_variant.shape[0],
                                 ]
                             ) / len(scores)
+                        elif "guiding_score=average_to_all_norm" in data_params:
+                            guiding_score = sum(
+                                scores := [
+                                    cluster_coverage_fraction_score,
+                                    group_clusters_count / data_variant.shape[0],
+                                    max_cluster_size / data_variant.shape[0],
+                                    ]
+                            ) / (len(scores) * average_cluster_size)
+                        elif "guiding_score=average_to_all_norm_weighted" in data_params:
+                            guiding_score = sum(
+                                scores := [
+                                    cluster_coverage_fraction_score,
+                                    group_clusters_count / data_variant.shape[0]  * average_cluster_size,
+                                    max_cluster_size / data_variant.shape[0]  * average_cluster_size,
+                                    ]
+                            ) / (len(scores) + 2 * average_cluster_size)
+                        elif "guiding_score=average_to_all_weighted_max2" in data_params:
+                            coef = 2.0
+                            guiding_score = sum(
+                                scores := [
+                                    cluster_coverage_fraction_score,
+                                    group_clusters_count / data_variant.shape[0],
+                                    coef * max_cluster_size / data_variant.shape[0],
+                                    ]
+                            ) / (len(scores) + coef)
+                        elif "guiding_score=average_to_all_weighted_max5" in data_params:
+                            coef = 5.0
+                            guiding_score = sum(
+                                scores := [
+                                    cluster_coverage_fraction_score,
+                                    group_clusters_count / data_variant.shape[0],
+                                    coef * max_cluster_size / data_variant.shape[0],
+                                    ]
+                            ) / (len(scores) + coef)
+                        elif "guiding_score=average_to_max" in data_params:
+                            guiding_score = sum(
+                                scores := [
+                                    cluster_coverage_fraction_score,
+                                    group_clusters_count / (group_clusters_count + max_cluster_size),
+                                ]
+                            ) / len(scores)
+                        elif "guiding_score=average_to_max_norm_max" in data_params:
+                            guiding_score = sum(
+                                scores := [
+                                    cluster_coverage_fraction_score,
+                                    group_clusters_count / (group_clusters_count + max_cluster_size) * average_cluster_size,
+                                ]
+                            ) / (len(scores) + average_cluster_size)
                         else:
                             guiding_score = cluster_coverage_fraction_score
                         model_accuracy = {
@@ -652,14 +705,14 @@ if __name__ == "__main__":
                             GMeans(),
                             {
                                 "significance": space.Real(
-                                    0.001, 0.1, prior="log-uniform"
+                                    0.05, 0.15
                                 ),
-                                "n_clusters_init": space.Integer(2, 10),
+                                "n_split_trials": space.Integer(10, 100),
+                                "n_clusters_init": space.Integer(10, 25),
                                 "max_n_clusters": space.Integer(
-                                    max(15, int(X_numpy.shape[0] * 0.03)),
-                                    X_numpy.shape[0],
+                                    30,
+                                    X_numpy.shape[0] * disliked_fraction_cluster_threshold,
                                 ),
-                                "n_split_trials": [40, 45, 50],
                             },
                         ),
                         # make_search_pipelines(
@@ -821,21 +874,19 @@ if __name__ == "__main__":
                     processed_models_count += 1
 
                     search = pipeline.named_steps[model_name]
-                    unique_clusters = 0
+                    unique_clusters = {}
                     if hasattr(search.best_estimator_, "labels_"):
-                        unique_clusters = len(
-                            numpy.unique(search.best_estimator_.labels_)
-                        )
+                        unique_clusters = dict(zip(*[r.tolist() for r in numpy.unique(search.best_estimator_.labels_, return_counts=True)]))
                         logger.info(
-                            f"<{dn}/{len(data_param_options)}>{data_params} -> {model_name}: {unique_clusters=}"
+                            f"<{dn}/{len(data_param_options)}>{data_params} -> {model_name}: {len(unique_clusters)=}"
                         )
                     best_disliked_cluster_coverage = search.cv_results_[
                         f"mean_test_disliked_cluster_coverage"
                     ][search.best_index_]
                     logger.info(
-                        f"<{dn}/{len(data_param_options)}>{data_params} -> {model_name}({processed_models_count}/{total_models})}} {best_disliked_cluster_coverage:.3f}[intergal_metric={search.best_score_:.3f}] for params {search.best_params_} resulting {unique_clusters=}"
+                        f"<{dn}/{len(data_param_options)}>{data_params} -> {model_name}({processed_models_count}/{total_models})}} {best_disliked_cluster_coverage:.3f}[intergal_metric={search.best_score_:.3f}] for params {search.best_params_} resulting {len(unique_clusters)=}"
                     )
-                    line = f"{build_model_report_prefix(data_params, model_name)}: {best_disliked_cluster_coverage:.3f}[intergal_metric={search.best_score_:.3f}] -> {search.best_params_}[{unique_clusters=}]"
+                    line = f"{build_model_report_prefix(data_params, model_name)}: {best_disliked_cluster_coverage:.3f}[intergal_metric={search.best_score_:.3f}] -> {search.best_params_}[clusters:total_unique={len(unique_clusters)}, max_size={max(unique_clusters.values())}, average_size={float(np.average(list(unique_clusters.values())))}]"
 
                     lines = []
                     data_report = report_root.joinpath(
