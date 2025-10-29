@@ -343,6 +343,20 @@ class DataFrameBuilder(Generic[Id, FeatureLineType]):
             self._progress_tracker(stat)
 
 
+def build_successfully_processed_dataframe(
+    results: list[DataFrameBuilder.Result],
+) -> pl.LazyFrame:
+    return (
+        pl.concat([r.ldf for r in results])
+        .filter(
+            results
+            and pl.col(results[0].processing_status_column[0])
+            == DataFrameBuilder.PROCESSING_SUCCEED_VALUE
+        )
+        .select(pl.all().exclude(results[0].processing_status_column[0]))
+    )
+
+
 if __name__ == "__main__":
     path = pathlib.Path("snippet-dataset.csv")
     counter = atomics.atomic(width=4, atype=atomics.INT)

@@ -388,6 +388,19 @@ class AudioFeatures:
     voice_instrumental___msd___musicnn___1______instrumental: numpy.float32
 
 
+key_columns = [
+    field.name
+    for field in dataclasses.fields(AudioFeatures)
+    if field.type == str and field.name.endswith("_key")
+]
+
+scale_columns = [
+    field.name
+    for field in dataclasses.fields(AudioFeatures)
+    if field.type == str and field.name.endswith("_scale")
+]
+
+
 def extract_features_for_mp3(
     mp3_path: pathlib.Path,
     extractor_from_path,
@@ -442,7 +455,7 @@ def prepare_extractor() -> (
 
 
 @functools.cache
-def get_or_create_embeddings_model(embedding_params: tuple[str, str, str]):
+def _get_or_create_embeddings_model(embedding_params: tuple[str, str, str]):
     cls, model_name, output = embedding_params
     return getattr(es, cls)(
         graphFilename=f"{_path_to_root}/essentia/models/{model_name}.pb",
@@ -466,7 +479,7 @@ def _get_embeddings(
         for output in embedding_model_meta["schema"]["outputs"]
         if output["output_purpose"] == "embeddings"
     ][0]
-    embedding_model = get_or_create_embeddings_model(
+    embedding_model = _get_or_create_embeddings_model(
         (
             embedding_model_data["algorithm"],
             embedding_model_name,
@@ -477,7 +490,7 @@ def _get_embeddings(
 
 
 @functools.cache
-def get_or_create_model(model_name: str, model_params: tuple[str, str, str]):
+def _get_or_create_model(model_name: str, model_params: tuple[str, str, str]):
     print(f"creating model {model_name}: {model_params}")
     cls, input, output = model_params
 
@@ -502,7 +515,7 @@ def _get_features_from_model(
         for output in model_metadata["schema"]["outputs"]
         if output["output_purpose"] == "predictions"
     ][0]
-    model = get_or_create_model(
+    model = _get_or_create_model(
         model_name,
         (
             model_class,
@@ -654,6 +667,40 @@ def __generate_dto_class(numpy_prefix: str):
         sep="\n",
     )
 
+
+scale_mapping = {
+    "major": 1,
+    "minor": 0,
+}
+keys = {
+    "C": 0,
+    "C#": 1,
+    "D": 2,
+    "D#": 3,
+    "E": 4,
+    "F": 5,
+    "F#": 6,
+    "G": 7,
+    "G#": 8,
+    "A": 9,
+    "A#": 10,
+    "B": 11,
+}
+alias_keys = {
+    "Db": keys["C#"],
+    "Eb": keys["D#"],
+    "Gb": keys["F#"],
+    "Ab": keys["G#"],
+    "Bb": keys["A#"],
+    "Cb": keys["B"],
+}
+key_mapping = {
+    k: {
+        "sin": numpy.sin(2 * numpy.pi * v / len(keys)),
+        "cos": numpy.cos(2 * numpy.pi * v / len(keys)),
+    }
+    for k, v in (keys | alias_keys).items()
+}
 
 if __name__ == "__main__":
     # __generate_dto_class("numpy")

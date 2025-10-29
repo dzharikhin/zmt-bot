@@ -17,12 +17,12 @@ from persistqueue.serializers import json as jser
 from telethon import TelegramClient, events
 from telethon.errors import RPCError
 from telethon.events import NewMessage, CallbackQuery
-from typing_extensions import Literal
 
 import config
+import train
+from bot_utils import get_message, is_allowed_user
 from models import build_model_page_response
 from train import prepare_model, estimate
-from utils import get_message, is_allowed_user
 
 # commands to implement:
 # - subscribe <link_to_good> <link_to_bad> <link_to_estimate> - set channels to work with
@@ -41,7 +41,7 @@ logger.setLevel(logging.DEBUG)
 
 async def send_train_queue_task(
     event,
-    model_type: Literal["similar", "dissimilar"],
+    model_type: train.ModelType,
     limit: int | None,
     is_forced: bool,
 ):
@@ -76,7 +76,7 @@ async def handle_train_queue_tasks(
                 cmd["message_id"],
                 cmd["model_type"],
                 cmd["forced"],
-                cmd.get("limit", None),
+                cmd.get("limit", 1000),
             )
             model = config.get_model(user_id, cmd["message_id"])
             await bot_client.send_message(
@@ -229,9 +229,9 @@ TRAIN_CMD = (
         "-t",
         "--type",
         required=True,
-        type=str,
-        choices=["similar", "dissimilar"],
-        help="model type. similar - posts tracks similar to liked ones, dissimilar - posts other than disliked",
+        type=train.ModelType.from_string,
+        choices=list(train.ModelType),
+        help=f"model type. {train.ModelType.INCLUDE_LIKED} - posts tracks similar to liked ones, {train.ModelType.EXCLUDE_DISLIKED} - posts other than disliked",
     ),
     parser.add_argument(
         "-l",
