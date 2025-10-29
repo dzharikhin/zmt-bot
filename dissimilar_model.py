@@ -174,14 +174,15 @@ if __name__ == "__main__":
         for variant in product(
             [["aggregates", "with_var_agg"]],
             ["outliers_removal=0.1"],
-            ["guiding_score=average_to_all",
-             "guiding_score=average_to_all_norm",
-             "guiding_score=average_to_all_norm_weighted",
-             "guiding_score=average_to_all_weighted_max2",
-             "guiding_score=average_to_all_weighted_max5",
-             "guiding_score=average_to_max",
-             "guiding_score=average_to_max_norm_max",
-             ],
+            [
+                "guiding_score=average_to_all",
+                "guiding_score=average_to_all_norm",
+                "guiding_score=average_to_all_norm_weighted",
+                "guiding_score=average_to_all_weighted_max2",
+                "guiding_score=average_to_all_weighted_max5",
+                "guiding_score=average_to_max",
+                "guiding_score=average_to_max_norm_max",
+            ],
         )
     ]
 
@@ -563,46 +564,59 @@ if __name__ == "__main__":
                                     cluster_coverage_fraction_score,
                                     group_clusters_count / data_variant.shape[0],
                                     max_cluster_size / data_variant.shape[0],
-                                    ]
+                                ]
                             ) / (len(scores) * average_cluster_size)
-                        elif "guiding_score=average_to_all_norm_weighted" in data_params:
+                        elif (
+                            "guiding_score=average_to_all_norm_weighted" in data_params
+                        ):
                             guiding_score = sum(
                                 scores := [
                                     cluster_coverage_fraction_score,
-                                    group_clusters_count / data_variant.shape[0]  * average_cluster_size,
-                                    max_cluster_size / data_variant.shape[0]  * average_cluster_size,
-                                    ]
+                                    group_clusters_count
+                                    / data_variant.shape[0]
+                                    * average_cluster_size,
+                                    max_cluster_size
+                                    / data_variant.shape[0]
+                                    * average_cluster_size,
+                                ]
                             ) / (len(scores) + 2 * average_cluster_size)
-                        elif "guiding_score=average_to_all_weighted_max2" in data_params:
+                        elif (
+                            "guiding_score=average_to_all_weighted_max2" in data_params
+                        ):
                             coef = 2.0
                             guiding_score = sum(
                                 scores := [
                                     cluster_coverage_fraction_score,
                                     group_clusters_count / data_variant.shape[0],
                                     coef * max_cluster_size / data_variant.shape[0],
-                                    ]
+                                ]
                             ) / (len(scores) + coef)
-                        elif "guiding_score=average_to_all_weighted_max5" in data_params:
+                        elif (
+                            "guiding_score=average_to_all_weighted_max5" in data_params
+                        ):
                             coef = 5.0
                             guiding_score = sum(
                                 scores := [
                                     cluster_coverage_fraction_score,
                                     group_clusters_count / data_variant.shape[0],
                                     coef * max_cluster_size / data_variant.shape[0],
-                                    ]
+                                ]
                             ) / (len(scores) + coef)
                         elif "guiding_score=average_to_max" in data_params:
                             guiding_score = sum(
                                 scores := [
                                     cluster_coverage_fraction_score,
-                                    group_clusters_count / (group_clusters_count + max_cluster_size),
+                                    group_clusters_count
+                                    / (group_clusters_count + max_cluster_size),
                                 ]
                             ) / len(scores)
                         elif "guiding_score=average_to_max_norm_max" in data_params:
                             guiding_score = sum(
                                 scores := [
                                     cluster_coverage_fraction_score,
-                                    group_clusters_count / (group_clusters_count + max_cluster_size) * average_cluster_size,
+                                    group_clusters_count
+                                    / (group_clusters_count + max_cluster_size)
+                                    * average_cluster_size,
                                 ]
                             ) / (len(scores) + average_cluster_size)
                         else:
@@ -621,15 +635,15 @@ if __name__ == "__main__":
                 transformation_variants = [
                     # [],
                     # [*pca.steps],
-                    # [*standard_scaler.steps],
+                    [*standard_scaler.steps],
                     # [*standard_scaler.steps, *pca.steps],
-                    # [*pca.steps, *standard_scaler.steps],
+                    [*pca.steps, *standard_scaler.steps],
                     # [*minmax_scaler.steps, *pca.steps],
                     [*pca.steps, *minmax_scaler.steps],
                     # [*standard_scaler.steps, *minmax_scaler.steps, *pca.steps],
                     [*pca.steps, *standard_scaler.steps, *minmax_scaler.steps],
-                    # [*standard_scaler.steps, *minmax_scaler.steps],
-                    # [*minmax_scaler.steps],
+                    [*standard_scaler.steps, *minmax_scaler.steps],
+                    [*minmax_scaler.steps],
                 ]
 
                 def make_search_pipelines(
@@ -645,7 +659,7 @@ if __name__ == "__main__":
                             cv=NoCV(),
                             refit="guiding_score",
                             verbose=1,
-                            n_points=max(len(grid.keys()) // 2, 1),
+                            n_points=1,
                         )
 
                     def build_last_step_name(variation):
@@ -704,14 +718,23 @@ if __name__ == "__main__":
                             "GMeans",
                             GMeans(),
                             {
-                                "significance": space.Real(
-                                    0.05, 0.15
+                                "significance": space.Real(0.001, 0.2),
+                                "n_split_trials": space.Integer(
+                                    10,
+                                    min(
+                                        X_numpy.shape[0]
+                                        * disliked_fraction_cluster_threshold,
+                                        500,
+                                    ),
                                 ),
-                                "n_split_trials": space.Integer(10, 100),
                                 "n_clusters_init": space.Integer(10, 25),
                                 "max_n_clusters": space.Integer(
                                     30,
-                                    X_numpy.shape[0] * disliked_fraction_cluster_threshold,
+                                    min(
+                                        X_numpy.shape[0]
+                                        * disliked_fraction_cluster_threshold,
+                                        600,
+                                    ),
                                 ),
                             },
                         ),
@@ -876,7 +899,17 @@ if __name__ == "__main__":
                     search = pipeline.named_steps[model_name]
                     unique_clusters = {}
                     if hasattr(search.best_estimator_, "labels_"):
-                        unique_clusters = dict(zip(*[r.tolist() for r in numpy.unique(search.best_estimator_.labels_, return_counts=True)]))
+                        unique_clusters = dict(
+                            zip(
+                                *[
+                                    r.tolist()
+                                    for r in numpy.unique(
+                                        search.best_estimator_.labels_,
+                                        return_counts=True,
+                                    )
+                                ]
+                            )
+                        )
                         logger.info(
                             f"<{dn}/{len(data_param_options)}>{data_params} -> {model_name}: {len(unique_clusters)=}"
                         )
