@@ -1,252 +1,408 @@
-import functools
+import dataclasses
+import logging
 import pathlib
 import shutil
+import sys
 import tempfile
-from datetime import datetime
-from functools import lru_cache
+from collections import OrderedDict
+from enum import Enum
+from functools import reduce
 from typing import (
-    Any,
-    Callable,
     Generator,
     TypeVar,
-    Protocol,
-    TypeAlias,
-    Literal,
-    Type,
-    Collection,
+    Callable,
+    Generic,
+    get_type_hints,
+    NamedTuple,
+    Any,
+    Optional,
+    TypedDict,
 )
 
 import atomics
 import polars as pl
+import polars.datatypes as pldt
 
-ID = TypeVar("ID", int, str)
-MapElementsStrategy: TypeAlias = Literal["thread_local", "threading"] | None
-
-
-class DatasetProcessor(Protocol[ID]):
-    def fill(self, row_value_generator: Callable[[ID], tuple[ID, *tuple[Any, ...]]]):
-        pass
-
-    total_dataset_rows_count: int
-    processed_rows_count: int
-    to_process_rows_count: int
-    row_schema: tuple[tuple[str, Type[ID]], *tuple[tuple[str, Type[Any]], ...]]
+Id = TypeVar("Id", int, str)
+FeatureLineType = TypeVar("FeatureLineType")
 
 
-class DataSetFromDataManager(DatasetProcessor[ID]):
+class DataFrameBuilder(Generic[Id, FeatureLineType]):
+    PROCESSING_SUCCEED_VALUE = "ok"
+    _SLICE_RESULT_FILENAME_BASE = "slice_result"
+
+    class MappingParams(TypedDict):
+        mapper: Callable[[Id], FeatureLineType]
+        type_schema: OrderedDict[str, pldt.DataTypeClass | type]
+
+    @dataclasses.dataclass()
+    class Result:
+        ldf: pl.LazyFrame
+        processing_status_column: tuple[str, pldt.DataTypeClass]
+
+    @dataclasses.dataclass()
+    class ProgressStat:
+        class StatPhase(Enum):
+            BEFORE_ITERATION = 1
+            ON_ITERATION = 2
+
+        phase: StatPhase
+        succeed: int
+        failed: int
+        data_size: int
+
+    def __enter__(self) -> Result:
+        self._collect_garbage_from_previous_iteration()
+
+        not_processed_yet_df, init_stat = self._init_data()
+        self._trigger_progress(init_stat)
+
+        batch_index = 0
+        while (
+            not (
+                slice_df := not_processed_yet_df.slice(
+                    batch_index * self._batch_size, self._batch_size
+                )
+            )
+            .limit(1)
+            .collect(engine="streaming")
+            .is_empty()
+        ):
+            increment_df = slice_df
+            for i, mapper in enumerate(self._mappers):
+                struct_alias = f"mapping_{i}"
+                mapper_delegate, mapper_type = self._parse_mapper(mapper)
+                increment_df = increment_df.with_columns(
+                    pl.nth(0)
+                    .map_elements(mapper_delegate, pl.Struct(mapper_type))
+                    .alias(struct_alias)
+                ).unnest(struct_alias)
+
+            slice_file = self._working_dir.joinpath(
+                f"{self._SLICE_RESULT_FILENAME_BASE}_{batch_index}.ipc"
+            )
+            increment_df.sink_ipc(
+                slice_file,
+                engine="streaming",
+                sync_on_close="all",
+                maintain_order=self._maintain_order,
+            )
+            del increment_df
+            increment_df = pl.scan_ipc(slice_file)
+            (
+                pl.scan_ipc(self._intermediate_base_data_path)
+                .update(
+                    increment_df,
+                    self._index_generator.result_schema[0],
+                    "full",
+                    include_nulls=True,
+                )
+                .sink_ipc(
+                    self._intermediate_increased_data_path,
+                    engine="streaming",
+                    sync_on_close="all",
+                    maintain_order=self._maintain_order,
+                )
+            )
+            # current_base_count = pl.scan_ipc(self._intermediate_base_data_path).select(pl.nth(0)).collect(engine="streaming")
+            # increment_count = increment_df.select(pl.nth(0)).collect(engine="streaming")
+            # merged_count = pl.scan_ipc(self._intermediate_increased_data_path).select(pl.nth(0)).collect(engine="streaming")
+            # if merged_count.shape[0] != current_base_count.shape[0] + increment_count.shape[0]:
+            #     raise ValueError(
+            #         f"Something is wrong: {merged_count=} != {current_base_count=} + {increment_count=}"
+            #     )
+            shutil.move(
+                self._intermediate_increased_data_path,
+                self._intermediate_base_data_path,
+            )
+            success_increment, failed_increment = self._get_stat(
+                increment_df.select(
+                    pl.col(self._processing_status_column_definition[0])
+                )
+            )
+
+            slice_file.unlink(missing_ok=True)
+            init_stat = DataFrameBuilder.ProgressStat(
+                DataFrameBuilder.ProgressStat.StatPhase.ON_ITERATION,
+                init_stat.succeed + success_increment,
+                init_stat.failed + failed_increment,
+                init_stat.data_size,
+            )
+            self._trigger_progress(init_stat)
+            batch_index += 1
+
+        all_data = pl.scan_ipc(self._intermediate_base_data_path)
+        # data_size = (
+        #     all_data.select(pl.nth(0).count()).collect(engine="streaming").item(0, 0)
+        # )
+        # if data_size < init_stat.data_size:
+        #     raise ValueError(
+        #         f"Something is wrong: processed only {data_size} of {init_stat.data_size} rows. stat={init_stat}, {self._batch_size=}, {batch_index=}"
+        #     )
+
+        return DataFrameBuilder.Result(
+            all_data,
+            self._processing_status_column_definition,
+        )
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if not exc_val and self._cleanup_on_exit:
+
+            def handle_rm_error(func, error_on_path, exc_info):
+                print(f"{error_on_path}: {exc_info}", file=sys.stderr)
+
+            shutil.rmtree(self._working_dir, onexc=handle_rm_error)
+
+    class GeneratingParams(NamedTuple):
+        generator: Generator[Id, None, None]
+        result_schema: tuple[str, pldt.DataTypeClass]
 
     def __init__(
         self,
-        csv_path: pathlib.Path,
+        working_dir: pathlib.Path,
+        index_generator: GeneratingParams,
+        mappers: list[Callable[[Id], FeatureLineType] | MappingParams],
         *,
-        row_schema: tuple[tuple[str, Type[ID]], *tuple[tuple[str, Type[Any]], ...]],
-        index_generator: Generator[ID, None, None],
-        intermediate_results_dir: pathlib.Path,
         batch_size: int = 1000,
-        map_elements_call_strategy: MapElementsStrategy = None,
-        cache_fraction: float = 0,
+        cleanup_on_exit: bool = True,
+        progress_tracker: Optional[Callable[[ProgressStat], None]] = None,
+        maintain_order: bool = False,
+        processing_status_column_name: str = "processing_status",
+        logger: Optional[logging.Logger] = None,
     ):
-        self._persist_path = csv_path
-        self.row_schema = row_schema
-        self._polars_row_schema = [
-            (name, pl.DataType.from_python(column_type))
-            for name, column_type in row_schema
-        ]
-        self.cache_fraction = cache_fraction
-        self._map_elements_call_strategy = map_elements_call_strategy
-        self._intermediate_results_dir = intermediate_results_dir
+        self.logger = logger if logger else logging.getLogger(DataFrameBuilder.__name__)
+        working_dir.mkdir(exist_ok=True, parents=True)
+        self._processing_status_column_definition = (
+            processing_status_column_name,
+            pl.String,
+        )
+        self._working_dir = working_dir
+        self._intermediate_base_data_path = self._working_dir.joinpath("base.ipc")
+        self._base_starting_snapshot_path = self._working_dir.joinpath(
+            "starting_snapshot.ipc"
+        )
+        self._intermediate_increased_data_path = self._working_dir.joinpath(
+            "increased.ipc"
+        )
+        self._index_generator = index_generator
+        self._mappers = mappers
+        self._progress_tracker = progress_tracker
         self._batch_size = batch_size
-        self._df = self._init_df(index_generator)
-        size_df = (
-            self._df.select(pl.nth(0), pl.nth(1))
-            .group_by(pl.nth(1).is_null().not_().alias("processed"))
-            .len()
-            .collect(engine="streaming")
-        )
-        self.total_dataset_rows_count = size_df.select("len").sum().item()
-        self.processed_rows_count = (
-            size_df.filter(pl.col("processed").eq(True)).select("len").sum().item()
-        )
-        self.to_process_rows_count = (
-            size_df.filter(pl.col("processed").eq(False)).select("len").sum().item()
-        )
-        self._backup_file: pathlib.Path | None = None
-        print(f"Successfully inited {csv_path} manager. Ready to fill")
+        self._backup_file = None
+        self._maintain_order = maintain_order
+        self._cleanup_on_exit = cleanup_on_exit
+        self._id_dtype, self._intermediate_data_schema = self._init_schema()
 
-    def fill(self, row_value_generator: Callable[[ID], tuple[ID, *tuple[Any, ...]]]):
-        mapper = functools.partial(self._transform_tuple_to_dict, row_value_generator)
-        if self.cache_fraction > 0:
-            mapper = lru_cache(
-                maxsize=int(self.to_process_rows_count * self.cache_fraction)
-            )(mapper)
-        map_elements_kwargs = (
-            {"strategy": self._map_elements_call_strategy}
-            if self._map_elements_call_strategy
-            else {}
-        )
-        id_col_name = self._polars_row_schema[0][0]
-        generated_data_col_name = "generated_row_data_as_struct"
-
-        def process_unprocessed_rows_in_batch(df: pl.DataFrame) -> pl.DataFrame:
-            additional_data = (
-                df.with_columns(
-                    pl.nth(0)
-                    .map_elements(
-                        mapper,
-                        pl.Struct(dict(self._polars_row_schema)),
-                        **map_elements_kwargs,
-                    )
-                    .alias(generated_data_col_name)
-                )
-                .with_columns(pl.col(generated_data_col_name).struct.unnest())
-                .drop(generated_data_col_name)
-            )
-            return df.update(additional_data, on=id_col_name, how="left")
-
-        not_processes_yet_df = self._df.filter(pl.nth(1).is_null()).map_batches(
-            process_unprocessed_rows_in_batch, streamable=True
-        )
-        print(
-            f"Processing {self.to_process_rows_count} of total {self.total_dataset_rows_count} rows"
-        )
-        batch_index = 0
-        while not (
-            slice_df := not_processes_yet_df.slice(
-                batch_index * self._batch_size, self._batch_size
-            ).collect(engine="streaming")
-        ).is_empty():
-            with self._persist_path.open("at") as sink:
-                slice_df.write_csv(
-                    sink,
-                    include_header=(self._persist_path.stat().st_size == 0),
-                )
-            print(
-                f"Batch [{batch_index * self._batch_size}, {(batch_index + 1) * self._batch_size}) of not processed yet rows is appended to {self._persist_path}"
-            )
-            batch_index += 1
-        print(
-            f"Successfully processed all of {self.total_dataset_rows_count} rows, result in {self._persist_path}"
-        )
-
-    def __enter__(self) -> DatasetProcessor[ID]:
-        if self._persist_path.exists():
-            backup_name = f"{self._persist_path.name}.{int(datetime.timestamp(datetime.now()))}.bak"
-            self._backup_file = self._intermediate_results_dir.joinpath(backup_name)
-            shutil.copy(
-                self._persist_path,
-                self._backup_file,
-            )
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if exc_val and self._backup_file and self._backup_file.exists():
-            shutil.copy(
-                self._backup_file,
-                self._persist_path.parent.joinpath(self._backup_file.name),
+    def _init_data(self) -> tuple[pl.LazyFrame, ProgressStat]:
+        if not self._intermediate_base_data_path.exists():
+            pl.LazyFrame([], schema=self._intermediate_data_schema).sink_ipc(
+                self._intermediate_base_data_path
             )
 
-    def remove_failures_in_place(self, failed_row_ids: Collection[ID]):
-        tmp_file = self._intermediate_results_dir.joinpath("cleared_data")
-        drop_ids = list(failed_row_ids)
-        pl.scan_csv(self._persist_path, schema=dict(self._polars_row_schema)).filter(
-            pl.nth(0).is_in(drop_ids).not_()
-        ).sink_csv(tmp_file)
-        shutil.copy(tmp_file, self._persist_path)
-
-    def _init_df(self, index_generator: Generator[ID, None, None]) -> pl.LazyFrame:
-        schema_as_dict = dict(self._polars_row_schema)
-        index_column_name = self._polars_row_schema[0][0]
-
-        if self._persist_path.exists() and self._persist_path.stat().st_size > 0:
-            existing_data_df = pl.scan_csv(self._persist_path, schema=schema_as_dict)
-        else:
-            existing_data_df = pl.LazyFrame([], schema=schema_as_dict)
-
-        print(
-            f"Using {self._intermediate_results_dir} as tempdir for data initialization"
+        shutil.copy(
+            self._intermediate_base_data_path, self._base_starting_snapshot_path
         )
-        index_buffer_file_path = pathlib.Path(self._intermediate_results_dir).joinpath(
+        existing_data_df = pl.scan_ipc(self._base_starting_snapshot_path)
+        index_buffer_file_path = pathlib.Path(self._working_dir).joinpath(
             "index_buffer"
         )
+
+        total_count = 0
         with index_buffer_file_path.open(mode="wt") as index_buffer_file:
-            index_buffer_file.write(
-                f"{index_column_name},{",".join([name for name, _ in self.row_schema][1:])}\n"
-            )
-            for index_value in index_generator:
-                index_buffer_file.write(
-                    f"{index_value}{"," * (len(self.row_schema) - 1)}\n"
-                )
-        whole_data_df = pl.scan_csv(
-            index_buffer_file_path, schema=schema_as_dict, has_header=True
+            for index_value in self._index_generator.generator:
+                index_buffer_file.write(f"{index_value}\n")
+                total_count += 1
+        index_data = pl.scan_csv(
+            index_buffer_file_path, has_header=False, schema={"row_id": self._id_dtype}
         )
-        whole_data_df = whole_data_df.update(
-            existing_data_df, on=index_column_name, how="left", include_nulls=False
-        )
-        data_file = pathlib.Path(self._intermediate_results_dir).joinpath("merged")
-        merged_data = whole_data_df.collect(engine="streaming")
-        merged_data.write_csv(data_file)
-        return pl.scan_csv(data_file, schema=schema_as_dict)
 
-    def _transform_tuple_to_dict(
+        not_processed_yet_df = index_data
+        ok_count = 0
+        failed_count = 0
+        if not existing_data_df.limit(1).select(pl.nth(0)).collect().is_empty():
+            id_column_name = self._index_generator.result_schema[0]
+            united_data = index_data.join(
+                existing_data_df, id_column_name, "left", maintain_order="left"
+            )
+            ok_count, failed_count = self._get_stat(united_data)
+            not_processed_yet_df = united_data.filter(
+                pl.col(self._processing_status_column_definition[0]).is_null()
+            ).select(id_column_name)
+
+        return not_processed_yet_df, DataFrameBuilder.ProgressStat(
+            phase=DataFrameBuilder.ProgressStat.StatPhase.BEFORE_ITERATION,
+            succeed=ok_count,
+            failed=failed_count,
+            data_size=total_count,
+        )
+
+    def _get_stat(self, united_data: pl.LazyFrame) -> tuple[int, int]:
+        sizes = (
+            united_data.group_by(
+                pl.col(self._processing_status_column_definition[0])
+                .eq(DataFrameBuilder.PROCESSING_SUCCEED_VALUE)
+                .alias("is_ok")
+            )
+            .agg(pl.nth(0).count())
+            .collect(engine="streaming")
+        )
+        ok_count = (
+            ok := sizes.filter(pl.col("is_ok")),
+            ok.item(0, 1) if not ok.is_empty() else 0,
+        )[-1]
+        failed_count = (
+            fails := sizes.filter(pl.col("is_ok").not_()),
+            fails.item(0, 1) if not fails.is_empty() else 0,
+        )[-1]
+        return ok_count, failed_count
+
+    def _init_schema(
         self,
-        row_generator: Callable[[ID], tuple[ID, *tuple[Any, ...]]],
-        row_id: ID,
-    ) -> dict[str:ID, str:Any]:
-        result_tuple = row_generator(row_id)
-        result = {}
-        fails = {}
-        for i, schema in enumerate(self.row_schema):
-            element = result_tuple[i]
-            if isinstance(element, schema[1]) or (i > 0 and element is None):
-                result[schema[0]] = element
-            else:
-                fails[i] = (schema, element)
-
-        if fails:
-            raise Exception(
-                ", ".join(
-                    [
-                        f"element on index {i}={val[1]} not matched by schema={val[0]}"
-                        for i, val in fails.items()
-                    ]
-                )
+    ) -> tuple[pldt.DataTypeClass, OrderedDict[str, pldt.DataTypeClass]]:
+        mapping_schema = reduce(
+            lambda a, b: a | b,
+            (self._extract_mapping_schema(mapper) for mapper in self._mappers),
+        )
+        return (
+            self._index_generator.result_schema[1],
+            OrderedDict(
+                [
+                    self._index_generator.result_schema,
+                    self._processing_status_column_definition,
+                ]
             )
-        return result
+            | mapping_schema,
+        )
 
-    def _build_slice_name(self, index):
-        return self._intermediate_results_dir.joinpath(f"slice_{index}.csv")
+    def _collect_garbage_from_previous_iteration(self):
+        self._intermediate_increased_data_path.unlink(missing_ok=True)
+        self._base_starting_snapshot_path.unlink(missing_ok=True)
+        for slice_file in self._working_dir.glob(
+            f"{self._SLICE_RESULT_FILENAME_BASE}*.ipc"
+        ):
+            slice_file.unlink(missing_ok=True)
+
+    def _parse_mapper(
+        self, mapper: Callable[[Id], FeatureLineType] | MappingParams
+    ) -> tuple[Callable[[Id], dict[str, type]], dict[str, pldt.DataTypeClass]]:
+        type_dict = OrderedDict(
+            [self._processing_status_column_definition]
+        ) | self._extract_mapping_schema(mapper)
+
+        def map_row_by_id(row_id: Id) -> dict[str, Any]:
+            try:
+                result = (mapper if callable(mapper) else mapper["mapper"])(row_id)
+            except Exception as e:
+                stub = OrderedDict({k: None for k in type_dict.keys()}) | {
+                    self._processing_status_column_definition[0]: str(e)
+                }
+                self.logger.warning(
+                    f"Failed to extract features for {row_id=}, returning {stub}",
+                    exc_info=e,
+                )
+                return stub
+
+            if not dataclasses.is_dataclass(result):
+                raise Exception(f"Mapper must return dataclass")
+
+            dict_result_for_polars_struct = OrderedDict(
+                [
+                    (
+                        self._processing_status_column_definition[0],
+                        DataFrameBuilder.PROCESSING_SUCCEED_VALUE,
+                    )
+                ]
+            ) | dataclasses.asdict(result)
+            self.logger.debug(
+                f"mapped {row_id=}: { {k: f"{type(v)}{v.shape if hasattr(v, "shape") else ""})" for k, v in dict_result_for_polars_struct.items()} }"
+            )
+            return dict_result_for_polars_struct
+
+        return map_row_by_id, type_dict
+
+    @staticmethod
+    def _extract_mapping_schema(
+        mapper: Callable[[Id], FeatureLineType] | MappingParams
+    ) -> OrderedDict[str, pldt.DataTypeClass]:
+
+        if isinstance(mapper, OrderedDict):
+            schema_container = mapper["type_schema"]
+        elif callable(mapper):
+            schema_container = {
+                field.name: field.type
+                for field in dataclasses.fields(get_type_hints(mapper)["return"])
+            }
+        else:
+            raise ValueError("Mappings are either Callable or Mapping with schema")
+        return OrderedDict(
+            [(k, pldt.parse_into_dtype(v)) for k, v in schema_container.items()]
+        )
+
+    def _trigger_progress(self, stat: ProgressStat):
+        if self._progress_tracker:
+            self._progress_tracker(stat)
+
+
+def build_successfully_processed_dataframe(
+    results: list[DataFrameBuilder.Result],
+) -> pl.LazyFrame:
+    return (
+        pl.concat([r.ldf for r in results])
+        .filter(
+            results
+            and pl.col(results[0].processing_status_column[0])
+            == DataFrameBuilder.PROCESSING_SUCCEED_VALUE
+        )
+        .select(pl.all().exclude(results[0].processing_status_column[0]))
+    )
 
 
 if __name__ == "__main__":
     path = pathlib.Path("snippet-dataset.csv")
     counter = atomics.atomic(width=4, atype=atomics.INT)
-    with tempfile.TemporaryDirectory() as tmp:
-        dataset_manager = DataSetFromDataManager(
-            path,
-            row_schema=(
-                ("track_id", str),
-                ("col1", float),
-                ("col2", float),
-                ("col3", float),
-            ),
-            index_generator=(
-                f.name for f in pathlib.Path("data").iterdir() if f.is_file()
-            ),
-            intermediate_results_dir=pathlib.Path(tmp),
-            batch_size=1,
-            cache_fraction=0,
+
+    @dataclasses.dataclass
+    class TestFeatures:
+        a: float
+        b: float
+        c: float
+        d: list[list[int]]
+
+    def extract_features(row_id: str) -> TestFeatures:
+        counter.fetch_inc() + 1
+        if row_id == "3":
+            raise Exception("failed to process")
+        return TestFeatures(
+            a=int(row_id) * 1.0,
+            b=int(row_id) * 2.0,
+            c=int(row_id) * 3.0,
+            d=[[1, 2, 3], [4, 5, 6]],
         )
-        with dataset_manager as ds:
 
-            def generate_value(row_id: str) -> tuple[str, float, float, float]:
-                done = counter.fetch_inc() + 1
-                print(f"{done}/{ds.to_process_rows_count}: {row_id}")
-                return (
-                    row_id,
-                    int(row_id) * 1.0,
-                    int(row_id) * 2.0,
-                    int(row_id) * 3.0,
+    (temp_base := pathlib.Path("tmp")).mkdir(exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=temp_base, delete=False) as tmp:
+        with DataFrameBuilder(
+            working_dir=pathlib.Path(tmp),
+            index_generator=DataFrameBuilder.GeneratingParams(
+                generator=(
+                    f.name
+                    for f in sorted(pathlib.Path("data").iterdir())
+                    if f.is_file()
+                ),
+                result_schema=("row_id", pl.String),
+            ),
+            mappers=[
+                OrderedDict(
+                    mapper=extract_features,
+                    type_schema={
+                        "a": pl.Float64,
+                        "b": float,
+                        "c": float,
+                        "d": list[list[int]],
+                    },
                 )
-
-            ds.fill(generate_value)
-        dataset_manager.remove_failures_in_place({"2"})
+            ],
+            batch_size=1,
+        ) as result_frame:
+            df = result_frame.ldf.collect(engine="streaming")
+            print(f"{df=}")

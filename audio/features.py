@@ -1,311 +1,716 @@
-import math
+import dataclasses
+import functools
+import json
 import pathlib
-import types
-from collections import OrderedDict
-from functools import reduce
-from typing import TypeAlias, Callable, cast, Iterable
+import re
+import tempfile
+import textwrap
+import time
+from typing import Callable, Literal
 
-import librosa
-import numpy as np
-import polars as pl
-from librosa import feature
-from mutagen.mp3 import MP3
-from scipy.sparse import csr_matrix
-from sklearn.cluster import AgglomerativeClustering
-from soundfile import SoundFile
+import essentia
+import essentia.standard as es
+import numpy
+import yaml
 
-FRAMES_NUMBER = 48  # 10 seconds frame for 8 minutes track
-MFCCS_NUMBER = 48
-CHROMA_NUMBER = 12
-SPECTRAL_CONTRAST_NUMBER = 7
-TONNETZ_NUMBER = 6
-AGGREGATES = OrderedDict(
-    std=lambda col: col.std(),
-    skew=lambda col: col.skew(),
-    kurtosis=lambda col: col.kurtosis(),
-)
+_path_to_root = pathlib.Path(__file__).parent.parent
+essentia.EssentiaLogger().warningActive = False
 
 
-def build_schema_for_feature(
-    feature_prefix: str, feature_values: int
-) -> OrderedDict[str, Iterable[tuple[str, type]]]:
-    columns = OrderedDict(
-        [
-            (
-                feature_prefix,
-                [
-                    (f"{feature_prefix}_{frame + 1}_{column + 1}", float)
-                    for frame in range(FRAMES_NUMBER)
-                    for column in range(feature_values)
-                ],
-            )
-        ]
-        + [
-            (
-                f"{feature_prefix}_{aggregation}",
-                [
-                    (f"{feature_prefix}_{aggregation}_{column + 1}", float)
-                    for column in range(feature_values)
-                ],
-            )
-            for aggregation in AGGREGATES
-        ]
+# generated with audio.features.__generate_dto_class
+@dataclasses.dataclass
+class AudioFeatures:
+    lowlevel______average_loudness: float
+    lowlevel______barkbands_crest______max: float
+    lowlevel______barkbands_crest______mean: float
+    lowlevel______barkbands_crest______min: float
+    lowlevel______barkbands_crest______var: float
+    lowlevel______barkbands_flatness_db______max: float
+    lowlevel______barkbands_flatness_db______mean: float
+    lowlevel______barkbands_flatness_db______min: float
+    lowlevel______barkbands_flatness_db______var: float
+    lowlevel______barkbands_kurtosis______max: float
+    lowlevel______barkbands_kurtosis______mean: float
+    lowlevel______barkbands_kurtosis______min: float
+    lowlevel______barkbands_kurtosis______var: float
+    lowlevel______barkbands_skewness______max: float
+    lowlevel______barkbands_skewness______mean: float
+    lowlevel______barkbands_skewness______min: float
+    lowlevel______barkbands_skewness______var: float
+    lowlevel______barkbands_spread______max: float
+    lowlevel______barkbands_spread______mean: float
+    lowlevel______barkbands_spread______min: float
+    lowlevel______barkbands_spread______var: float
+    lowlevel______dissonance______max: float
+    lowlevel______dissonance______mean: float
+    lowlevel______dissonance______min: float
+    lowlevel______dissonance______var: float
+    lowlevel______dynamic_complexity: float
+    lowlevel______erbbands_crest______max: float
+    lowlevel______erbbands_crest______mean: float
+    lowlevel______erbbands_crest______min: float
+    lowlevel______erbbands_crest______var: float
+    lowlevel______erbbands_flatness_db______max: float
+    lowlevel______erbbands_flatness_db______mean: float
+    lowlevel______erbbands_flatness_db______min: float
+    lowlevel______erbbands_flatness_db______var: float
+    lowlevel______erbbands_kurtosis______max: float
+    lowlevel______erbbands_kurtosis______mean: float
+    lowlevel______erbbands_kurtosis______min: float
+    lowlevel______erbbands_kurtosis______var: float
+    lowlevel______erbbands_skewness______max: float
+    lowlevel______erbbands_skewness______mean: float
+    lowlevel______erbbands_skewness______min: float
+    lowlevel______erbbands_skewness______var: float
+    lowlevel______erbbands_spread______max: float
+    lowlevel______erbbands_spread______mean: float
+    lowlevel______erbbands_spread______min: float
+    lowlevel______erbbands_spread______var: float
+    lowlevel______hfc______max: float
+    lowlevel______hfc______mean: float
+    lowlevel______hfc______min: float
+    lowlevel______hfc______var: float
+    lowlevel______loudness_ebu128______integrated: float
+    lowlevel______loudness_ebu128______loudness_range: float
+    lowlevel______loudness_ebu128______momentary______max: float
+    lowlevel______loudness_ebu128______momentary______mean: float
+    lowlevel______loudness_ebu128______momentary______min: float
+    lowlevel______loudness_ebu128______momentary______var: float
+    lowlevel______loudness_ebu128______short_term______max: float
+    lowlevel______loudness_ebu128______short_term______mean: float
+    lowlevel______loudness_ebu128______short_term______min: float
+    lowlevel______loudness_ebu128______short_term______var: float
+    lowlevel______melbands_crest______max: float
+    lowlevel______melbands_crest______mean: float
+    lowlevel______melbands_crest______min: float
+    lowlevel______melbands_crest______var: float
+    lowlevel______melbands_flatness_db______max: float
+    lowlevel______melbands_flatness_db______mean: float
+    lowlevel______melbands_flatness_db______min: float
+    lowlevel______melbands_flatness_db______var: float
+    lowlevel______melbands_kurtosis______max: float
+    lowlevel______melbands_kurtosis______mean: float
+    lowlevel______melbands_kurtosis______min: float
+    lowlevel______melbands_kurtosis______var: float
+    lowlevel______melbands_skewness______max: float
+    lowlevel______melbands_skewness______mean: float
+    lowlevel______melbands_skewness______min: float
+    lowlevel______melbands_skewness______var: float
+    lowlevel______melbands_spread______max: float
+    lowlevel______melbands_spread______mean: float
+    lowlevel______melbands_spread______min: float
+    lowlevel______melbands_spread______var: float
+    lowlevel______pitch_salience______max: float
+    lowlevel______pitch_salience______mean: float
+    lowlevel______pitch_salience______min: float
+    lowlevel______pitch_salience______var: float
+    lowlevel______silence_rate_20dB______max: float
+    lowlevel______silence_rate_20dB______mean: float
+    lowlevel______silence_rate_20dB______min: float
+    lowlevel______silence_rate_20dB______var: float
+    lowlevel______silence_rate_30dB______max: float
+    lowlevel______silence_rate_30dB______mean: float
+    lowlevel______silence_rate_30dB______min: float
+    lowlevel______silence_rate_30dB______var: float
+    lowlevel______silence_rate_60dB______max: float
+    lowlevel______silence_rate_60dB______mean: float
+    lowlevel______silence_rate_60dB______min: float
+    lowlevel______silence_rate_60dB______var: float
+    lowlevel______spectral_centroid______max: float
+    lowlevel______spectral_centroid______mean: float
+    lowlevel______spectral_centroid______min: float
+    lowlevel______spectral_centroid______var: float
+    lowlevel______spectral_complexity______max: float
+    lowlevel______spectral_complexity______mean: float
+    lowlevel______spectral_complexity______min: float
+    lowlevel______spectral_complexity______var: float
+    lowlevel______spectral_decrease______max: float
+    lowlevel______spectral_decrease______mean: float
+    lowlevel______spectral_decrease______min: float
+    lowlevel______spectral_decrease______var: float
+    lowlevel______spectral_energy______max: float
+    lowlevel______spectral_energy______mean: float
+    lowlevel______spectral_energy______min: float
+    lowlevel______spectral_energy______var: float
+    lowlevel______spectral_energyband_high______max: float
+    lowlevel______spectral_energyband_high______mean: float
+    lowlevel______spectral_energyband_high______min: float
+    lowlevel______spectral_energyband_high______var: float
+    lowlevel______spectral_energyband_low______max: float
+    lowlevel______spectral_energyband_low______mean: float
+    lowlevel______spectral_energyband_low______min: float
+    lowlevel______spectral_energyband_low______var: float
+    lowlevel______spectral_energyband_middle_high______max: float
+    lowlevel______spectral_energyband_middle_high______mean: float
+    lowlevel______spectral_energyband_middle_high______min: float
+    lowlevel______spectral_energyband_middle_high______var: float
+    lowlevel______spectral_energyband_middle_low______max: float
+    lowlevel______spectral_energyband_middle_low______mean: float
+    lowlevel______spectral_energyband_middle_low______min: float
+    lowlevel______spectral_energyband_middle_low______var: float
+    lowlevel______spectral_entropy______max: float
+    lowlevel______spectral_entropy______mean: float
+    lowlevel______spectral_entropy______min: float
+    lowlevel______spectral_entropy______var: float
+    lowlevel______spectral_flux______max: float
+    lowlevel______spectral_flux______mean: float
+    lowlevel______spectral_flux______min: float
+    lowlevel______spectral_flux______var: float
+    lowlevel______spectral_kurtosis______max: float
+    lowlevel______spectral_kurtosis______mean: float
+    lowlevel______spectral_kurtosis______min: float
+    lowlevel______spectral_kurtosis______var: float
+    lowlevel______spectral_rms______max: float
+    lowlevel______spectral_rms______mean: float
+    lowlevel______spectral_rms______min: float
+    lowlevel______spectral_rms______var: float
+    lowlevel______spectral_rolloff______max: float
+    lowlevel______spectral_rolloff______mean: float
+    lowlevel______spectral_rolloff______min: float
+    lowlevel______spectral_rolloff______var: float
+    lowlevel______spectral_skewness______max: float
+    lowlevel______spectral_skewness______mean: float
+    lowlevel______spectral_skewness______min: float
+    lowlevel______spectral_skewness______var: float
+    lowlevel______spectral_spread______max: float
+    lowlevel______spectral_spread______mean: float
+    lowlevel______spectral_spread______min: float
+    lowlevel______spectral_spread______var: float
+    lowlevel______spectral_strongpeak______max: float
+    lowlevel______spectral_strongpeak______mean: float
+    lowlevel______spectral_strongpeak______min: float
+    lowlevel______spectral_strongpeak______var: float
+    lowlevel______zerocrossingrate______max: float
+    lowlevel______zerocrossingrate______mean: float
+    lowlevel______zerocrossingrate______min: float
+    lowlevel______zerocrossingrate______var: float
+    metadata______audio_properties______analysis______equal_loudness: float
+    metadata______audio_properties______analysis______length: float
+    metadata______audio_properties______analysis______sample_rate: float
+    metadata______audio_properties______analysis______start_time: float
+    metadata______audio_properties______bit_rate: float
+    metadata______audio_properties______length: float
+    metadata______audio_properties______lossless: float
+    metadata______audio_properties______number_channels: float
+    metadata______audio_properties______replay_gain: float
+    metadata______audio_properties______sample_rate: float
+    rhythm______beats_count: float
+    rhythm______beats_loudness______dmean: float
+    rhythm______beats_loudness______dmean2: float
+    rhythm______beats_loudness______dvar: float
+    rhythm______beats_loudness______dvar2: float
+    rhythm______beats_loudness______max: float
+    rhythm______beats_loudness______mean: float
+    rhythm______beats_loudness______median: float
+    rhythm______beats_loudness______min: float
+    rhythm______beats_loudness______stdev: float
+    rhythm______beats_loudness______var: float
+    rhythm______bpm: float
+    rhythm______bpm_histogram_first_peak_bpm: float
+    rhythm______bpm_histogram_first_peak_weight: float
+    rhythm______bpm_histogram_second_peak_bpm: float
+    rhythm______bpm_histogram_second_peak_spread: float
+    rhythm______bpm_histogram_second_peak_weight: float
+    rhythm______danceability: float
+    rhythm______onset_rate: float
+    tonal______chords_changes_rate: float
+    tonal______chords_number_rate: float
+    tonal______chords_strength______dmean: float
+    tonal______chords_strength______dmean2: float
+    tonal______chords_strength______dvar: float
+    tonal______chords_strength______dvar2: float
+    tonal______chords_strength______max: float
+    tonal______chords_strength______mean: float
+    tonal______chords_strength______median: float
+    tonal______chords_strength______min: float
+    tonal______chords_strength______stdev: float
+    tonal______chords_strength______var: float
+    tonal______hpcp_crest______dmean: float
+    tonal______hpcp_crest______dmean2: float
+    tonal______hpcp_crest______dvar: float
+    tonal______hpcp_crest______dvar2: float
+    tonal______hpcp_crest______max: float
+    tonal______hpcp_crest______mean: float
+    tonal______hpcp_crest______median: float
+    tonal______hpcp_crest______min: float
+    tonal______hpcp_crest______stdev: float
+    tonal______hpcp_crest______var: float
+    tonal______hpcp_entropy______dmean: float
+    tonal______hpcp_entropy______dmean2: float
+    tonal______hpcp_entropy______dvar: float
+    tonal______hpcp_entropy______dvar2: float
+    tonal______hpcp_entropy______max: float
+    tonal______hpcp_entropy______mean: float
+    tonal______hpcp_entropy______median: float
+    tonal______hpcp_entropy______min: float
+    tonal______hpcp_entropy______stdev: float
+    tonal______hpcp_entropy______var: float
+    tonal______key_edma______strength: float
+    tonal______key_krumhansl______strength: float
+    tonal______key_temperley______strength: float
+    tonal______tuning_diatonic_strength: float
+    tonal______tuning_equal_tempered_deviation: float
+    tonal______tuning_frequency: float
+    tonal______tuning_nontempered_energy_ratio: float
+    lowlevel______barkbands______max: numpy.ndarray[tuple[Literal[27]], numpy.float32]
+    lowlevel______barkbands______mean: numpy.ndarray[tuple[Literal[27]], numpy.float32]
+    lowlevel______barkbands______min: numpy.ndarray[tuple[Literal[27]], numpy.float32]
+    lowlevel______barkbands______var: numpy.ndarray[tuple[Literal[27]], numpy.float32]
+    lowlevel______erbbands______max: numpy.ndarray[tuple[Literal[40]], numpy.float32]
+    lowlevel______erbbands______mean: numpy.ndarray[tuple[Literal[40]], numpy.float32]
+    lowlevel______erbbands______min: numpy.ndarray[tuple[Literal[40]], numpy.float32]
+    lowlevel______erbbands______var: numpy.ndarray[tuple[Literal[40]], numpy.float32]
+    lowlevel______gfcc______mean: numpy.ndarray[tuple[Literal[13]], numpy.float32]
+    lowlevel______melbands______max: numpy.ndarray[tuple[Literal[40]], numpy.float32]
+    lowlevel______melbands______mean: numpy.ndarray[tuple[Literal[40]], numpy.float32]
+    lowlevel______melbands______min: numpy.ndarray[tuple[Literal[40]], numpy.float32]
+    lowlevel______melbands______var: numpy.ndarray[tuple[Literal[40]], numpy.float32]
+    lowlevel______melbands128______max: numpy.ndarray[
+        tuple[Literal[128]], numpy.float32
+    ]
+    lowlevel______melbands128______mean: numpy.ndarray[
+        tuple[Literal[128]], numpy.float32
+    ]
+    lowlevel______melbands128______min: numpy.ndarray[
+        tuple[Literal[128]], numpy.float32
+    ]
+    lowlevel______melbands128______var: numpy.ndarray[
+        tuple[Literal[128]], numpy.float32
+    ]
+    lowlevel______mfcc______mean: numpy.ndarray[tuple[Literal[13]], numpy.float32]
+    lowlevel______spectral_contrast_coeffs______max: numpy.ndarray[
+        tuple[Literal[6]], numpy.float32
+    ]
+    lowlevel______spectral_contrast_coeffs______mean: numpy.ndarray[
+        tuple[Literal[6]], numpy.float32
+    ]
+    lowlevel______spectral_contrast_coeffs______min: numpy.ndarray[
+        tuple[Literal[6]], numpy.float32
+    ]
+    lowlevel______spectral_contrast_coeffs______var: numpy.ndarray[
+        tuple[Literal[6]], numpy.float32
+    ]
+    lowlevel______spectral_contrast_valleys______max: numpy.ndarray[
+        tuple[Literal[6]], numpy.float32
+    ]
+    lowlevel______spectral_contrast_valleys______mean: numpy.ndarray[
+        tuple[Literal[6]], numpy.float32
+    ]
+    lowlevel______spectral_contrast_valleys______min: numpy.ndarray[
+        tuple[Literal[6]], numpy.float32
+    ]
+    lowlevel______spectral_contrast_valleys______var: numpy.ndarray[
+        tuple[Literal[6]], numpy.float32
+    ]
+    rhythm______beats_loudness_band_ratio______dmean: numpy.ndarray[
+        tuple[Literal[6]], numpy.float32
+    ]
+    rhythm______beats_loudness_band_ratio______dmean2: numpy.ndarray[
+        tuple[Literal[6]], numpy.float32
+    ]
+    rhythm______beats_loudness_band_ratio______dvar: numpy.ndarray[
+        tuple[Literal[6]], numpy.float32
+    ]
+    rhythm______beats_loudness_band_ratio______dvar2: numpy.ndarray[
+        tuple[Literal[6]], numpy.float32
+    ]
+    rhythm______beats_loudness_band_ratio______max: numpy.ndarray[
+        tuple[Literal[6]], numpy.float32
+    ]
+    rhythm______beats_loudness_band_ratio______mean: numpy.ndarray[
+        tuple[Literal[6]], numpy.float32
+    ]
+    rhythm______beats_loudness_band_ratio______median: numpy.ndarray[
+        tuple[Literal[6]], numpy.float32
+    ]
+    rhythm______beats_loudness_band_ratio______min: numpy.ndarray[
+        tuple[Literal[6]], numpy.float32
+    ]
+    rhythm______beats_loudness_band_ratio______stdev: numpy.ndarray[
+        tuple[Literal[6]], numpy.float32
+    ]
+    rhythm______beats_loudness_band_ratio______var: numpy.ndarray[
+        tuple[Literal[6]], numpy.float32
+    ]
+    tonal______hpcp______dmean: numpy.ndarray[tuple[Literal[36]], numpy.float32]
+    tonal______hpcp______dmean2: numpy.ndarray[tuple[Literal[36]], numpy.float32]
+    tonal______hpcp______dvar: numpy.ndarray[tuple[Literal[36]], numpy.float32]
+    tonal______hpcp______dvar2: numpy.ndarray[tuple[Literal[36]], numpy.float32]
+    tonal______hpcp______max: numpy.ndarray[tuple[Literal[36]], numpy.float32]
+    tonal______hpcp______mean: numpy.ndarray[tuple[Literal[36]], numpy.float32]
+    tonal______hpcp______median: numpy.ndarray[tuple[Literal[36]], numpy.float32]
+    tonal______hpcp______min: numpy.ndarray[tuple[Literal[36]], numpy.float32]
+    tonal______hpcp______stdev: numpy.ndarray[tuple[Literal[36]], numpy.float32]
+    tonal______hpcp______var: numpy.ndarray[tuple[Literal[36]], numpy.float32]
+    rhythm______bpm_histogram: numpy.ndarray[tuple[Literal[250]], numpy.float32]
+    tonal______chords_histogram: numpy.ndarray[tuple[Literal[24]], numpy.float32]
+    tonal______thpcp: numpy.ndarray[tuple[Literal[36]], numpy.float32]
+    tonal______chords_key: str
+    tonal______chords_scale: str
+    tonal______key_edma______key: str
+    tonal______key_edma______scale: str
+    tonal______key_krumhansl______key: str
+    tonal______key_krumhansl______scale: str
+    tonal______key_temperley______key: str
+    tonal______key_temperley______scale: str
+    danceability___msd___musicnn___1______danceable: numpy.float32
+    engagement_regression___discogs___effnet___1______engagement: numpy.float32
+    deam___msd___musicnn___2______valence: numpy.float32
+    emomusic___msd___musicnn___2______valence: numpy.float32
+    engagement_regression___discogs___effnet___1______engagement: numpy.float32
+    mood_acoustic___msd___musicnn___1______acoustic: numpy.float32
+    mood_aggressive___msd___musicnn___1______aggressive: numpy.float32
+    mood_electronic___msd___musicnn___1______electronic: numpy.float32
+    mood_happy___msd___musicnn___1______happy: numpy.float32
+    mood_party___msd___musicnn___1______non_party: numpy.float32
+    mood_relaxed___msd___musicnn___1______non_relaxed: numpy.float32
+    mood_sad___msd___musicnn___1______non_sad: numpy.float32
+    moods_mirex___msd___musicnn___1______passionate_rousing_confident_boisterous_rowdy: (
+        numpy.float32
     )
+    moods_mirex___msd___musicnn___1______rollicking_cheerful_fun_sweet_amiable_good_natured: (
+        numpy.float32
+    )
+    moods_mirex___msd___musicnn___1______literate_poignant_wistful_bittersweet_autumnal_brooding: (
+        numpy.float32
+    )
+    moods_mirex___msd___musicnn___1______humorous_silly_campy_quirky_whimsical_witty_wry: (
+        numpy.float32
+    )
+    moods_mirex___msd___musicnn___1______aggressive_fiery_tense_anxious_intense_volatile_visceral: (
+        numpy.float32
+    )
+    muse___msd___musicnn___2______valence: numpy.float32
+    nsynth_acoustic_electronic___discogs___effnet___1______acoustic: numpy.float32
+    nsynth_bright_dark___discogs___effnet___1______bright: numpy.float32
+    timbre___discogs___effnet___1______bright: numpy.float32
+    tonal_atonal___msd___musicnn___1______atonal: numpy.float32
+    voice_instrumental___msd___musicnn___1______instrumental: numpy.float32
 
-    return columns
 
-
-SCHEMA_BY_FEATURE = (
-    build_schema_for_feature("mfcc", MFCCS_NUMBER)
-    | build_schema_for_feature("chroma_cqt", CHROMA_NUMBER)
-    | build_schema_for_feature("chroma_cens", CHROMA_NUMBER)
-    | build_schema_for_feature("chroma_stft", CHROMA_NUMBER)
-    | build_schema_for_feature("zcr", 1)
-    | build_schema_for_feature("rmse", 1)
-    | build_schema_for_feature("spectral_centroid", 1)
-    | build_schema_for_feature("spectral_bandwidth", 1)
-    | build_schema_for_feature("spectral_flatness", 1)
-    | build_schema_for_feature("spectral_contrast", SPECTRAL_CONTRAST_NUMBER)
-    | build_schema_for_feature("spectral_rolloff", 1)
-    | build_schema_for_feature("tonnetz", TONNETZ_NUMBER)
-)
-
-AUDIO_FEATURE_TYPE_SCHEMA = [
-    ("track_id", str),
-    *reduce(lambda schema1, schema2: schema1 + schema2, SCHEMA_BY_FEATURE.values()),
-    ("tempo", float),
-    ("bitrate", int),
+key_columns = [
+    field.name
+    for field in dataclasses.fields(AudioFeatures)
+    if field.type == str and field.name.endswith("_key")
 ]
 
-FeatureDataType = types.GenericAlias(
-    tuple, tuple(e[1] for e in AUDIO_FEATURE_TYPE_SCHEMA[1:])
-)
-AudioFeaturesType: TypeAlias = tuple[str, *FeatureDataType]
+scale_columns = [
+    field.name
+    for field in dataclasses.fields(AudioFeatures)
+    if field.type == str and field.name.endswith("_scale")
+]
 
 
 def extract_features_for_mp3(
-    *,
-    track_id: str,
     mp3_path: pathlib.Path,
-) -> AudioFeaturesType:
-    with SoundFile(mp3_path) as wav:
-        audio, sr = librosa.load(wav, sr=None)
-        stft = librosa.stft(audio)
-        frames = stft.shape[1]
-        librosa.get_duration(S=stft, sr=sr)
+    extractor_from_path,
+) -> AudioFeatures:
 
-        connectivity_matrix = csr_matrix((frames, frames), dtype=np.int8)
-        connectivity_matrix.setdiag(values=[1] * frames, k=-1)
-        connectivity_matrix.setdiag(values=[1] * frames, k=1)
+    @functools.cache
+    def get_or_create_audio_data(sample_rate: int):
+        return es.MonoLoader(sampleRate=sample_rate, filename=str(mp3_path))()
 
-        def build_optimal_frame_clusterization(
-            feature_data: np.ndarray,
-            guiding_values_fraction: float = 0.1,
-        ) -> pl.DataFrame:
-            feature_column_builder = lambda i: f"metric_{i}"
-            feature_raw = pl.DataFrame(
-                data=feature_data,
-                schema=[
-                    feature_column_builder(i) for i in range(feature_data.shape[0])
-                ],
-                orient="col",
-            )
-            max_std_data_column_indexes = (
-                feature_raw.std()
-                .transpose(column_names=["std"])
-                .with_row_index()
-                .sort(by=pl.col("std"), descending=True)
-                .head(math.ceil(feature_raw.shape[1] * guiding_values_fraction))
-                .get_column("index")
-                .sort()
-                .to_list()
-            )
+    def get_audio_data(model_params: dict) -> numpy.ndarray[tuple[int], numpy.float32]:
+        return get_or_create_audio_data(model_params["inference"]["sample_rate"])
 
-            def cluster_values(raw_values: pl.Series) -> pl.Series:
-                raw_values = raw_values.to_numpy().reshape(-1, 1)
-                agglomerator = AgglomerativeClustering(
-                    n_clusters=FRAMES_NUMBER, connectivity=connectivity_matrix
-                )
-                cluster_list = agglomerator.fit_predict(raw_values)
-                return pl.Series(cluster_list)
-
-            clusterization_variants = feature_raw.select(
-                [
-                    pl.col(feature_column_builder(index))
-                    .map_batches(cluster_values, return_dtype=pl.Int64)
-                    .alias(f"clusterization_{index}")
-                    for index in max_std_data_column_indexes
-                ]
-            )
-            clusters = {
-                i: (
-                    pl.concat(
-                        [
-                            feature_raw,
-                            clusterization_variants.select(
-                                pl.col(f"clusterization_{i}")
-                            ),
-                        ],
-                        how="horizontal",
-                    )
-                    .group_by(by=pl.col(f"clusterization_{i}"))
-                    .agg(pl.all().mean())
-                    .drop("by", f"clusterization_{i}")
-                )
-                for i in max_std_data_column_indexes
-            }
-
-            def score(index: int) -> float:
-                return (
-                    clusters[index]
-                    .std()
-                    .transpose(column_names=["std_of_clusters_means"])
-                    .sum()
-                    .get_column("std_of_clusters_means")
-                    .to_list()[0]
-                )
-
-            target_cluster_variant_index = list(
-                sorted(
-                    [(i, score(i)) for i in max_std_data_column_indexes],
-                    key=lambda t: t[1],
-                    reverse=True,
-                )
-            )[0][0]
-            return clusterization_variants.select(
-                pl.col(f"clusterization_{target_cluster_variant_index}")
-            )
-
-        def wrap_in_df(feature_data: np.ndarray, feature_prefix: str) -> pl.DataFrame:
-            feature_column_builder = lambda i: f"{feature_prefix}_{i}"
-            df = pl.DataFrame(
-                data=(
-                    feature_data
-                    if feature_data.shape[0] > 1
-                    else feature_data.reshape((-1, 1))
-                ),
-                schema=[
-                    feature_column_builder(i) for i in range(feature_data.shape[0])
-                ],
-                orient="col" if feature_data.shape[0] > 1 else "row",
-            )
-            if df.shape[0] != feature_data.shape[1]:
-                raise Exception(
-                    f"shape of feature {feature_prefix} dataframe: {df.shape} does not match feature data shape {feature_data.shape}"
-                )
-            return df
-
-        def clustered_frames_mean(
-            feature_df: pl.DataFrame,
-            clusterization: pl.DataFrame,
-        ) -> pl.DataFrame:
-            return (
-                pl.concat(
-                    [
-                        feature_df,
-                        clusterization,
-                    ],
-                    how="horizontal",
-                )
-                .group_by(by=pl.col(clusterization.columns[0]))
-                .agg(pl.all().mean())
-                .drop("by", clusterization.columns[0])
-                .unstack(step=1)
-            )
-
-        def aggregate_feature(
-            feature_df: pl.DataFrame,
-            aggregation_postfix: str,
-            column_aggregation: Callable[[pl.Expr], pl.Expr],
-        ) -> pl.DataFrame:
-            return feature_df.rename(
-                {
-                    old_column: f"{old_column}_{aggregation_postfix}"
-                    for old_column in feature_df.columns
-                }
-            ).select(
-                *(column_aggregation(pl.nth(i)) for i in range(feature_df.shape[1]))
-            )
-
-        features_data = OrderedDict(
-            mfcc=librosa.feature.mfcc(y=audio, sr=sr, n_mfcc=MFCCS_NUMBER),
-            chroma_cqt=librosa.feature.chroma_cqt(
-                y=audio, sr=sr, n_chroma=CHROMA_NUMBER
-            ),
-            chroma_cens=librosa.feature.chroma_cens(
-                y=audio, sr=sr, n_chroma=CHROMA_NUMBER
-            ),
-            chroma_stft=librosa.feature.chroma_stft(
-                y=audio, sr=sr, n_chroma=CHROMA_NUMBER
-            ),
-            zcr=librosa.feature.zero_crossing_rate(y=audio),
-            rmse=librosa.feature.rms(y=audio),
-            spectral_centroid=librosa.feature.spectral_centroid(y=audio, sr=sr),
-            spectral_bandwidth=librosa.feature.spectral_bandwidth(y=audio, sr=sr),
-            spectral_flatness=librosa.feature.spectral_flatness(y=audio),
-            spectral_contrast=librosa.feature.spectral_contrast(
-                y=audio, sr=sr, n_bands=SPECTRAL_CONTRAST_NUMBER - 1
-            ),
-            spectral_rolloff=librosa.feature.spectral_rolloff(y=audio, sr=sr),
-            tonnetz=librosa.feature.tonnetz(y=audio, sr=sr),  # size always eq(6)
-        )
-        try:
-            all_features = np.concatenate(list(features_data.values()))
-        except ValueError as e:
-            min_size, max_size = reduce(
-                lambda x, y: (min(x[0], y), max(x[1], y)),
-                (data.shape[1] for data in features_data.values()),
-                (float("inf"), float("-inf")),
-            )
-            diff_fraction = (max_size - min_size) / min_size
-            if diff_fraction > 0.05:
-                raise Exception(
-                    f"feature data size for track {track_id} varies from {min_size} to {max_size} - "
-                    f"diff is {diff_fraction:.0%} of min value - can not trim, raising"
-                ) from e
-            features_data = {
-                name: data[:, :min_size] for name, data in features_data.items()
-            }
-            all_features = np.concatenate(list(features_data.values()))
-
-        optimal_frame_clusterization = build_optimal_frame_clusterization(all_features)
-
-        def compress_feature(
-            feature_data: np.ndarray, feature_prefix: str
-        ) -> pl.DataFrame:
-            feature_df = wrap_in_df(feature_data, feature_prefix)
-            clustered_frames_mean_feature = clustered_frames_mean(
-                feature_df, optimal_frame_clusterization
-            )
-            return pl.concat(
-                [clustered_frames_mean_feature]
-                + [
-                    aggregate_feature(feature_df, aggregation_name, aggregation_action)
-                    for aggregation_name, aggregation_action in AGGREGATES.items()
-                ],
-                how="horizontal",
-            )
-
-        compressed_data = OrderedDict(
-            (k, compress_feature(v, k)) for k, v in features_data.items()
-        )
-        tempo = pl.Series("tempo", librosa.feature.tempo(y=audio, sr=sr)).to_frame()
-
-        f = MP3(mp3_path)
-        bitrate = pl.Series("bitrate", [f.info.bitrate // 1000]).to_frame()
-
-    feature_row = pl.concat(
-        [v for v in compressed_data.values()] + [tempo, bitrate], how="horizontal"
+    ml_features = functools.reduce(
+        lambda a, b: a | b,
+        (
+            _get_features_from_model(model_name, get_audio_data)
+            for model_name in _ml_models
+        ),
     )
-    return cast(AudioFeaturesType, (track_id, *tuple(feature_row.rows()[0])))
 
+    raw_features = extractor_from_path(mp3_path)
+    features = raw_features | ml_features
+    feature_mapping = {
+        field.name: features[_build_key_from_property(field.name)]
+        for field in dataclasses.fields(AudioFeatures)
+    }
+    return AudioFeatures(**feature_mapping)
+
+
+def prepare_extractor() -> (
+    Callable[[pathlib.Path], dict[str, str | float | int | list | numpy.ndarray]]
+):
+    with tempfile.TemporaryDirectory() as tmp:
+        # extractor = es.Extractor(rhythm=False)
+        # raw_features = extractor(get_audio_data({"inference": {"sample_rate": sr}}))
+        # aggregationPool = es.PoolAggregator(
+        #     defaultStats = [ "mean", "stdev" ],
+        #     # exceptions={},
+        # )(features)
+        tmp_path = pathlib.Path(tmp)
+        options_file = tmp_path.joinpath("options.yaml")
+        options_file.write_text(yaml.dump(_music_extractor_profile))
+        func = es.MusicExtractor(
+            lowlevelStats=["mean", "var", "min", "max"], profile=str(options_file)
+        )
+
+    def extract_dict(audio_path: pathlib.Path):
+        result = func(str(audio_path))[0]
+        return {name: result[name] for name in result.descriptorNames()}
+
+    return extract_dict
+
+
+@functools.cache
+def _get_or_create_embeddings_model(embedding_params: tuple[str, str, str]):
+    cls, model_name, output = embedding_params
+    return getattr(es, cls)(
+        graphFilename=f"{_path_to_root}/essentia/models/{model_name}.pb",
+        output=output,
+    )
+
+
+def _get_embeddings(
+    model_params: dict,
+    audio_parser: Callable[[dict], numpy.ndarray[tuple[int], numpy.float32]],
+):
+    embedding_model_data = model_params["inference"]["embedding_model"]
+    embedding_model_name = embedding_model_data["model_name"]
+    embedding_model_meta = json.loads(
+        pathlib.Path(
+            f"{_path_to_root}/essentia/models/{embedding_model_name}.json"
+        ).read_text()
+    )
+    embedding_model_output = [
+        output["name"]
+        for output in embedding_model_meta["schema"]["outputs"]
+        if output["output_purpose"] == "embeddings"
+    ][0]
+    embedding_model = _get_or_create_embeddings_model(
+        (
+            embedding_model_data["algorithm"],
+            embedding_model_name,
+            embedding_model_output,
+        )
+    )
+    return embedding_model(audio_parser(model_params))
+
+
+@functools.cache
+def _get_or_create_model(model_name: str, model_params: tuple[str, str, str]):
+    print(f"creating model {model_name}: {model_params}")
+    cls, input, output = model_params
+
+    return getattr(es, cls)(
+        graphFilename=f"{_path_to_root}/essentia/models/{model_name}.pb",
+        input=input,
+        output=output,
+    )
+
+
+def _get_features_from_model(
+    model_name: str,
+    audio_parser: Callable[[dict], numpy.ndarray[tuple[int], numpy.float32]],
+):
+    model_metadata = json.loads(
+        pathlib.Path(f"{_path_to_root}/essentia/models/{model_name}.json").read_text()
+    )
+    model_class = model_metadata["inference"]["algorithm"]
+    model_input = [input["name"] for input in model_metadata["schema"]["inputs"]][0]
+    model_output = [
+        output["name"]
+        for output in model_metadata["schema"]["outputs"]
+        if output["output_purpose"] == "predictions"
+    ][0]
+    model = _get_or_create_model(
+        model_name,
+        (
+            model_class,
+            model_input,
+            model_output,
+        ),
+    )
+    embeddings = _get_embeddings(model_metadata, audio_parser)
+    activations = model(embeddings)
+    classes_ = [
+        _build_key_for_ml_class(model_name, c) for c in model_metadata["classes"]
+    ]
+    mean_value = activations.mean(axis=0)
+    return (
+        dict(zip(classes_, mean_value))
+        if len(classes_) > 2
+        else {classes_[0]: mean_value[0]}
+    )
+
+
+_music_extractor_profile = {
+    "lowlevel": {
+        "frameSize": 2048,
+        "hopSize": 1024,
+        "zeroPadding": 0,
+        "silentFrames": "keep",
+        "windowType": "blackmanharris62",
+    },
+}
+
+_ml_models = (
+    "danceability-msd-musicnn-1",
+    "engagement_regression-discogs-effnet-1",
+    "deam-msd-musicnn-2",
+    "emomusic-msd-musicnn-2",
+    "engagement_regression-discogs-effnet-1",
+    "mood_acoustic-msd-musicnn-1",
+    "mood_aggressive-msd-musicnn-1",
+    "mood_electronic-msd-musicnn-1",
+    "mood_happy-msd-musicnn-1",
+    "mood_party-msd-musicnn-1",
+    "mood_relaxed-msd-musicnn-1",
+    "mood_sad-msd-musicnn-1",
+    "moods_mirex-msd-musicnn-1",
+    "muse-msd-musicnn-2",
+    "nsynth_acoustic_electronic-discogs-effnet-1",
+    "nsynth_bright_dark-discogs-effnet-1",
+    "timbre-discogs-effnet-1",
+    "tonal_atonal-msd-musicnn-1",
+    "voice_instrumental-msd-musicnn-1",
+)
+
+
+_property_separator = "___"
+
+
+def _build_property_from_key(key: str):
+    return key.replace(".", _property_separator * 2).replace("-", _property_separator)
+
+
+def _build_key_from_property(property_name: str):
+    return property_name.replace(_property_separator * 2, ".").replace(
+        _property_separator, "-"
+    )
+
+
+def _build_key_for_ml_class(model_name: str, ml_class: str):
+    return f"{model_name}.{re.sub("[^A-z0-9_]+", "_", ml_class)}"
+
+
+def __generate_dto_class(numpy_prefix: str):
+    def get_classes_for_model(model_name: str):
+        classes_ = json.loads(
+            pathlib.Path(
+                f"{_path_to_root}/essentia/models/{model_name}.json"
+            ).read_text()
+        )["classes"]
+        return classes_ if len(classes_) > 2 else classes_[:1]
+
+    ml_keys = [
+        _build_key_for_ml_class(model_name, cls_)
+        for model_name in _ml_models
+        for cls_ in get_classes_for_model(model_name)
+    ]
+
+    excluded_extractor_keys = [
+        "metadata.tags.album",
+        "metadata.tags.albumartist",
+        "metadata.tags.artist",
+        "metadata.tags.copyright",
+        "metadata.tags.date",
+        "metadata.tags.encoding",
+        "metadata.tags.genre",
+        "metadata.tags.label",
+        "metadata.tags.title",
+        "metadata.tags.tracknumber",
+        "metadata.audio_properties.md5_encoded",
+        "metadata.tags.file_name",
+        "metadata.version.essentia",
+        "metadata.version.essentia_git_sha",
+        "metadata.version.extractor",
+        "rhythm.beats_position",
+        "lowlevel.gfcc.cov",
+        "lowlevel.gfcc.icov",
+        "lowlevel.mfcc.cov",
+        "lowlevel.mfcc.icov",
+        "metadata.audio_properties.analysis.downmix",
+        "metadata.audio_properties.codec",
+    ]
+    extractor = prepare_extractor()
+    features = extractor(
+        pathlib.Path("../data/118517468/liked/CQADAgAD0AIAAlbXeUr25_ycgx2WEgI.mp3")
+    )
+
+    if diff := (
+        set(k for k in set(features.keys()) - set(excluded_extractor_keys))
+        | set(ml_keys)
+    ) - set(
+        _build_key_from_property(field.name)
+        for field in dataclasses.fields(AudioFeatures)
+    ):
+        print(f"diff size is: {len(diff)}")
+        raise Exception(f"Fields {diff} are not processed, exiting")
+
+    def print_type(v, t: type):
+        if t == numpy.ndarray:
+            return f"{numpy_prefix}.ndarray[tuple[{", ".join([f"Literal[{axis_size}]" for axis_size in v.shape])}], {numpy_prefix}.{v.dtype}]"
+        else:
+            return t.__name__
+
+    print(
+        textwrap.dedent(
+            """\
+        @dataclasses.dataclass
+        class AudioFeatures:\
+        """
+        ),
+        "\n".join(
+            [
+                f"    {_build_property_from_key(feature_name)}: {print_type(feature_value, type(feature_value))}"
+                for feature_name, feature_value in features.items()
+                if feature_name not in excluded_extractor_keys
+            ]
+            + [
+                f"    {_build_property_from_key(ml_key)}: {numpy_prefix}.{print_type(None, numpy.float32)}"
+                for ml_key in ml_keys
+            ]
+        ),
+        sep="\n",
+    )
+
+
+scale_mapping = {
+    "major": 1,
+    "minor": 0,
+}
+keys = {
+    "C": 0,
+    "C#": 1,
+    "D": 2,
+    "D#": 3,
+    "E": 4,
+    "F": 5,
+    "F#": 6,
+    "G": 7,
+    "G#": 8,
+    "A": 9,
+    "A#": 10,
+    "B": 11,
+}
+alias_keys = {
+    "Db": keys["C#"],
+    "Eb": keys["D#"],
+    "Gb": keys["F#"],
+    "Ab": keys["G#"],
+    "Bb": keys["A#"],
+    "Cb": keys["B"],
+}
+key_mapping = {
+    k: {
+        "sin": numpy.sin(2 * numpy.pi * v / len(keys)),
+        "cos": numpy.cos(2 * numpy.pi * v / len(keys)),
+    }
+    for k, v in (keys | alias_keys).items()
+}
 
 if __name__ == "__main__":
-    track = pathlib.Path("test.mp3")
+    # __generate_dto_class("numpy")
 
-    row = extract_features_for_mp3(
-        track_id=track.stem,
-        mp3_path=track,
-    )
-    print(f"schema size: {len(AUDIO_FEATURE_TYPE_SCHEMA)}")
-    print(f"row size: {len(row)}")
+    track = pathlib.Path("../data/118517468/liked/CQADAgAD0AIAAlbXeUr25_ycgx2WEgI.mp3")
+    start = time.perf_counter()
+    data = extract_features_for_mp3(track, prepare_extractor())
+    first_attempt = time.perf_counter() - start
+    start = time.perf_counter()
+    data = extract_features_for_mp3(track, prepare_extractor())
+    second_attempt = time.perf_counter() - start
+    print(f"processed in: {first_attempt=} seconds, {second_attempt=} seconds")
+    print(f"{data=}")

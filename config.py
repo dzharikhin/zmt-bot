@@ -1,5 +1,6 @@
 import dataclasses
 import json
+import math
 import os
 import pathlib
 import re
@@ -33,6 +34,13 @@ max_training_threadpool_workers = 10
 max_estimation_threadpool_workers = 10
 min_track_length_seconds = 60
 max_track_length_seconds = 480
+test_samples_fraction = 0.25
+
+model_optimization_iterations = math.floor(math.e**4)
+model_data_contamination_fraction = 0.1
+model_cluster_target_coverage_threshold = 0.67
+model_max_cluster_limit = model_cluster_target_coverage_threshold
+model_metric_guide = "weighted"
 
 
 def override():
