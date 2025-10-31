@@ -25,7 +25,7 @@ from telethon import TelegramClient
 from telethon.tl import types
 from telethon.tl.custom import Message
 from telethon.tl.functions.channels import GetChannelsRequest
-from telethon.tl.types import Chat, DocumentAttributeAudio
+from telethon.tl.types import DocumentAttributeAudio
 
 import config
 from audio.features import (
@@ -37,7 +37,7 @@ from audio.features import (
     key_columns,
     scale_columns,
 )
-from bot_utils import unwrap_single_chat, get_message
+from bot_utils import unwrap_single_chat, get_message, obtain_latest_message_id
 from dataclass_utils import (
     create_wrapper_type,
     unwrap_to_dict,
@@ -215,43 +215,6 @@ async def save_track_if_not_exists(
     file_path = tracks_folder.joinpath(f"{message.file.id}{message.file.ext}")
     if not file_path.exists():
         await message.download_media(file=file_path)
-
-
-async def obtain_latest_message_id(
-    channel: Chat, bot_client: TelegramClient, step: int = 1000
-) -> int:
-    last_message_date = channel.date
-
-    async def binary_search(index_range: list[int]) -> int:
-        low, high = index_range[0], index_range[-1]
-        mid = low
-        while low <= high:
-            mid = low + (high - low) // 2
-            msg = await get_message(channel, mid, bot_client)
-            if msg and msg.date >= last_message_date:  # target found
-                return mid
-            elif msg and msg.date < last_message_date:  # target is in the right half
-                low = mid + 1
-            elif not msg:  # target is in the left half
-                high = mid - 1
-            else:  # should not happen
-                raise
-
-        return mid
-
-    max_message_range_start = 0
-    max_message_range_end = step
-    message = await get_message(channel, max_message_range_end, bot_client)
-    while message and message.date < last_message_date:
-        max_message_range_start = max_message_range_end
-        max_message_range_end += step
-        message = await get_message(channel, max_message_range_end, bot_client)
-
-    if message and message.date >= last_message_date:
-        return max_message_range_end
-    return await binary_search(
-        list(range(max_message_range_start, max_message_range_end + 1))
-    )
 
 
 async def download_audio_from_channel(
