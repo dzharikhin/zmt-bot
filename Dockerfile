@@ -12,7 +12,7 @@ ENV POETRY_CACHE_DIR=/opt/.cache
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt update && apt install -y software-properties-common curl git build-essential gcc g++
 RUN add-apt-repository ppa:deadsnakes/ppa
-RUN apt update && apt install -y python3.12 python-is-python3
+RUN apt update && apt install -y python3.12 python3.12-dev python-is-python3
 RUN rm -f /usr/lib/python3.12/EXTERNALLY-MANAGED && curl -sSL https://bootstrap.pypa.io/get-pip.py -o get-pip.py && python get-pip.py setuptools wheel && python -m pip config set global.break-system-packages true
 RUN add-apt-repository -s "$(cat /etc/apt/sources.list | grep -E '^deb(.+)$' | head -1 )" && apt update
 # https://llvmlite.readthedocs.io/en/latest/admin-guide/install.html#building-manually
@@ -22,6 +22,7 @@ RUN pip install cmake==3.31.2 --upgrade && cmake --version && apt install -y nin
 
 WORKDIR /app
 COPY pyproject.toml poetry.lock /app/
+COPY essentia /app/essentia
 RUN poetry env use 3.12 && . /app/.venv/bin/activate && pip install -U pip setuptools
 
 # parallel compilation
