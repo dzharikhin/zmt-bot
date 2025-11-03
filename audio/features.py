@@ -13,6 +13,8 @@ import essentia.standard as es
 import numpy
 import yaml
 
+from audio.models import get_model_name, ml_model_links
+
 _path_to_root = pathlib.Path(__file__).parent.parent
 essentia.EssentiaLogger().warningActive = False
 
@@ -417,7 +419,7 @@ def extract_features_for_mp3(
         lambda a, b: a | b,
         (
             _get_features_from_model(model_name, get_audio_data)
-            for model_name in _ml_models
+            for model_name in [get_model_name(link) for link in ml_model_links]
         ),
     )
 
@@ -546,29 +548,6 @@ _music_extractor_profile = {
     },
 }
 
-_ml_models = (
-    "danceability-msd-musicnn-1",
-    "engagement_regression-discogs-effnet-1",
-    "deam-msd-musicnn-2",
-    "emomusic-msd-musicnn-2",
-    "engagement_regression-discogs-effnet-1",
-    "mood_acoustic-msd-musicnn-1",
-    "mood_aggressive-msd-musicnn-1",
-    "mood_electronic-msd-musicnn-1",
-    "mood_happy-msd-musicnn-1",
-    "mood_party-msd-musicnn-1",
-    "mood_relaxed-msd-musicnn-1",
-    "mood_sad-msd-musicnn-1",
-    "moods_mirex-msd-musicnn-1",
-    "muse-msd-musicnn-2",
-    "nsynth_acoustic_electronic-discogs-effnet-1",
-    "nsynth_bright_dark-discogs-effnet-1",
-    "timbre-discogs-effnet-1",
-    "tonal_atonal-msd-musicnn-1",
-    "voice_instrumental-msd-musicnn-1",
-)
-
-
 _property_separator = "___"
 
 
@@ -597,7 +576,7 @@ def __generate_dto_class(numpy_prefix: str):
 
     ml_keys = [
         _build_key_for_ml_class(model_name, cls_)
-        for model_name in _ml_models
+        for model_name in [get_model_name(link) for link in ml_model_links]
         for cls_ in get_classes_for_model(model_name)
     ]
 
