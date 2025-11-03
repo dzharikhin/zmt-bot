@@ -20,11 +20,6 @@ RUN pip install cmake==3.31.2 --upgrade && cmake --version && apt install -y nin
     && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && . $HOME/.cargo/env \
     && pip install "poetry==${POETRY_VERSION}"
 
-WORKDIR /app
-COPY pyproject.toml poetry.lock /app/
-COPY essentia /app/essentia
-RUN poetry env use 3.12 && . /app/.venv/bin/activate && pip install -U pip setuptools
-
 # parallel compilation
 ARG CPU_COUNT=4
 ENV CPU_COUNT=$CPU_COUNT
@@ -42,6 +37,10 @@ ENV PREFIX=/usr/local
 RUN cd /llvm/llvm && bash ../llvmlite/conda-recipes/llvmdev/build.sh
 
 WORKDIR /app
+COPY pyproject.toml poetry.lock /app/
+COPY essentia /app/essentia
+RUN poetry env use 3.12 && . /app/.venv/bin/activate && pip install -U pip setuptools
+
 RUN . /app/.venv/bin/activate && cd /llvm/llvmlite && python setup.py build && python runtests.py && python setup.py install
 ARG POETRY_INSTALLER_MAX_WORKERS=4
 ENV POETRY_INSTALLER_MAX_WORKERS=$POETRY_INSTALLER_MAX_WORKERS
