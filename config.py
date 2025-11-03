@@ -38,7 +38,7 @@ test_samples_fraction = 0.25
 
 model_optimization_iterations = math.floor(math.e**4)
 model_data_contamination_fraction = 0.1
-model_cluster_target_coverage_threshold = 0.67
+model_cluster_target_coverage_threshold = 0.7
 model_max_cluster_limit = model_cluster_target_coverage_threshold
 model_metric_guide = "weighted"
 
