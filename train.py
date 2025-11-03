@@ -443,7 +443,8 @@ def target_cluster_data_coverage_fraction_score(
     cluster_column_name = "cluster"
     cluster_column = pl.Series(name=cluster_column_name, values=labels)
     clustered_data = y_data.with_columns(cluster_column)
-    target_clusters = _get_target_clusters(clustered_data, score_type)
+    target_clusters_with_coverage = _get_target_clusters(clustered_data, score_type)
+    target_clusters = target_clusters_with_coverage.to_series(0).to_list()
     model_accuracy = {
         main_metric_name: 0.0,
         guiding_metric_name: 0.0,
@@ -499,7 +500,9 @@ def target_cluster_data_coverage_fraction_score(
     return model_accuracy
 
 
-def _get_target_clusters(clustered_like_value: pl.DataFrame, score_type):
+def _get_target_clusters(
+    clustered_like_value: pl.DataFrame, score_type
+) -> pl.DataFrame:
     target_fraction_column_name = f"{score_type.name}_fraction"
     cluster_member_coverage_fraction = clustered_like_value.group_by(pl.last()).agg(
         (
@@ -512,15 +515,10 @@ def _get_target_clusters(clustered_like_value: pl.DataFrame, score_type):
         # .alias("disliked"),
         # pl.col("cluster").count().alias("all"),
     )
-    target_clusters = (
-        cluster_member_coverage_fraction.filter(
-            pl.col(target_fraction_column_name)
-            > config.model_cluster_target_coverage_threshold
-        )
-        .to_series(0)
-        .to_list()
+    return cluster_member_coverage_fraction.filter(
+        pl.col(target_fraction_column_name)
+        > config.model_cluster_target_coverage_threshold
     )
-    return target_clusters
 
 
 def train_model_on_data(
@@ -585,10 +583,33 @@ def train_model_on_data(
         name="cluster",
         values=LabelScorerUnsupervised.get_labels(search.best_estimator_),
     )
+    unique_clusters = cluster_column.unique()
+    target_clusters_with_coverage = _get_target_clusters(
+        y.with_columns(cluster_column), model_type
+    )
+    target_clusters = target_clusters_with_coverage.to_series(0).to_list()
+    target_clusters_stats = (
+        cluster_column.to_frame("target_clusters")
+        .filter(pl.col("target_clusters").is_in(target_clusters))
+        .to_series()
+        .value_counts()
+    )
+    assert len(target_clusters) == target_clusters_stats.shape[0]
+
+    max_coverage = target_clusters_with_coverage.max().item(0, 1)
+    median_coverage = target_clusters_with_coverage.quantile(0.5).item(0, 1)
+
+    min_cluster_size = target_clusters_stats.min().item(0, 1)
+    max_cluster_size = target_clusters_stats.max().item(0, 1)
+    median_cluster_size = target_clusters_stats.quantile(0.5).item(0, 1)
+    logger.info(
+        f"[{model_store_ctx=}] total unique clusters={unique_clusters.shape[0]}, "
+        f"target clusters: len={len(target_clusters)}, {max_coverage=}, {median_coverage=}, {min_cluster_size=}, {max_cluster_size=}, {median_cluster_size=}"
+    )
 
     model = CustomClassifier(
         best_score_clusterer_pipeline,
-        _get_target_clusters(y.with_columns(cluster_column), model_type),
+        target_clusters,
         model_type,
     )
     logger.info(f"Dumping model")
@@ -685,7 +706,7 @@ def _load_model(model_file: pathlib.Path) -> typing.Any:
         return pickle.load(model_data)
 
 
-def estimate_inner(model, track_to_estimate_path: pathlib.Path) -> int:
+def estimate_inner(model, track_to_estimate_path: pathlib.Path) -> bool:
     try:
         features_row = extract_features_for_mp3(track_to_estimate_path, _extractor)
         data = pl.from_dicts([unwrap_to_dict(features_row)]).lazy()
