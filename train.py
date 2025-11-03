@@ -356,7 +356,7 @@ def train_model(user_id: int, model_id: int, model_type: ModelType) -> config.Mo
     return train_model_inner(
         model_store_ctx,
         model_type,
-        config.get_user_tmp_dir(user_id),
+        config.get_user_tmp_dir(user_id).joinpath(str(model_id)),
         config.get_disliked_file_store_path(user_id),
         config.get_liked_file_store_path(user_id),
     )
@@ -429,7 +429,9 @@ def train_model_inner(
             data, config.model_data_contamination_fraction
         )
 
-        return train_model_on_data(prepared_data, model_type, model_store_ctx)
+        trained_model = train_model_on_data(prepared_data, model_type, model_store_ctx)
+        shutil.rmtree(tmp_dir)
+        return trained_model
 
 
 def target_cluster_data_coverage_fraction_score(
@@ -657,6 +659,7 @@ async def prepare_model(
         if force:
             shutil.rmtree(config.get_liked_file_store_path(user_id))
             shutil.rmtree(config.get_disliked_file_store_path(user_id))
+            shutil.rmtree(config.get_user_tmp_dir(user_id).joinpath(str(model_id)))
 
         await download_audio_from_channel(
             user_id,
