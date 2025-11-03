@@ -45,7 +45,10 @@ WORKDIR /app
 RUN . /app/.venv/bin/activate && cd /llvm/llvmlite && python setup.py build && python runtests.py && python setup.py install
 ARG POETRY_INSTALLER_MAX_WORKERS=4
 ENV POETRY_INSTALLER_MAX_WORKERS=$POETRY_INSTALLER_MAX_WORKERS
-RUN . /app/.venv/bin/activate && cd /app && . $HOME/.cargo/env && poetry -vv install --no-root && rm -rf $POETRY_CACHE_DIR
+RUN . /app/.venv/bin/activate && cd /app \
+    && . $HOME/.cargo/env && poetry add --editable essentia/essentia-2.1b6.dev0-cp312-cp312-manylinux_2_35_x86_64.whl \
+    && poetry -vv install --no-root \
+    && rm -rf $POETRY_CACHE_DIR
 
 
 FROM ubuntu:jammy-20250404 AS runtime
