@@ -469,13 +469,13 @@ def _get_or_create_embeddings_model(embedding_params: tuple[str, str, str]):
 
 def _get_meta_and_embedding_model(
     model_name: str,
-) -> typing.Optional[tuple[dict, typing.Any]]:
+) -> tuple[typing.Optional[dict], typing.Optional[typing.Any]]:
     model_params = json.loads(
         pathlib.Path(f"{_path_to_root}/essentia/models/{model_name}.json").read_text()
     )
     inference = model_params["inference"]
     if "embedding_model" not in inference:
-        return None
+        return None, None
 
     embedding_model_data = inference["embedding_model"]
     embedding_model_name = embedding_model_data["model_name"]
@@ -587,7 +587,7 @@ def __generate_dto_class(numpy_prefix: str):
     model_names = [
         m_name
         for link in ml_model_links
-        if _get_meta_and_embedding_model((m_name := get_model_name(link)))
+        if _get_meta_and_embedding_model((m_name := get_model_name(link)))[1]
     ]
     ml_keys = [
         _build_key_for_ml_class(model_name, cls_)
