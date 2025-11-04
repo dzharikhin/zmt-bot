@@ -6,6 +6,7 @@ import re
 import tempfile
 import textwrap
 import time
+import typing
 from typing import Callable, Literal
 
 import essentia
@@ -418,8 +419,9 @@ def extract_features_for_mp3(
     ml_features = functools.reduce(
         lambda a, b: a | b,
         (
-            _get_features_from_model(model_name, get_audio_data)
+            model_features
             for model_name in [get_model_name(link) for link in ml_model_links]
+            if (model_features := _get_features_from_model(model_name, get_audio_data))
         ),
     )
 
@@ -465,11 +467,17 @@ def _get_or_create_embeddings_model(embedding_params: tuple[str, str, str]):
     )
 
 
-def _get_embeddings(
-    model_params: dict,
-    audio_parser: Callable[[dict], numpy.ndarray[tuple[int], numpy.float32]],
-):
-    embedding_model_data = model_params["inference"]["embedding_model"]
+def _get_meta_and_embedding_model(
+    model_name: str,
+) -> typing.Optional[tuple[dict, typing.Any]]:
+    model_params = json.loads(
+        pathlib.Path(f"{_path_to_root}/essentia/models/{model_name}.json").read_text()
+    )
+    inference = model_params["inference"]
+    if "embedding_model" not in inference:
+        return None
+
+    embedding_model_data = inference["embedding_model"]
     embedding_model_name = embedding_model_data["model_name"]
     embedding_model_meta = json.loads(
         pathlib.Path(
@@ -488,7 +496,7 @@ def _get_embeddings(
             embedding_model_output,
         )
     )
-    return embedding_model(audio_parser(model_params))
+    return model_params, embedding_model
 
 
 @functools.cache
@@ -506,10 +514,12 @@ def _get_or_create_model(model_name: str, model_params: tuple[str, str, str]):
 def _get_features_from_model(
     model_name: str,
     audio_parser: Callable[[dict], numpy.ndarray[tuple[int], numpy.float32]],
-):
-    model_metadata = json.loads(
-        pathlib.Path(f"{_path_to_root}/essentia/models/{model_name}.json").read_text()
-    )
+) -> typing.Optional[dict]:
+    model_metadata, embedding_model = _get_meta_and_embedding_model(model_name)
+    if not embedding_model:
+        return None
+
+    embeddings = embedding_model(audio_parser(model_metadata))
     model_class = model_metadata["inference"]["algorithm"]
     model_input = [input["name"] for input in model_metadata["schema"]["inputs"]][0]
     model_output = [
@@ -525,7 +535,7 @@ def _get_features_from_model(
             model_output,
         ),
     )
-    embeddings = _get_embeddings(model_metadata, audio_parser)
+
     activations = model(embeddings)
     classes_ = [
         _build_key_for_ml_class(model_name, c) for c in model_metadata["classes"]
@@ -574,9 +584,14 @@ def __generate_dto_class(numpy_prefix: str):
         )["classes"]
         return classes_ if len(classes_) > 2 else classes_[:1]
 
+    model_names = [
+        m_name
+        for link in ml_model_links
+        if _get_meta_and_embedding_model((m_name := get_model_name(link)))
+    ]
     ml_keys = [
         _build_key_for_ml_class(model_name, cls_)
-        for model_name in [get_model_name(link) for link in ml_model_links]
+        for model_name in model_names
         for cls_ in get_classes_for_model(model_name)
     ]
 

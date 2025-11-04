@@ -21,5 +21,6 @@ ml_model_links = (
     "https://essentia.upf.edu/models/feature-extractors/musicnn/msd-musicnn-1",
 )
 
+
 def get_model_name(url):
     return url.split("/")[-1]
