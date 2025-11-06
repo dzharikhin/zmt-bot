@@ -4,7 +4,7 @@ import math
 import os
 import pathlib
 import re
-from concurrent.futures.thread import ThreadPoolExecutor
+from concurrent.futures.process import ProcessPoolExecutor
 from typing import Optional, Literal
 
 from dacite import from_dict
@@ -56,14 +56,12 @@ def override():
 
 override()
 
-training_threadpool = ThreadPoolExecutor(
+training_threadpool = ProcessPoolExecutor(
     max_workers=max_training_threadpool_workers,
-    thread_name_prefix="training_threadpool_",
 )
 
-estimation_threadpool = ThreadPoolExecutor(
+estimation_threadpool = ProcessPoolExecutor(
     max_workers=max_estimation_threadpool_workers,
-    thread_name_prefix="estimation_threadpool_",
 )
 
 
