@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "tg-zmt-bot"
-version = "0.2.4"
+version = "0.2.5"
 description = ""
 authors = ["Dmitriy Zharikhin <jorixxx@mail.ru>"]
 readme = "README.md"
@@ -35,8 +35,8 @@ combo = "^0.1.3"
 suod = "^0.1.4"
 clustpy = {git = "https://github.com/collinleiber/ClustPy.git"}
 scikit-optimize = "^0.10.2"
-torch = {version = "^2.8.0", source = "pytorch_cpu"}
-torchvision = {version = "^0.23.0", source = "pytorch_cpu"}
+torch = {version = "^2.9.0", source = "pytorch_cpu"}
+torchvision = "^0.24.0"
 
 [tool.poetry.group.dev.dependencies]
 black = "^24.10.0"

@@ -30,8 +30,8 @@ not_overridable_properties = {
 
 user_client_check_period_seconds = 10
 dialog_list_page_size = 10
-max_training_threadpool_workers = 10
-max_estimation_threadpool_workers = 10
+max_training_workers = 10
+max_estimation_workers = 10
 min_track_length_seconds = 60
 max_track_length_seconds = 480
 test_samples_fraction = 0.25
@@ -56,12 +56,12 @@ def override():
 
 override()
 
-training_threadpool = ProcessPoolExecutor(
-    max_workers=max_training_threadpool_workers,
+training_executor = ProcessPoolExecutor(
+    max_workers=max_training_workers,
 )
 
-estimation_threadpool = ProcessPoolExecutor(
-    max_workers=max_estimation_threadpool_workers,
+estimation_executor = ProcessPoolExecutor(
+    max_workers=max_estimation_workers,
 )
 
 

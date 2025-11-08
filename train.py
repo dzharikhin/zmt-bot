@@ -677,7 +677,7 @@ async def prepare_model(
         )
         # Run the blocking task in the executor
         model = await asyncio.get_running_loop().run_in_executor(
-            config.training_threadpool, train_model, user_id, model_id, model_type
+            config.training_executor, train_model, user_id, model_id, model_type
         )
         config.set_current_model_id(user_id, model.model_id)
 
@@ -740,7 +740,7 @@ async def estimate(
         track_to_estimate_path.unlink(missing_ok=True)
         await message.download_media(file=track_to_estimate_path)
         is_recommended = await asyncio.get_running_loop().run_in_executor(
-            config.estimation_threadpool,
+            config.estimation_executor,
             execute_estimation,
             user_id,
             track_to_estimate_path,
