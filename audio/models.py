@@ -1,8 +1,17 @@
 import functools
 import json
+import logging
 import pathlib
 import typing
 import essentia.standard as es
+
+logging.basicConfig(
+    level=logging.WARN,
+    format="%(asctime)s.%(msecs)03d %(levelname)s %(funcName)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger(__file__)
+logger.setLevel(logging.DEBUG)
 
 _path_to_root = pathlib.Path(__file__).parent.parent
 
@@ -112,6 +121,7 @@ def get_model_params(model_metadata: dict):
 # warmup models for effective process fork
 for model_link in ml_model_links:
     model_name = get_model_name(model_link)
+    logger.info(f"Warmed up {model_name}")
     model_params, embedding_model = get_meta_and_embedding_model(model_name)
     if not embedding_model:
         continue

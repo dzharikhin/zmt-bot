@@ -4,9 +4,9 @@ import math
 import os
 import pathlib
 import re
-from concurrent.futures.process import ProcessPoolExecutor
 from typing import Optional, Literal
 
+import torch.multiprocessing
 from dacite import from_dict
 
 api_id = os.getenv("API_ID")
@@ -56,12 +56,12 @@ def override():
 
 override()
 
-training_executor = ProcessPoolExecutor(
-    max_workers=max_training_workers,
+training_executor = torch.multiprocessing.Pool(
+    processes=max_training_workers,
 )
 
-estimation_executor = ProcessPoolExecutor(
-    max_workers=max_estimation_workers,
+estimation_executor = torch.multiprocessing.Pool(
+    processes=max_estimation_workers,
 )
 
 
