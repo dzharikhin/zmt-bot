@@ -8,6 +8,7 @@ import shutil
 import tempfile
 import time
 import typing
+from asyncio import Future
 from typing import Literal, cast
 
 import numpy as np
@@ -641,6 +642,26 @@ def train_model_on_data(
     return config.get_model(model_store_ctx.user_id, model_store_ctx.model_id)
 
 
+def wrap_task_in_future(pool, loop, task, *task_args) -> Future:
+    def _pool_callback(asyncio_future, result):
+        asyncio_future.set_result(result)
+
+    def _pool_error_callback(asyncio_future, exception):
+        asyncio_future.set_exception(exception)
+
+    future = loop.create_future()
+
+    pool_result = pool.apply_async(
+        task,
+        args=tuple(task_args),
+        callback=lambda res: loop.call_soon_threadsafe(_pool_callback, future, res),
+        error_callback=lambda err: loop.call_soon_threadsafe(
+            _pool_error_callback, future, err
+        ),
+    )
+    return future
+
+
 async def prepare_model(
     user_id: int,
     bot_client: TelegramClient,
@@ -676,8 +697,13 @@ async def prepare_model(
             limit,
         )
         # Run the blocking task in the executor
-        model = await asyncio.get_running_loop().run_in_executor(
-            config.training_executor, train_model, user_id, model_id, model_type
+        model = await wrap_task_in_future(
+            config.training_executor,
+            asyncio.get_running_loop(),
+            train_model,
+            user_id,
+            model_id,
+            model_type,
         )
         config.set_current_model_id(user_id, model.model_id)
 
@@ -739,8 +765,9 @@ async def estimate(
         track_to_estimate_path = pathlib.Path(tmp).joinpath(f"to-estimate.mp3")
         track_to_estimate_path.unlink(missing_ok=True)
         await message.download_media(file=track_to_estimate_path)
-        is_recommended = await asyncio.get_running_loop().run_in_executor(
+        is_recommended = await wrap_task_in_future(
             config.estimation_executor,
+            asyncio.get_running_loop(),
             execute_estimation,
             user_id,
             track_to_estimate_path,
