@@ -56,6 +56,10 @@ def override():
 
 override()
 
+try:
+    torch.multiprocessing.set_start_method("spawn", force=True)
+except RuntimeError:
+    pass
 training_executor = torch.multiprocessing.Pool(
     processes=max_training_workers,
 )
