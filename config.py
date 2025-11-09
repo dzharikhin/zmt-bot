@@ -4,6 +4,7 @@ import math
 import os
 import pathlib
 import re
+from concurrent.futures.process import ProcessPoolExecutor
 from typing import Optional, Literal
 
 import torch.multiprocessing
@@ -56,16 +57,14 @@ def override():
 
 override()
 
-try:
-    torch.multiprocessing.set_start_method("forkserver", force=True)
-except RuntimeError:
-    pass
-training_executor = torch.multiprocessing.Pool(
-    processes=max_training_workers,
+training_executor = ProcessPoolExecutor(
+    max_workers=max_training_workers,
+    mp_context=torch.multiprocessing.get_context(),
 )
 
-estimation_executor = torch.multiprocessing.Pool(
-    processes=max_estimation_workers,
+estimation_executor = ProcessPoolExecutor(
+    max_workers=max_estimation_workers,
+    mp_context=torch.multiprocessing.get_context(),
 )
 
 
