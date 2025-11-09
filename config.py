@@ -1,13 +1,13 @@
 import dataclasses
 import json
 import math
+import multiprocessing
 import os
 import pathlib
 import re
 from concurrent.futures.process import ProcessPoolExecutor
 from typing import Optional, Literal
 
-import torch.multiprocessing
 from dacite import from_dict
 
 api_id = os.getenv("API_ID")
@@ -57,14 +57,15 @@ def override():
 
 override()
 
+_spawn_context = multiprocessing.get_context("spawn")
 training_executor = ProcessPoolExecutor(
     max_workers=max_training_workers,
-    mp_context=torch.multiprocessing.get_context(),
+    mp_context=_spawn_context,
 )
 
 estimation_executor = ProcessPoolExecutor(
     max_workers=max_estimation_workers,
-    mp_context=torch.multiprocessing.get_context(),
+    mp_context=_spawn_context,
 )
 
 
