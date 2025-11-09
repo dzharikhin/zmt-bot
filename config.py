@@ -57,7 +57,7 @@ def override():
 override()
 
 try:
-    torch.multiprocessing.set_start_method("spawn", force=True)
+    torch.multiprocessing.set_start_method("forkserver", force=True)
 except RuntimeError:
     pass
 training_executor = torch.multiprocessing.Pool(
