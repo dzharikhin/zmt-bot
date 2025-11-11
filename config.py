@@ -31,8 +31,8 @@ not_overridable_properties = {
 
 user_client_check_period_seconds = 10
 dialog_list_page_size = 10
-max_training_workers = 10
-max_estimation_workers = 10
+max_training_workers = 2
+max_estimation_workers = 2
 min_track_length_seconds = 60
 max_track_length_seconds = 480
 test_samples_fraction = 0.25

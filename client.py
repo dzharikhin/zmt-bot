@@ -6,6 +6,7 @@ import logging
 import re
 from argparse import ArgumentParser, ArgumentError
 from asyncio import Task
+from concurrent.futures.process import BrokenProcessPool
 from multiprocessing.managers import Namespace
 from types import CoroutineType
 from typing import cast, Union
@@ -90,7 +91,7 @@ async def handle_train_queue_tasks(
             await handle_non_recoverable(
                 bot_client, cmd, e, queue, user_id, "cannot train model"
             )
-        except RPCError as e:
+        except (RPCError, BrokenProcessPool) as e:
             cmd_id = queue.nack(cmd)
             logger.info(
                 f"{cmd_id}: {cmd} - failed with {type(e)}, going to retry",
