@@ -71,6 +71,8 @@ async def handle_train_queue_tasks(
         try:
             cmd = queue.get_nowait()
             logger.debug(f"Handling train cmd={cmd}")
+            if isinstance(cmd["model_type"], int):
+                cmd["model_type"] = train.ModelType(cmd["model_type"])
             await prepare_model(
                 user_id,
                 bot_client,
