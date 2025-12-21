@@ -176,12 +176,6 @@ async def handle_estimate_queue_tasks(
             )
 
 
-# START_CMD = "(?i)^/start$"
-# SUBSCRIBE_CMD = "(?i)^/subscribe\\s+(-?\\d+)\\s+(-?\\d+)\\s+(-?\\d+)"
-# TRAIN_CMD = "(?i)^/train\\s*([\\S\\D]*\\s*([\\S]*)\\s*([\\S]*)"
-# LIST_MODELS_CMD = "(?i)^/list"
-# SET_MODEL_CMD = "(?i)^/set\\s+(\\d+)"
-
 START_CMD = ArgumentParser(
     prog="start",
     epilog="(?i)^/start.*$",
@@ -274,7 +268,23 @@ SET_MODEL_CMD = (
     ),
     parser,
 )[-1]
+CURRENT_DATA_STATS_CMD = ArgumentParser(
+    prog="current_data_stats",
+    epilog="(?i)^/current_data_stats(.*)$",
+    description="show current liked/disliked data stats",
+    exit_on_error=False,
+    add_help=False,
+)
 
+
+CMDS = [
+    START_CMD, # always first element
+    SUBSCRIBE_CMD,
+    TRAIN_CMD,
+    LIST_MODELS_CMD,
+    SET_MODEL_CMD,
+    CURRENT_DATA_STATS_CMD,
+]
 
 def _parse_args(
     arg_parser: ArgumentParser, cmd_line: str
@@ -292,13 +302,7 @@ def _not_matched_command(txt: str) -> bool:
     return not any(
         (
             re.match(pattern, txt)
-            for pattern in (
-                START_CMD.epilog,
-                SUBSCRIBE_CMD.epilog,
-                TRAIN_CMD.epilog,
-                LIST_MODELS_CMD.epilog,
-                SET_MODEL_CMD.epilog,
-            )
+            for pattern in (cmd.epilog for cmd in CMDS)
         )
     )
 
@@ -383,7 +387,7 @@ async def main():
                 return
             logger.debug(f"Received unknown command: <{event.message.message}>")
             buffer = io.StringIO()
-            for cmd in [SUBSCRIBE_CMD, TRAIN_CMD, LIST_MODELS_CMD, SET_MODEL_CMD]:
+            for cmd in CMDS[1:]:
                 buffer.write(f"/{cmd.prog}\n")
                 cmd.print_usage(buffer)
             await event.respond(buffer.getvalue())
@@ -532,10 +536,28 @@ async def main():
             config.set_current_model_id(event.sender_id, args.model_id)
             await event.respond(f"Model {args.model_id} set as default")
 
+        @bot_client.on(events.NewMessage(incoming=True, pattern=CURRENT_DATA_STATS_CMD.epilog))
+        async def current_data_stats_handler(event: NewMessage.Event):
+            if not is_allowed_user(event.sender_id):
+                await bot_client.send_message(
+                    config.owner_user_id, f"user {event.sender_id} tries to use zmt-bot"
+                )
+                return
+
+            subscription = config.get_subscription(event.sender_id)
+            if not subscription:
+                await event.respond(f"/{SUBSCRIBE_CMD.prog} first")
+                return
+
+            liked_stats = (await bot_client.get_messages(subscription.liked_tracks_channel_id, limit=1)).total
+            disliked_stats = (await bot_client.get_messages(subscription.disliked_tracks_channel_id, limit=1)).total
+            await event.respond(f"Liked({subscription.liked_tracks_channel_id}): {liked_stats} messages, disliked({subscription.disliked_tracks_channel_id}): {disliked_stats}")
+
         tasks["global"] = {
             "check": asyncio.create_task(check_queue_handlers(tasks, bot_client))
         }
         await bot_client.run_until_disconnected()
+
     for task_group in tasks.values():
         for task in task_group.values():
             task.cancel("shutdown")
