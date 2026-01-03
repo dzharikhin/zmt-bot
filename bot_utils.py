@@ -2,10 +2,15 @@ from typing import Optional
 
 from telethon import TelegramClient
 from telethon.tl import custom
+from telethon.tl.functions.channels import GetChannelsRequest
 from telethon.tl.types import Chat
 from telethon.tl.types.messages import Chats
 
 import config
+
+
+async def get_chat(chat_id: int, bot_client: TelegramClient):
+    return unwrap_single_chat(await bot_client(GetChannelsRequest(id=[chat_id])))
 
 
 def unwrap_single_chat(chat: Chats) -> Optional[Chat]:

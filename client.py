@@ -21,7 +21,7 @@ from telethon.events import NewMessage, CallbackQuery
 
 import config
 import train
-from bot_utils import get_message, is_allowed_user
+from bot_utils import get_message, is_allowed_user, obtain_latest_message_id, get_chat
 from models import build_model_page_response
 from train import prepare_model, estimate
 
@@ -278,13 +278,14 @@ CURRENT_DATA_STATS_CMD = ArgumentParser(
 
 
 CMDS = [
-    START_CMD, # always first element
+    START_CMD,  # always first element
     SUBSCRIBE_CMD,
     TRAIN_CMD,
     LIST_MODELS_CMD,
     SET_MODEL_CMD,
     CURRENT_DATA_STATS_CMD,
 ]
+
 
 def _parse_args(
     arg_parser: ArgumentParser, cmd_line: str
@@ -299,12 +300,7 @@ def _parse_args(
 
 
 def _not_matched_command(txt: str) -> bool:
-    return not any(
-        (
-            re.match(pattern, txt)
-            for pattern in (cmd.epilog for cmd in CMDS)
-        )
-    )
+    return not any((re.match(pattern, txt) for pattern in (cmd.epilog for cmd in CMDS)))
 
 
 @functools.cache
@@ -536,7 +532,9 @@ async def main():
             config.set_current_model_id(event.sender_id, args.model_id)
             await event.respond(f"Model {args.model_id} set as default")
 
-        @bot_client.on(events.NewMessage(incoming=True, pattern=CURRENT_DATA_STATS_CMD.epilog))
+        @bot_client.on(
+            events.NewMessage(incoming=True, pattern=CURRENT_DATA_STATS_CMD.epilog)
+        )
         async def current_data_stats_handler(event: NewMessage.Event):
             if not is_allowed_user(event.sender_id):
                 await bot_client.send_message(
@@ -548,10 +546,19 @@ async def main():
             if not subscription:
                 await event.respond(f"/{SUBSCRIBE_CMD.prog} first")
                 return
-
-            liked_stats = (await bot_client.get_messages(subscription.liked_tracks_channel_id, limit=1)).total
-            disliked_stats = (await bot_client.get_messages(subscription.disliked_tracks_channel_id, limit=1)).total
-            await event.respond(f"Liked({subscription.liked_tracks_channel_id}): {liked_stats} messages, disliked({subscription.disliked_tracks_channel_id}): {disliked_stats}")
+            liked_channel = await get_chat(
+                subscription.liked_tracks_channel_id, bot_client
+            )
+            liked_stats = await obtain_latest_message_id(liked_channel, bot_client)
+            disliked_channel = await get_chat(
+                subscription.disliked_tracks_channel_id, bot_client
+            )
+            disliked_stats = await obtain_latest_message_id(
+                disliked_channel, bot_client
+            )
+            await event.respond(
+                f"Liked({subscription.liked_tracks_channel_id}): {liked_stats} messages, disliked({subscription.disliked_tracks_channel_id}): {disliked_stats}"
+            )
 
         tasks["global"] = {
             "check": asyncio.create_task(check_queue_handlers(tasks, bot_client))

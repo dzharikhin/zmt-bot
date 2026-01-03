@@ -24,7 +24,6 @@ from skopt import BayesSearchCV, space
 from telethon import TelegramClient
 from telethon.tl import types
 from telethon.tl.custom import Message
-from telethon.tl.functions.channels import GetChannelsRequest
 from telethon.tl.types import DocumentAttributeAudio
 
 import config
@@ -37,7 +36,7 @@ from audio.features import (
     key_columns,
     scale_columns,
 )
-from bot_utils import unwrap_single_chat, get_message, obtain_latest_message_id
+from bot_utils import get_message, obtain_latest_message_id, get_chat
 from dataclass_utils import (
     create_wrapper_type,
     unwrap_to_dict,
@@ -224,7 +223,7 @@ async def download_audio_from_channel(
     bot_client: TelegramClient,
     limit: int | None = None,
 ):
-    channel = unwrap_single_chat(await bot_client(GetChannelsRequest(id=[channel_id])))
+    channel = get_chat(channel_id, bot_client)
     if not channel:
         raise TrainUnrecoverable(f"Channel {channel_id} is not available")
 
