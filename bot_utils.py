@@ -1,3 +1,4 @@
+import logging
 from typing import Optional
 
 from telethon import TelegramClient
@@ -7,6 +8,14 @@ from telethon.tl.types import Chat
 from telethon.tl.types.messages import Chats
 
 import config
+
+logging.basicConfig(
+    level=logging.WARN,
+    format="%(asctime)s.%(msecs)03d %(levelname)s %(funcName)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger(__file__)
+logger.setLevel(logging.DEBUG)
 
 
 async def get_chat(chat_id: int, bot_client: TelegramClient):
@@ -36,6 +45,7 @@ def is_allowed_user(user_id: int) -> bool:
 async def obtain_latest_message_id(
     channel: Chat, bot_client: TelegramClient, step: int = 1000
 ) -> int:
+    logger.info(f"Obtaining latest message for {channel=}")
     last_message_date = channel.date
 
     async def binary_search(index_range: list[int]) -> int:
