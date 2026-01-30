@@ -21,7 +21,7 @@ from telethon.events import NewMessage, CallbackQuery
 
 import config
 import train
-from bot_utils import get_message, is_allowed_user, obtain_latest_message_id, get_chat
+from bot_utils import get_message, is_allowed_user
 from models import build_model_page_response
 from train import prepare_model, estimate
 
@@ -42,6 +42,7 @@ logger.setLevel(logging.DEBUG)
 
 async def send_train_queue_task(
     event,
+    latest_message_links: list[str],
     model_type: train.ModelType,
     limit: int | None,
     is_forced: bool,
@@ -52,6 +53,7 @@ async def send_train_queue_task(
             "model_type": model_type,
             "forced": is_forced,
             "limit": limit,
+            "latest_message_links": latest_message_links,
         }
     )
 
@@ -76,6 +78,7 @@ async def handle_train_queue_tasks(
             await prepare_model(
                 user_id,
                 bot_client,
+                cmd["latest_message_links"],
                 cmd["message_id"],
                 cmd["model_type"],
                 cmd["forced"],
@@ -242,6 +245,14 @@ TRAIN_CMD = (
         action="store_true",
         help="clear already downloaded tracks and download again",
     ),
+    parser.add_argument(
+        "-ll",
+        "--latest_message_links",
+        required=True,
+        type=str,
+        nargs="+",
+        help="liked and disliked channels latest message links(in any order)",
+    ),
     parser,
 )[-1]
 LIST_MODELS_CMD = ArgumentParser(
@@ -268,14 +279,6 @@ SET_MODEL_CMD = (
     ),
     parser,
 )[-1]
-CURRENT_DATA_STATS_CMD = ArgumentParser(
-    prog="current_data_stats",
-    epilog="(?i)^/current_data_stats(.*)$",
-    description="show current liked/disliked data stats",
-    exit_on_error=False,
-    add_help=False,
-)
-
 
 CMDS = [
     START_CMD,  # always first element
@@ -283,7 +286,6 @@ CMDS = [
     TRAIN_CMD,
     LIST_MODELS_CMD,
     SET_MODEL_CMD,
-    CURRENT_DATA_STATS_CMD,
 ]
 
 
@@ -459,7 +461,7 @@ async def main():
                 await event.respond(help_to_print)
                 return
 
-            await send_train_queue_task(event, args.type, args.limit, args.force)
+            await send_train_queue_task(event, args.latest_message_links, args.type, args.limit, args.force)
             await event.respond(f"Training task for id={event.message.id} created")
 
         @bot_client.on(events.NewMessage(incoming=True, pattern=LIST_MODELS_CMD.epilog))
@@ -531,34 +533,6 @@ async def main():
 
             config.set_current_model_id(event.sender_id, args.model_id)
             await event.respond(f"Model {args.model_id} set as default")
-
-        @bot_client.on(
-            events.NewMessage(incoming=True, pattern=CURRENT_DATA_STATS_CMD.epilog)
-        )
-        async def current_data_stats_handler(event: NewMessage.Event):
-            if not is_allowed_user(event.sender_id):
-                await bot_client.send_message(
-                    config.owner_user_id, f"user {event.sender_id} tries to use zmt-bot"
-                )
-                return
-
-            subscription = config.get_subscription(event.sender_id)
-            if not subscription:
-                await event.respond(f"/{SUBSCRIBE_CMD.prog} first")
-                return
-            liked_channel = await get_chat(
-                subscription.liked_tracks_channel_id, bot_client
-            )
-            liked_stats = await obtain_latest_message_id(liked_channel, bot_client)
-            disliked_channel = await get_chat(
-                subscription.disliked_tracks_channel_id, bot_client
-            )
-            disliked_stats = await obtain_latest_message_id(
-                disliked_channel, bot_client
-            )
-            await event.respond(
-                f"Liked({subscription.liked_tracks_channel_id}): {liked_stats} messages, disliked({subscription.disliked_tracks_channel_id}): {disliked_stats}"
-            )
 
         tasks["global"] = {
             "check": asyncio.create_task(check_queue_handlers(tasks, bot_client))

@@ -219,6 +219,7 @@ async def save_track_if_not_exists(
 async def download_audio_from_channel(
     user_id: int,
     channel_id: int,
+    latest_message_links: list[str],
     channel_type: Literal["liked", "disliked"],
     bot_client: TelegramClient,
     limit: int | None = None,
@@ -227,7 +228,7 @@ async def download_audio_from_channel(
     if not channel:
         raise TrainUnrecoverable(f"Channel {channel_id} is not available")
 
-    latest_message_id = await obtain_latest_message_id(channel, bot_client)
+    latest_message_id = await obtain_latest_message_id(channel, latest_message_links)
     ids = list(range(latest_message_id + 1))
     if limit:
         ids = ids[-limit:]
@@ -643,6 +644,7 @@ def train_model_on_data(
 async def prepare_model(
     user_id: int,
     bot_client: TelegramClient,
+    latest_message_links: list[str],
     model_id: int,
     model_type: ModelType,
     force: bool = False,
@@ -663,6 +665,7 @@ async def prepare_model(
         await download_audio_from_channel(
             user_id,
             subscription.liked_tracks_channel_id,
+            latest_message_links,
             "liked",
             bot_client,
             limit,
@@ -670,6 +673,7 @@ async def prepare_model(
         await download_audio_from_channel(
             user_id,
             subscription.disliked_tracks_channel_id,
+            latest_message_links,
             "disliked",
             bot_client,
             limit,

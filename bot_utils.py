@@ -43,38 +43,7 @@ def is_allowed_user(user_id: int) -> bool:
 
 
 async def obtain_latest_message_id(
-    channel: Chat, bot_client: TelegramClient, step: int = 1000
+    channel: Chat, latest_message_links: list[str]
 ) -> int:
-    logger.info(f"Obtaining latest message for {channel=}")
-    last_message_date = channel.date
-
-    async def binary_search(index_range: list[int]) -> int:
-        low, high = index_range[0], index_range[-1]
-        mid = low
-        while low <= high:
-            mid = low + (high - low) // 2
-            msg = await get_message(channel, mid, bot_client)
-            if msg and msg.date >= last_message_date:  # target found
-                return mid
-            elif msg and msg.date < last_message_date:  # target is in the right half
-                low = mid + 1
-            elif not msg:  # target is in the left half
-                high = mid - 1
-            else:  # should not happen
-                raise
-
-        return mid
-
-    max_message_range_start = 0
-    max_message_range_end = step
-    message = await get_message(channel, max_message_range_end, bot_client)
-    while message and message.date < last_message_date:
-        max_message_range_start = max_message_range_end
-        max_message_range_end += step
-        message = await get_message(channel, max_message_range_end, bot_client)
-
-    if message and message.date >= last_message_date:
-        return max_message_range_end
-    return await binary_search(
-        list(range(max_message_range_start, max_message_range_end + 1))
-    )
+    target_link = next(link for link in latest_message_links if str(channel.id) in link)
+    return int(target_link.split(f"{channel.id}/")[-1])
