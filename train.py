@@ -224,7 +224,7 @@ async def download_audio_from_channel(
     bot_client: TelegramClient,
     limit: int | None = None,
 ):
-    channel = get_chat(channel_id, bot_client)
+    channel = await get_chat(channel_id, bot_client)
     if not channel:
         raise TrainUnrecoverable(f"Channel {channel_id} is not available")
 
@@ -288,7 +288,7 @@ def _remove_outliers_in_parts(
         data.filter(pl.col(LIKED_COLUMN_NAME) == liked).select(
             pl.all().exclude(LIKED_COLUMN_NAME, ROW_ID_COLUMN_NAME)
         )
-    ).collect(engine="streaming")
+    ).collect(streaming=True)
     return (
         data.filter(pl.col(LIKED_COLUMN_NAME) == liked)
         .with_columns(
@@ -299,7 +299,7 @@ def _remove_outliers_in_parts(
         )
         .filter(pl.col("outlier") != -1)
         .select(pl.all().exclude("outlier"))
-        .collect(engine="streaming")
+        .collect(streaming=True)
     )
 
 
@@ -723,7 +723,7 @@ def estimate_inner(model, track_to_estimate_path: pathlib.Path) -> bool:
         data = _string_values_to_numbers(data)
         shape_map = get_field_shape_map(AudioFeatures)
         data = _unpack_data(data, shape_map)
-        data = data.fill_null(0.0).fill_nan(0.0).collect(engine="streaming")
+        data = data.fill_null(0.0).fill_nan(0.0).collect(streaming=True)
     except Exception as e:
         raise EstimationUnrecoverable(
             f"Failed to get features for {track_to_estimate_path}. Skipping"
