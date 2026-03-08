@@ -10,42 +10,26 @@ ENV PYTHONUNBUFFERED=1
 ENV POETRY_CACHE_DIR=/opt/.cache
 
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt update && apt install -y software-properties-common curl git build-essential gcc g++
+RUN apt update && apt install -y software-properties-common curl git build-essential gcc g++ libopenblas0 liblapack3 libsndfile1 libgomp1
 RUN add-apt-repository ppa:deadsnakes/ppa
 RUN apt update && apt install -y python3.12 python3.12-dev python-is-python3
 RUN rm -f /usr/lib/python3.12/EXTERNALLY-MANAGED && curl -sSL https://bootstrap.pypa.io/get-pip.py -o get-pip.py && python get-pip.py setuptools wheel && python -m pip config set global.break-system-packages true
 RUN add-apt-repository -s "$(cat /etc/apt/sources.list | grep -E '^deb(.+)$' | head -1 )" && apt update
-# https://llvmlite.readthedocs.io/en/latest/admin-guide/install.html#building-manually
-RUN pip install cmake==3.31.2 --upgrade && cmake --version && apt install -y ninja-build \
-    && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && . $HOME/.cargo/env \
-    && pip install "poetry==${POETRY_VERSION}"
+RUN pip install "poetry==${POETRY_VERSION}"
 
 # parallel compilation
 ARG CPU_COUNT=4
 ENV CPU_COUNT=$CPU_COUNT
-
-WORKDIR /llvm
-ENV TARGET_LLVM_NAME=llvm-project-15.0.7.src
-ENV TARGET_LLVMLITE_TAG=0.44.0
-RUN curl -L "https://github.com/llvm/llvm-project/releases/download/llvmorg-15.0.7/${TARGET_LLVM_NAME}.tar.xz" | tar --absolute-names -xJf - && mv ${TARGET_LLVM_NAME} llvm \
-    && curl -L "https://github.com/numba/llvmlite/archive/refs/tags/v${TARGET_LLVMLITE_TAG}.tar.gz" | tar --absolute-names -xzf - && mv llvmlite-${TARGET_LLVMLITE_TAG} llvmlite \
-    && cd llvm && ls ../llvmlite/conda-recipes/llvm15* | xargs -I{} patch -p1 -i {}
-# set = 1 to disable tests
-ARG SKIP_LLVM_TESTS=0
-ENV CONDA_BUILD_CROSS_COMPILATION=$SKIP_LLVM_TESTS
-ENV PREFIX=/usr/local
-RUN cd /llvm/llvm && bash ../llvmlite/conda-recipes/llvmdev/build.sh
 
 WORKDIR /app
 COPY pyproject.toml poetry.lock /app/
 COPY essentia /app/essentia
 RUN poetry env use 3.12 && . /app/.venv/bin/activate && pip install -U pip setuptools
 
-RUN . /app/.venv/bin/activate && cd /llvm/llvmlite && python setup.py build && python runtests.py && python setup.py install
 ARG POETRY_INSTALLER_MAX_WORKERS=4
 ENV POETRY_INSTALLER_MAX_WORKERS=$POETRY_INSTALLER_MAX_WORKERS
 RUN . /app/.venv/bin/activate && cd /app \
-    && . $HOME/.cargo/env && poetry add --editable essentia/essentia-2.1b6.dev0-cp312-cp312-manylinux_2_35_x86_64.whl \
+    poetry add --editable essentia/essentia-2.1b6.dev0-cp312-cp312-manylinux_2_35_x86_64.whl \
     && poetry -vv install --no-root \
     && rm -rf $POETRY_CACHE_DIR
 
