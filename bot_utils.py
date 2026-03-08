@@ -4,7 +4,7 @@ from typing import Optional
 from telethon import TelegramClient
 from telethon.tl import custom
 from telethon.tl.functions.channels import GetChannelsRequest
-from telethon.tl.types import Chat
+from telethon.tl.types import Chat, Channel
 from telethon.tl.types.messages import Chats
 
 import config
@@ -43,14 +43,15 @@ def is_allowed_user(user_id: int) -> bool:
 
 
 async def obtain_latest_message_id(
-    channel: Chat, latest_message_links: list[str]
+    channel: Chat | Channel, latest_message_links: list[str]
 ) -> int:
     link_by_id = [link for link in latest_message_links if str(channel.id) in link]
     if link_by_id:
         return int(link_by_id[0].split(f"{channel.id}/")[-1])
 
-    link_by_title = [link for link in latest_message_links if str(channel.title) in link]
-    if link_by_title:
-        return int(link_by_title[0].split(f"{channel.title}/")[-1])
+    if isinstance(channel, Channel):
+        link_by_title = [link for link in latest_message_links if str(channel.username) in link]
+        if link_by_title:
+            return int(link_by_title[0].split(f"{channel.title}/")[-1])
 
     raise ValueError(f"{latest_message_links} do not contain {channel} link")
