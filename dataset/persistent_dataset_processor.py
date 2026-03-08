@@ -4,6 +4,7 @@ import pathlib
 import shutil
 import sys
 import tempfile
+from _typeshed import DataclassInstance
 from collections import OrderedDict
 from enum import Enum
 from functools import reduce
@@ -24,7 +25,7 @@ import polars as pl
 import polars.datatypes as pldt
 
 Id = TypeVar("Id", int, str)
-FeatureLineType = TypeVar("FeatureLineType")
+FeatureLineType = TypeVar("FeatureLineType", bound=DataclassInstance)
 
 
 class DataFrameBuilder(Generic[Id, FeatureLineType]):
@@ -65,7 +66,7 @@ class DataFrameBuilder(Generic[Id, FeatureLineType]):
                 )
             )
             .limit(1)
-            .collect(engine="streaming")
+            .collect(streaming=True)
             .is_empty()
         ):
             increment_df = slice_df
@@ -244,7 +245,7 @@ class DataFrameBuilder(Generic[Id, FeatureLineType]):
                 .alias("is_ok")
             )
             .agg(pl.nth(0).count())
-            .collect(engine="streaming")
+            .collect(streaming=True)
         )
         ok_count = (
             ok := sizes.filter(pl.col("is_ok")),
@@ -392,17 +393,17 @@ if __name__ == "__main__":
                 result_schema=("row_id", pl.String),
             ),
             mappers=[
-                OrderedDict(
+                DataFrameBuilder.MappingParams(
                     mapper=extract_features,
-                    type_schema={
-                        "a": pl.Float64,
-                        "b": float,
-                        "c": float,
-                        "d": list[list[int]],
-                    },
+                    type_schema=OrderedDict(
+                        a=pl.Float64,
+                        b=float,
+                        c=float,
+                        d=list[list[int]],
+                    ),
                 )
             ],
             batch_size=1,
         ) as result_frame:
-            df = result_frame.ldf.collect(engine="streaming")
+            df = result_frame.ldf.collect(streaming=True)
             print(f"{df=}")
