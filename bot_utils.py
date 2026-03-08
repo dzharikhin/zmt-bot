@@ -50,8 +50,8 @@ async def obtain_latest_message_id(
         return int(link_by_id[0].split(f"{channel.id}/")[-1])
 
     if isinstance(channel, Channel):
-        link_by_title = [link for link in latest_message_links if str(channel.username) in link]
-        if link_by_title:
-            return int(link_by_title[0].split(f"{channel.title}/")[-1])
+        link_by_name = [link for link in latest_message_links if str(channel.username) in link]
+        if link_by_name:
+            return int(link_by_name[0].split(f"{channel.username}/")[-1])
 
     raise ValueError(f"{latest_message_links} do not contain {channel} link")
