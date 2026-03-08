@@ -11,13 +11,16 @@ RUN apt-get -yq install cmake patchelf curl wget yasm bazel-${BAZEL_VERSION} \
 RUN ln -s /usr/bin/bazel-${BAZEL_VERSION} /usr/bin/bazel
 RUN pip install --upgrade pip && pip install auditwheel setuptools requests
 
+
 FROM os AS sources
-ARG TARGET_ESSENTIA_COMMIT=bd793a3e07caf1c8c44a8425d6f550bfbc96ede9
+ARG TARGET_ESSENTIA_COMMIT=f0f6c358abd133e675710ce2d5f77cc935a75eb9
 RUN curl -L "https://github.com/MTG/essentia/archive/${TARGET_ESSENTIA_COMMIT}.tar.gz" | tar xvzf - --transform s/essentia-${TARGET_ESSENTIA_COMMIT}/essentia/
-# RUN ls -l
+
 
 FROM sources AS sources-with-deps
 WORKDIR /essentia
+# original link is not available from Russia. version is hardcoded. it would be better to update dependency to be able to use github
+RUN sed -i 's|SLO http://www.mega-nerd.com/SRC/$LIBSAMPLERATE_VERSION.tar.gz|SL --output $LIBSAMPLERATE_VERSION.tar.gz https://launchpad.net/ubuntu/+archive/primary/+sourcefiles/libsamplerate/0.1.8-7/libsamplerate_0.1.8.orig.tar.gz|' packaging/debian_3rdparty/build_libsamplerate.sh # && cat packaging/debian_3rdparty/build_libsamplerate.sh && exit 1
 RUN TF_NEED_CUDA=0 ./packaging/build_3rdparty_static_debian.sh # --with-tensorflow
 RUN pip install tensorflow-cpu
 

@@ -13,7 +13,7 @@ import essentia.standard as es
 import numpy
 import yaml
 
-from audio.models import (
+from audio.model_utils import (
     get_model_name,
     ml_model_links,
     get_meta_and_embedding_model,
