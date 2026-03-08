@@ -4,7 +4,7 @@ import pathlib
 import shutil
 import sys
 import tempfile
-from _typeshed import DataclassInstance
+# from _typeshed import DataclassInstance
 from collections import OrderedDict
 from enum import Enum
 from functools import reduce
@@ -25,7 +25,7 @@ import polars as pl
 import polars.datatypes as pldt
 
 Id = TypeVar("Id", int, str)
-FeatureLineType = TypeVar("FeatureLineType", bound=DataclassInstance)
+FeatureLineType = TypeVar("FeatureLineType")#, bound=DataclassInstance)
 
 
 class DataFrameBuilder(Generic[Id, FeatureLineType]):
