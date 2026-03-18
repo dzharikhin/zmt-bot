@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "tg-zmt-bot"
-version = "1.0.7"
+version = "1.0.8"
 description = ""
 authors = ["Dmitriy Zharikhin <jorixxx@mail.ru>"]
 readme = "README.md"
@@ -22,7 +22,7 @@ standard-aifc = "^3.13.0"
 audioread = "^3.0.1"
 standard-sunau = "^3.13.0"
 poetry-core = "^2.3.1"
-polars = "^1.38.1"
+polars = "^1.39.2"
 pyquery = "^2.0.1"
 aiohttp = "^3.13.3"
 aiohttp-cors = "^0.8.1"
