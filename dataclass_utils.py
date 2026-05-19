@@ -22,11 +22,7 @@ def _get_type_shape(target_type: typing.Type) -> typing.Optional[tuple[int, ...]
             dimensions = typing.get_args(root_size_type)
             return tuple(
                 [
-                    (
-                        typing.get_args(dimension)[0]
-                        if typing.get_origin(dimension) in [Literal]
-                        else None
-                    )
+                    (typing.get_args(dimension)[0] if typing.get_origin(dimension) in [Literal] else None)
                     for dimension in dimensions
                 ]
             )
@@ -57,15 +53,10 @@ def create_wrapper_type(original_type, name, type_mapping, additional_fields):
 
 
 def get_class_field_shape_mapping(dataclass_or_instance) -> dict[str, tuple[int, ...]]:
-    return {
-        field.name: _get_type_shape(field.type)
-        for field in dataclasses.fields(dataclass_or_instance)
-    }
+    return {field.name: _get_type_shape(field.type) for field in dataclasses.fields(dataclass_or_instance)}
 
 
-def get_class_container_fields(
-    dataclass_or_instance, target_types: list[typing.Type]
-) -> dict[str, typing.ParamSpec]:
+def get_class_container_fields(dataclass_or_instance, target_types: list[typing.Type]) -> dict[str, typing.ParamSpec]:
     return {
         field.name: field_type
         for field in dataclasses.fields(dataclass_or_instance)

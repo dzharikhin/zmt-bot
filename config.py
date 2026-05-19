@@ -49,9 +49,7 @@ def override():
     override_from = data_path.joinpath("config.py")
     if override_from.exists():
         exec(override_from.read_text(), locals=overrides)
-    for override_key, override_value in filter(
-        lambda t: t[0] not in not_overridable_properties, overrides.items()
-    ):
+    for override_key, override_value in filter(lambda t: t[0] not in not_overridable_properties, overrides.items()):
         globals()[override_key] = override_value
 
 
@@ -70,42 +68,86 @@ estimation_executor = ProcessPoolExecutor(
 
 
 def get_existing_users() -> list[int]:
-    return [
-        int(user_data.name)
-        for user_data in data_path.iterdir()
-        if re.match("\\d+", user_data.name)
-    ]
+    return [int(user_data.name) for user_data in data_path.iterdir() if re.match("\\d+", user_data.name)]
+
+
+@dataclasses.dataclass
+class UserChannels:
+    liked_channel_id: int
+    disliked_channel_id: int
+
+
+def get_user_channels(user_id: int) -> Optional[UserChannels]:
+    channels_file = data_path.joinpath(str(user_id)).joinpath("channels.json")
+    if not channels_file.exists():
+        return None
+    return from_dict(data_class=UserChannels, data=json.loads(channels_file.read_text()))
+
+
+def set_user_channels(user_id: int, channels: UserChannels):
+    channels_file = data_path.joinpath(str(user_id)).joinpath("channels.json")
+    channels_file.parent.mkdir(exist_ok=True)
+    with channels_file.open(mode="wt") as f:
+        f.write(json.dumps(dataclasses.asdict(channels)))
 
 
 @dataclasses.dataclass
 class Subscription:
-    liked_tracks_channel_id: int
-    disliked_tracks_channel_id: int
     estimate_from_channel_id: int
+    model_id: int
 
 
-def get_subscription(user_id: int) -> Optional[Subscription]:
-    subscription_file = data_path.joinpath(str(user_id)).joinpath("subscription")
-    if not subscription_file.exists():
-        return None
-    return from_dict(
-        data_class=Subscription, data=json.loads(subscription_file.read_text())
-    )
+def get_subscriptions(user_id: int) -> list[Subscription]:
+    subscriptions_file = data_path.joinpath(str(user_id)).joinpath("subscriptions.json")
+    if not subscriptions_file.exists():
+        return []
+    return [from_dict(data_class=Subscription, data=item) for item in json.loads(subscriptions_file.read_text())]
+
+
+def add_subscription(user_id: int, subscription: Subscription):
+    subscriptions = get_subscriptions(user_id)
+    subscriptions.append(subscription)
+    subscriptions_file = data_path.joinpath(str(user_id)).joinpath("subscriptions.json")
+    subscriptions_file.parent.mkdir(exist_ok=True)
+    with subscriptions_file.open(mode="wt") as f:
+        f.write(json.dumps([dataclasses.asdict(s) for s in subscriptions]))
+
+
+def get_subscription_by_channel(user_id: int, channel_id: int) -> Optional[Subscription]:
+    subscriptions = get_subscriptions(user_id)
+    for sub in subscriptions:
+        if sub.estimate_from_channel_id == channel_id:
+            return sub
+    return None
+
+
+def update_subscription_model(user_id: int, channel_id: int, model_id: int):
+    subscriptions = get_subscriptions(user_id)
+    for sub in subscriptions:
+        if sub.estimate_from_channel_id == channel_id:
+            sub.model_id = model_id
+            subscriptions_file = data_path.joinpath(str(user_id)).joinpath("subscriptions.json")
+            subscriptions_file.parent.mkdir(exist_ok=True)
+            with subscriptions_file.open(mode="wt") as f:
+                f.write(json.dumps([dataclasses.asdict(s) for s in subscriptions]))
+            return
+
+
+def remove_subscription(user_id: int, channel_id: int):
+    subscriptions = get_subscriptions(user_id)
+    subscriptions = [sub for sub in subscriptions if sub.estimate_from_channel_id != channel_id]
+    subscriptions_file = data_path.joinpath(str(user_id)).joinpath("subscriptions.json")
+    subscriptions_file.parent.mkdir(exist_ok=True)
+    with subscriptions_file.open(mode="wt") as f:
+        f.write(json.dumps([dataclasses.asdict(s) for s in subscriptions]))
+
+
+def has_user_channels(user_id: int) -> bool:
+    return get_user_channels(user_id) is not None
 
 
 def get_subscribed_user_ids(channel_id: int) -> list[int]:
-    return [
-        user_id
-        for user_id in get_existing_users()
-        if get_subscription(user_id).estimate_from_channel_id == channel_id
-    ]
-
-
-def set_channels(user_id: int, subscription: Subscription):
-    subscription_file = data_path.joinpath(str(user_id)).joinpath("subscription")
-    subscription_file.parent.mkdir(exist_ok=True)
-    with subscription_file.open(mode="wt") as subs:
-        subs.write(json.dumps(dataclasses.asdict(subscription)))
+    return [user_id for user_id in get_existing_users() if get_subscription_by_channel(user_id, channel_id) is not None]
 
 
 @dataclasses.dataclass
@@ -125,15 +167,12 @@ def get_models(user_id: int) -> list[Model]:
     return [
         get_model(user_id, int(model_path.stem))
         for model_path in models_path.iterdir()
-        if model_path.is_dir()
-        and model_path.joinpath(f"{model_path.name}.pickle").exists()
+        if model_path.is_dir() and model_path.joinpath(f"{model_path.name}.pickle").exists()
     ]
 
 
 def get_model(user_id: int, model_id: int) -> Optional[Model]:
-    model_path = (
-        data_path.joinpath(str(user_id)).joinpath("models").joinpath(str(model_id))
-    )
+    model_path = data_path.joinpath(str(user_id)).joinpath("models").joinpath(str(model_id))
     if not model_path.exists():
         return None
     model_stats = json.loads(model_path.joinpath("stats.json").read_text())
@@ -145,18 +184,14 @@ def get_model(user_id: int, model_id: int) -> Optional[Model]:
 
 
 def get_current_model_id(user_id: int) -> Optional[int]:
-    current_model_id_file = data_path.joinpath(str(user_id)).joinpath(
-        "current_model_id.json"
-    )
+    current_model_id_file = data_path.joinpath(str(user_id)).joinpath("current_model_id.json")
     if not current_model_id_file.exists():
         return None
     return json.loads(current_model_id_file.read_text())
 
 
 def set_current_model_id(user_id: int, model_id: int):
-    current_model_id_file = data_path.joinpath(str(user_id)).joinpath(
-        "current_model_id.json"
-    )
+    current_model_id_file = data_path.joinpath(str(user_id)).joinpath("current_model_id.json")
     with current_model_id_file.open(mode="wt") as model_store:
         model_store.write(json.dumps(model_id))
 
@@ -171,9 +206,7 @@ class ModelStoreContext:
 
 
 def get_model_store_path(user_id: int, model_id: int) -> ModelStoreContext:
-    model_path = (
-        data_path.joinpath(str(user_id)).joinpath("models").joinpath(str(model_id))
-    )
+    model_path = data_path.joinpath(str(user_id)).joinpath("models").joinpath(str(model_id))
     model_path.mkdir(parents=True, exist_ok=True)
 
     return ModelStoreContext(

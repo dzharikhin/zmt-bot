@@ -17,6 +17,7 @@ logger.setLevel(logging.DEBUG)
 
 _path_to_root = pathlib.Path(__file__).parent.parent
 
+
 @functools.cache
 def get_or_create_embeddings_model(embedding_params: tuple[str, str, str]):
     cls, model_name, output = embedding_params
@@ -29,9 +30,7 @@ def get_or_create_embeddings_model(embedding_params: tuple[str, str, str]):
 def get_meta_and_embedding_model(
     model_name: str,
 ) -> tuple[typing.Optional[dict], typing.Optional[typing.Any]]:
-    model_params = json.loads(
-        pathlib.Path(f"{_path_to_root}/essentia/models/{model_name}.json").read_text()
-    )
+    model_params = json.loads(pathlib.Path(f"{_path_to_root}/essentia/models/{model_name}.json").read_text())
     inference = model_params["inference"]
     if "embedding_model" not in inference:
         return None, None
@@ -39,9 +38,7 @@ def get_meta_and_embedding_model(
     embedding_model_data = inference["embedding_model"]
     embedding_model_name = embedding_model_data["model_name"]
     embedding_model_meta = json.loads(
-        pathlib.Path(
-            f"{_path_to_root}/essentia/models/{embedding_model_name}.json"
-        ).read_text()
+        pathlib.Path(f"{_path_to_root}/essentia/models/{embedding_model_name}.json").read_text()
     )
     embedding_model_output = [
         output["name"]
@@ -71,9 +68,7 @@ def get_or_create_model(model_name: str, model_params: tuple[str, str, str]):
 
 
 def get_classes_for_model(model_name: str):
-    classes_ = json.loads(
-        pathlib.Path(f"{_path_to_root}/essentia/models/{model_name}.json").read_text()
-    )["classes"]
+    classes_ = json.loads(pathlib.Path(f"{_path_to_root}/essentia/models/{model_name}.json").read_text())["classes"]
     return classes_ if len(classes_) > 2 else classes_[:1]
 
 
@@ -81,9 +76,7 @@ def get_model_params(model_metadata: dict):
     model_class = model_metadata["inference"]["algorithm"]
     model_input = [input["name"] for input in model_metadata["schema"]["inputs"]][0]
     model_output = [
-        output["name"]
-        for output in model_metadata["schema"]["outputs"]
-        if output["output_purpose"] == "predictions"
+        output["name"] for output in model_metadata["schema"]["outputs"] if output["output_purpose"] == "predictions"
     ][0]
     return (
         model_class,

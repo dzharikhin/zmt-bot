@@ -21,7 +21,7 @@ from telethon.events import NewMessage, CallbackQuery
 
 import config
 import train
-from bot_utils import get_message, is_allowed_user
+from bot_utils import get_channel_name, get_message, is_allowed_user
 from models import build_model_page_response
 from train import prepare_model, estimate
 
@@ -93,9 +93,7 @@ async def handle_train_queue_tasks(
         except persistqueue.exceptions.Empty:
             await asyncio.sleep(1)
         except telethon.errors.rpcerrorlist.BotMethodInvalidError as e:
-            await handle_non_recoverable(
-                bot_client, cmd, e, queue, user_id, "cannot train model"
-            )
+            await handle_non_recoverable(bot_client, cmd, e, queue, user_id, "cannot train model")
         except (RPCError, BrokenProcessPool) as e:
             cmd_id = queue.nack(cmd)
             logger.info(
@@ -103,9 +101,7 @@ async def handle_train_queue_tasks(
                 exc_info=e,
             )
         except Exception as e:
-            await handle_non_recoverable(
-                bot_client, cmd, e, queue, user_id, "cannot train model"
-            )
+            await handle_non_recoverable(bot_client, cmd, e, queue, user_id, "cannot train model")
 
 
 async def handle_non_recoverable(bot_client, cmd, e, queue, user_id, prefix):
@@ -117,16 +113,18 @@ async def handle_non_recoverable(bot_client, cmd, e, queue, user_id, prefix):
     await bot_client.send_message(user_id, f"Failed to execute {cmd}: {e}")
 
 
-async def send_estimate_queue_task(event, user_id):
+async def send_estimate_queue_task_with_channel(
+    event: NewMessage.Event, user_id: int, subscription: config.Subscription, channel_name: str
+):
     get_or_create_estimate_queue(user_id).put(
         {
             "chat_id": event.chat_id,
             "message_id": event.message.id,
+            "subscription": subscription,
+            "channel_name": channel_name,
         }
     )
-    logger.debug(
-        f"Created estimation task for chat_id={event.chat_id} and message_id={event.message.id}"
-    )
+    logger.debug(f"Created estimation task for chat_id={event.chat_id} and message_id={event.message.id}")
 
 
 async def handle_estimate_queue_tasks(
@@ -144,24 +142,25 @@ async def handle_estimate_queue_tasks(
         try:
             cmd = queue.get_nowait()
             logger.debug(f"Handling estimation cmd={cmd}")
-            is_recommended = await estimate(
-                user_id, cmd["chat_id"], cmd["message_id"], bot_client
-            )
+            is_recommended = await estimate(user_id, cmd["chat_id"], cmd["message_id"], bot_client)
             message = await get_message(cmd["chat_id"], cmd["message_id"], bot_client)
             if message:
+                channel_name = cmd.get("channel_name", str(cmd["chat_id"]))
+
                 if is_recommended:
                     await bot_client.forward_messages(user_id, message)
+                    await bot_client.send_message(user_id, f"#{channel_name}")
                 else:
                     if message.forward:
-                        reply_message = f"channel erases forward info, so provide <https://t.me> link explicitly when forwarding to estimation channel"
+                        reply_message = f"[{channel_name}] channel erases forward info, so provide <https://t.me> link explicitly when forwarding to estimation channel"
                     elif m := re.match("https://t.me/\\S+", message.message):
-                        reply_message = f"Rated as not recommended: {m.group(0)}"
+                        reply_message = f"[{channel_name}] Rated as not recommended: {m.group(0)}"
                     else:
-                        reply_message = f"Rated as not recommended: https://t.me/c/{message.input_chat.channel_id}/{message.id}"
+                        reply_message = f"[{channel_name}] Rated as not recommended: https://t.me/c/{message.input_chat.channel_id}/{message.id}"
 
                     await bot_client.send_message(user_id, reply_message)
             else:
-                alert = f"Message {cmd["message_id"]} from channel {cmd["chat_id"]} seems to be removed"
+                alert = f"Message {cmd['message_id']} from channel {cmd['chat_id']} seems to be removed"
                 logger.info(alert)
                 await bot_client.send_message(user_id, alert)
             queue.ack(cmd)
@@ -174,9 +173,7 @@ async def handle_estimate_queue_tasks(
                 exc_info=e,
             )
         except Exception as e:
-            await handle_non_recoverable(
-                bot_client, cmd, e, queue, user_id, "cannot estimate track"
-            )
+            await handle_non_recoverable(bot_client, cmd, e, queue, user_id, "cannot estimate track")
 
 
 START_CMD = ArgumentParser(
@@ -186,11 +183,11 @@ START_CMD = ArgumentParser(
     exit_on_error=False,
     add_help=False,
 )
-SUBSCRIBE_CMD = (
+INIT_CMD = (
     parser := ArgumentParser(
-        prog="subscribe",
-        epilog="(?i)^/subscribe(.*)$",
-        description="create subscription to telegram data",
+        prog="init",
+        epilog="(?i)^/init(.*)$",
+        description="initialize user channels (liked/disliked)",
         exit_on_error=False,
         add_help=False,
     ),
@@ -208,6 +205,17 @@ SUBSCRIBE_CMD = (
         type=int,
         help="channel with user-disliked tracks. Data for ML. Don't forget to add the bot to channel",
     ),
+    parser,
+)[-1]
+
+SUBSCRIBE_CMD = (
+    parser := ArgumentParser(
+        prog="subscribe",
+        epilog="(?i)^/subscribe(.*)$",
+        description="create subscription to telegram data",
+        exit_on_error=False,
+        add_help=False,
+    ),
     parser.add_argument(
         "-e",
         "--estimation_channel_id",
@@ -215,8 +223,66 @@ SUBSCRIBE_CMD = (
         type=int,
         help="channel to estimate tracks from. Don't forget to add the bot to channel",
     ),
+    parser.add_argument(
+        "-m",
+        "--model_id",
+        required=True,
+        type=int,
+        help="model id to use for this subscription",
+    ),
     parser,
 )[-1]
+
+UNSUBSCRIBE_CMD = (
+    parser := ArgumentParser(
+        prog="unsubscribe",
+        epilog="(?i)^/unsubscribe(.*)$",
+        description="remove subscription",
+        exit_on_error=False,
+        add_help=False,
+    ),
+    parser.add_argument(
+        "-e",
+        "--estimation_channel_id",
+        required=True,
+        type=int,
+        help="estimation channel to unsubscribe from",
+    ),
+    parser,
+)[-1]
+
+SET_SUB_MODEL_CMD = (
+    parser := ArgumentParser(
+        prog="set-subscription-model",
+        epilog="(?i)^/set-subscription-model(.*)$",
+        description="update model for a subscription",
+        exit_on_error=False,
+        add_help=False,
+    ),
+    parser.add_argument(
+        "-e",
+        "--estimation_channel_id",
+        required=True,
+        type=int,
+        help="estimation channel to update",
+    ),
+    parser.add_argument(
+        "-m",
+        "--model_id",
+        required=True,
+        type=int,
+        help="new model id",
+    ),
+    parser,
+)[-1]
+
+SUBSCRIPTIONS_CMD = ArgumentParser(
+    prog="subscriptions",
+    epilog="(?i)^/subscriptions\\s*.*$",
+    description="list all subscriptions",
+    exit_on_error=False,
+    add_help=False,
+)
 TRAIN_CMD = (
     parser := ArgumentParser(
         prog="train",
@@ -282,16 +348,18 @@ SET_MODEL_CMD = (
 
 CMDS = [
     START_CMD,  # always first element
+    INIT_CMD,
     SUBSCRIBE_CMD,
+    UNSUBSCRIBE_CMD,
+    SET_SUB_MODEL_CMD,
+    SUBSCRIPTIONS_CMD,
     TRAIN_CMD,
     LIST_MODELS_CMD,
     SET_MODEL_CMD,
 ]
 
 
-def _parse_args(
-    arg_parser: ArgumentParser, cmd_line: str
-) -> tuple[Namespace | None, str | None]:
+def _parse_args(arg_parser: ArgumentParser, cmd_line: str) -> tuple[Namespace | None, str | None]:
     try:
         args = arg_parser.parse_args(cmd_line.split())
         return args, None
@@ -329,28 +397,18 @@ def get_or_create_estimate_queue(user_id: int) -> persistqueue.SQLiteAckQueue:
     )
 
 
-async def check_queue_handlers(
-    tasks: dict[str, dict[str, Task]], bot_client: TelegramClient
-):
+async def check_queue_handlers(tasks: dict[str, dict[str, Task]], bot_client: TelegramClient):
     while True:
         for user_id in config.get_existing_users():
             current_user_tasks = tasks.get(str(user_id), {})
             train_queue_task = current_user_tasks.get("handle_train_queue_tasks")
-            if (
-                not train_queue_task
-                or train_queue_task.cancelled()
-                or train_queue_task.done()
-            ):
+            if not train_queue_task or train_queue_task.cancelled() or train_queue_task.done():
                 current_user_tasks["handle_train_queue_tasks"] = asyncio.create_task(
                     handle_train_queue_tasks(user_id, bot_client)
                 )
 
             estimate_queue_task = current_user_tasks.get("handle_estimate_queue_tasks")
-            if (
-                not estimate_queue_task
-                or estimate_queue_task.cancelled()
-                or train_queue_task.done()
-            ):
+            if not estimate_queue_task or estimate_queue_task.cancelled() or train_queue_task.done():
                 current_user_tasks["handle_estimate_queue_tasks"] = asyncio.create_task(
                     handle_estimate_queue_tasks(user_id, bot_client)
                 )
@@ -361,9 +419,9 @@ async def main():
     polars.show_versions()
     bot_client = await cast(
         Union[CoroutineType, TelegramClient],
-        TelegramClient(
-            config.local_data_path.joinpath("bot"), config.api_id, config.api_hash
-        ).start(bot_token=config.bot_token),
+        TelegramClient(config.local_data_path.joinpath("bot"), config.api_id, config.api_hash).start(
+            bot_token=config.bot_token
+        ),
     )
     tasks = {}
     async with bot_client:
@@ -371,61 +429,188 @@ async def main():
         logger.debug(f"Started bot {await bot_client.get_me()}")
 
         def filter_not_mapped(event: NewMessage.Event):
-            return event.is_channel == False and _not_matched_command(
-                event.message.message
-            )
+            return event.is_channel == False and _not_matched_command(event.message.message)
 
         @bot_client.on(events.NewMessage(incoming=True, func=filter_not_mapped))
         @bot_client.on(events.NewMessage(incoming=True, pattern=START_CMD.epilog))
-        async def start_handler(event: NewMessage.Event):
+        async def start_handler(event: NewMessage.Event) -> None:
             if not is_allowed_user(event.sender_id):
-                await bot_client.send_message(
-                    config.owner_user_id, f"user {event.sender_id} tries to use zmt-bot"
-                )
+                await bot_client.send_message(config.owner_user_id, f"user {event.sender_id} tries to use zmt-bot")
                 return
             logger.debug(f"Received unknown command: <{event.message.message}>")
             buffer = io.StringIO()
-            for cmd in CMDS[1:]:
+            for cmd in [
+                INIT_CMD,
+                SUBSCRIBE_CMD,
+                SUBSCRIPTIONS_CMD,
+                SET_SUB_MODEL_CMD,
+                UNSUBSCRIBE_CMD,
+                TRAIN_CMD,
+                LIST_MODELS_CMD,
+            ]:
                 buffer.write(f"/{cmd.prog}\n")
                 cmd.print_usage(buffer)
+                buffer.write("\n")
             await event.respond(buffer.getvalue())
 
-        @bot_client.on(events.NewMessage(incoming=True, pattern=SUBSCRIBE_CMD.epilog))
-        async def subscribe_handler(event: NewMessage.Event):
+        @bot_client.on(events.NewMessage(incoming=True, pattern=INIT_CMD.epilog))
+        async def init_handler(event: NewMessage.Event) -> None:
             if not is_allowed_user(event.sender_id):
-                await bot_client.send_message(
-                    config.owner_user_id, f"user {event.sender_id} tries to use zmt-bot"
-                )
+                await bot_client.send_message(config.owner_user_id, f"user {event.sender_id} tries to use zmt-bot")
                 return
 
-                # if you need a way to get channel id - this is it
-            # button = Button(types.KeyboardButtonRequestPeer("ch", 1, RequestPeerTypeBroadcast(), 1),
-            #        resize=True, single_use=False, selective=False)
-            # await event.respond(f"test", buttons=[button])
-
-            args, help_to_print = _parse_args(
-                SUBSCRIBE_CMD, event.pattern_match.group(1).strip()
-            )
+            args, help_to_print = _parse_args(INIT_CMD, event.pattern_match.group(1).strip())
             if help_to_print:
                 await event.respond(help_to_print)
                 return
 
-            config.set_channels(
-                event.sender_id,
-                config.Subscription(
-                    args.liked_channel_id,
-                    args.disliked_channel_id,
-                    args.estimation_channel_id,
-                ),
-            )
-            await event.respond(
-                f"Successfully subscribed. Please don't forget to add the bot into channels"
-            )
+            try:
+                liked_channel = await bot_client.get_entity(args.liked_channel_id)
+                disliked_channel = await bot_client.get_entity(args.disliked_channel_id)
+            except Exception as e:
+                await event.respond(f"❌ Error: Cannot access one or both channels. Check bot permissions.")
+                return
 
-        # if you need a way to get channel id - this is it
-        # @bot_client.on(events.Raw())
-        # async def handle(event: events.Raw):
-        #     logger.debug(f"Received unknown command: <{event.message.message}>")
+            channels = config.UserChannels(
+                liked_channel_id=args.liked_channel_id,
+                disliked_channel_id=args.disliked_channel_id,
+            )
+            config.set_user_channels(event.sender_id, channels)
+
+            await event.respond(f"Channels initialized. Train a model: /train -t <type> -ll <links>")
+
+        @bot_client.on(events.NewMessage(incoming=True, pattern=SUBSCRIBE_CMD.epilog))
+        async def subscribe_handler(event: NewMessage.Event) -> None:
+            if not is_allowed_user(event.sender_id):
+                await bot_client.send_message(config.owner_user_id, f"user {event.sender_id} tries to use zmt-bot")
+                return
+
+            args, help_to_print = _parse_args(SUBSCRIBE_CMD, event.pattern_match.group(1).strip())
+            if help_to_print:
+                await event.respond(help_to_print)
+                return
+
+            user_id = event.sender_id
+            channels = config.get_user_channels(user_id)
+            if not channels:
+                await event.respond(f"❌ Error: Initialize channels first. Hint: /init -l <id> -d <id>")
+                return
+
+            if not config.get_model(user_id, args.model_id):
+                await event.respond(
+                    f"❌ Error: Model {args.model_id} does not exist. Hint: /train -t <type> -ll <links>"
+                )
+                return
+
+            existing_sub = config.get_subscription_by_channel(user_id, args.estimation_channel_id)
+            if existing_sub:
+                await event.respond(f"❌ Error: Already subscribed to this channel. Hint: /subscriptions")
+                return
+
+            channel_name = await get_channel_name(args.estimation_channel_id, bot_client)
+
+            subscription = config.Subscription(
+                estimate_from_channel_id=args.estimation_channel_id,
+                model_id=args.model_id,
+            )
+            config.add_subscription(user_id, subscription)
+
+            await event.respond(f"Subscribed to {channel_name} with model #{args.model_id}")
+
+        @bot_client.on(events.NewMessage(incoming=True, pattern=UNSUBSCRIBE_CMD.epilog))
+        async def unsubscribe_handler(event: NewMessage.Event) -> None:
+            if not is_allowed_user(event.sender_id):
+                await bot_client.send_message(config.owner_user_id, f"user {event.sender_id} tries to use zmt-bot")
+                return
+
+            args, help_to_print = _parse_args(UNSUBSCRIBE_CMD, event.pattern_match.group(1).strip())
+            if help_to_print:
+                await event.respond(help_to_print)
+                return
+
+            subscription = config.get_subscription_by_channel(event.sender_id, args.estimation_channel_id)
+            if not subscription:
+                await event.respond(
+                    f"❌ Error: Not subscribed to channel {args.estimation_channel_id}. Hint: /subscriptions"
+                )
+                return
+
+            try:
+                channel_info = await bot_client.get_entity(args.estimation_channel_id)
+                channel_name = (
+                    getattr(channel_info, "title", None)
+                    or getattr(channel_info, "username", None)
+                    or str(args.estimation_channel_id)
+                )
+            except Exception:
+                channel_name = str(args.estimation_channel_id)
+
+            config.remove_subscription(event.sender_id, args.estimation_channel_id)
+
+            await event.respond(f"Unsubscribed from {channel_name}")
+
+        @bot_client.on(events.NewMessage(incoming=True, pattern=SET_SUB_MODEL_CMD.epilog))
+        async def set_sub_model_handler(event: NewMessage.Event) -> None:
+            if not is_allowed_user(event.sender_id):
+                await bot_client.send_message(config.owner_user_id, f"user {event.sender_id} tries to use zmt-bot")
+                return
+
+            args, help_to_print = _parse_args(SET_SUB_MODEL_CMD, event.pattern_match.group(1).strip())
+            if help_to_print:
+                await event.respond(help_to_print)
+                return
+
+            subscription = config.get_subscription_by_channel(event.sender_id, args.estimation_channel_id)
+            if not subscription:
+                await event.respond(f"❌ Error: Not subscribed to channel {args.estimation_channel_id}")
+                return
+
+            if not config.get_model(event.sender_id, args.model_id):
+                await event.respond(
+                    f"❌ Error: Model {args.model_id} does not exist. Hint: /train -t <type> -ll <links>"
+                )
+                return
+
+            try:
+                channel_info = await bot_client.get_entity(args.estimation_channel_id)
+                channel_name = (
+                    getattr(channel_info, "title", None)
+                    or getattr(channel_info, "username", None)
+                    or str(args.estimation_channel_id)
+                )
+            except Exception:
+                channel_name = str(args.estimation_channel_id)
+
+            config.update_subscription_model(event.sender_id, args.estimation_channel_id, args.model_id)
+
+            await event.respond(f"Updated {channel_name} to use model #{args.model_id}")
+
+        @bot_client.on(events.NewMessage(incoming=True, pattern=SUBSCRIPTIONS_CMD.epilog))
+        async def subscriptions_handler(event: NewMessage.Event) -> None:
+            if not is_allowed_user(event.sender_id):
+                await bot_client.send_message(config.owner_user_id, f"user {event.sender_id} tries to use zmt-bot")
+                return
+
+            subscriptions = config.get_subscriptions(event.sender_id)
+            if not subscriptions:
+                await event.respond(f"No subscriptions yet. Add: /subscribe -e <channel> -m <model>")
+                return
+
+            buffer = io.StringIO()
+            buffer.write("Your subscriptions:\n")
+            for idx, sub in enumerate(subscriptions, 1):
+                try:
+                    channel_info = await bot_client.get_entity(sub.estimate_from_channel_id)
+                    channel_name = (
+                        getattr(channel_info, "title", None)
+                        or getattr(channel_info, "username", None)
+                        or str(sub.estimate_from_channel_id)
+                    )
+                except Exception:
+                    channel_name = str(sub.estimate_from_channel_id)
+                buffer.write(f"{idx}. {channel_name} - Model #{sub.model_id}\n")
+
+            await event.respond(buffer.getvalue())
 
         def filter_subscribed_with_mp3(event: NewMessage.Event):
             return config.get_subscribed_user_ids(event.chat_id)
@@ -434,31 +619,31 @@ async def main():
         async def handle_estimation_update_handler(event: NewMessage.Event):
             user_ids = config.get_subscribed_user_ids(event.chat_id)
             for user_id in user_ids:
-                if not config.get_subscription(user_id):
-                    await bot_client.send_message(
-                        user_id, f"/{SUBSCRIBE_CMD.prog} first"
-                    )
+                subscription = config.get_subscription_by_channel(user_id, event.chat_id)
+                if not subscription:
+                    await bot_client.send_message(user_id, f"/{SUBSCRIBE_CMD.prog} first")
                     continue
-
-                await send_estimate_queue_task(event, user_id)
+                channel_name = await get_channel_name(event.chat_id, bot_client)
+                await send_estimate_queue_task_with_channel(event, user_id, subscription, channel_name)
 
         @bot_client.on(events.NewMessage(incoming=True, pattern=TRAIN_CMD.epilog))
         async def handle_train_handler(event: NewMessage.Event):
             if not is_allowed_user(event.sender_id):
-                await bot_client.send_message(
-                    config.owner_user_id, f"user {event.sender_id} tries to use zmt-bot"
-                )
+                await bot_client.send_message(config.owner_user_id, f"user {event.sender_id} tries to use zmt-bot")
                 return
 
             if not config.get_subscription(event.sender_id):
                 await event.respond(f"/{SUBSCRIBE_CMD.prog} first")
                 return
 
-            args, help_to_print = _parse_args(
-                TRAIN_CMD, event.pattern_match.group(1).strip()
-            )
+            args, help_to_print = _parse_args(TRAIN_CMD, event.pattern_match.group(1).strip())
             if help_to_print:
                 await event.respond(help_to_print)
+                return
+
+            user_id = event.sender_id
+            if not config.has_user_channels(user_id):
+                await event.respond(f"❌ Error: Initialize channels first. Hint: /init -l <id> -d <id>")
                 return
 
             await send_train_queue_task(event, args.latest_message_links, args.type, args.limit, args.force)
@@ -467,40 +652,30 @@ async def main():
         @bot_client.on(events.NewMessage(incoming=True, pattern=LIST_MODELS_CMD.epilog))
         async def list_models_handler(event: NewMessage.Event):
             if not is_allowed_user(event.sender_id):
-                await bot_client.send_message(
-                    config.owner_user_id, f"user {event.sender_id} tries to use zmt-bot"
-                )
+                await bot_client.send_message(config.owner_user_id, f"user {event.sender_id} tries to use zmt-bot")
                 return
 
-            if not config.get_subscription(event.sender_id):
-                await event.respond(f"/{SUBSCRIBE_CMD.prog} first")
+            if not config.has_user_channels(event.sender_id):
+                await event.respond(f"❌ Error: Initialize channels first. Hint: /init -l <id> -d <id>")
                 return
 
-            message_text, buttons, (pagination_data, attributes) = (
-                await build_model_page_response(event.sender_id, [])
-            )
-            conditional_params = (
-                {"buttons": buttons, "file": pagination_data} if buttons else {}
-            )
+            message_text, buttons, (pagination_data, attributes) = await build_model_page_response(event.sender_id, [])
+            conditional_params = {"buttons": buttons, "file": pagination_data} if buttons else {}
             await event.respond(
                 message_text,
                 attributes=attributes,
                 **conditional_params,
             )
 
-        @bot_client.on(
-            events.CallbackQuery(data=re.compile("^model-list\\(([^:]+):([^:]+)\\)"))
-        )
+        @bot_client.on(events.CallbackQuery(data=re.compile("^model-list\\(([^:]+):([^:]+)\\)")))
         async def models_pagination_handler(event: CallbackQuery.Event):
             message = await get_message(event.chat_id, event.message_id, bot_client)
             action_type = event.pattern_match.group(1).decode("utf-8").strip()
             target_offset = event.pattern_match.group(2).decode("utf-8").strip()
             value = (await message.download_media(file=bytes)).decode("utf-8")
             offset_stack = json.loads(value)
-            message_text, buttons, (pagination_data, attributes) = (
-                await build_model_page_response(
-                    message.sender_id, offset_stack, (int(target_offset), action_type)
-                )
+            message_text, buttons, (pagination_data, attributes) = await build_model_page_response(
+                message.sender_id, offset_stack, (int(target_offset), action_type)
             )
             await event.edit(
                 message_text,
@@ -512,31 +687,28 @@ async def main():
         @bot_client.on(events.NewMessage(incoming=True, pattern=SET_MODEL_CMD.epilog))
         async def set_model_handler(event: NewMessage.Event):
             if not is_allowed_user(event.sender_id):
-                await bot_client.send_message(
-                    config.owner_user_id, f"user {event.sender_id} tries to use zmt-bot"
-                )
+                await bot_client.send_message(config.owner_user_id, f"user {event.sender_id} tries to use zmt-bot")
                 return
 
-            if not config.get_subscription(event.sender_id):
-                await event.respond(f"/{SUBSCRIBE_CMD.prog} first")
+            if not config.has_user_channels(event.sender_id):
+                await event.respond(f"❌ Error: Initialize channels first. Hint: /init -l <id> -d <id>")
                 return
 
-            args, help_to_print = _parse_args(
-                SET_MODEL_CMD, event.pattern_match.group(1).strip()
-            )
+            args, help_to_print = _parse_args(SET_MODEL_CMD, event.pattern_match.group(1).strip())
             if help_to_print:
                 await event.respond(help_to_print)
                 return
+
             if not config.get_model(event.sender_id, args.model_id):
-                await event.respond(f"Model {args.model_id} does not exist")
+                await event.respond(
+                    f"❌ Error: Model {args.model_id} does not exist. Hint: /train -t <type> -ll <links>"
+                )
                 return
 
             config.set_current_model_id(event.sender_id, args.model_id)
             await event.respond(f"Model {args.model_id} set as default")
 
-        tasks["global"] = {
-            "check": asyncio.create_task(check_queue_handlers(tasks, bot_client))
-        }
+        tasks["global"] = {"check": asyncio.create_task(check_queue_handlers(tasks, bot_client))}
         await bot_client.run_until_disconnected()
 
     for task_group in tasks.values():

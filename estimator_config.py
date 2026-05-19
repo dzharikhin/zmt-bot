@@ -5,7 +5,6 @@ from itertools import groupby
 import numpy as np
 
 if __name__ == "__main__":
-
     PROPS = (
         "suod_combination",
         "feature_bagging_type",
@@ -24,10 +23,7 @@ if __name__ == "__main__":
     def param_value_has_influence(param_variant_accuracies: dict):
         averages = [float(e[0]) for e in param_variant_accuracies.values()]
         stds = [float(e[1]) for e in param_variant_accuracies.values()]
-        return (
-            np.std(averages) / np.average(averages) >= 0.33
-            or np.std(stds) / np.average(stds) >= 0.33
-        )
+        return np.std(averages) / np.average(averages) >= 0.33 or np.std(stds) / np.average(stds) >= 0.33
 
     with raw_report_file.open("rt") as raw_report:
         checked_target_rows = set()
@@ -41,34 +37,27 @@ if __name__ == "__main__":
                 if not estimator:
                     continue
                 estimator_config, estimator_result = tuple(estimator.split("->", 2))
-                estimator_average, estimator_deviation = tuple(
-                    estimator_result.split("+-", 2)
-                )
-                estimator_type, estimator_param_line = tuple(
-                    estimator_config.split("[", 2)
-                )
+                estimator_average, estimator_deviation = tuple(estimator_result.split("+-", 2))
+                estimator_type, estimator_param_line = tuple(estimator_config.split("[", 2))
                 estimator_params = dict(
-                    [
-                        tuple(param.split("=", 2))
-                        for param in estimator_param_line.split("]", 2)[0].split(",")
-                    ]
+                    [tuple(param.split("=", 2)) for param in estimator_param_line.split("]", 2)[0].split(",")]
                 )
                 for target in PROPS:
                     if target not in estimator_params:
                         continue
                     target_reduced_params = estimator_params.copy()
                     target_param_value = target_reduced_params.pop(target)
-                    tree[estimator_type][tuple(target_reduced_params.items())][target][
-                        target_param_value
-                    ] = (estimator_average, estimator_deviation)
+                    tree[estimator_type][tuple(target_reduced_params.items())][target][target_param_value] = (
+                        estimator_average,
+                        estimator_deviation,
+                    )
 
             meaningful_variations = {
                 ((estimator_type,), *reduced_params): param_target
                 for estimator_type, estimator_type_variants in tree.items()
                 for reduced_params, param_target in estimator_type_variants.items()
                 for target, param_variations in param_target.items()
-                if len(param_variations) > 1
-                and param_value_has_influence(param_variations)
+                if len(param_variations) > 1 and param_value_has_influence(param_variations)
             }
 
             # print(f"{data_config.strip()=}:")

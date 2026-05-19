@@ -28,23 +28,16 @@ def unwrap_single_chat(chat: Chats) -> Optional[Chat]:
     return chat.chats[0]
 
 
-async def get_message(
-    channel: int | Chat, msg_id: int, bot_client: TelegramClient
-) -> Optional[custom.Message]:
+async def get_message(channel: int | Chat, msg_id: int, bot_client: TelegramClient) -> Optional[custom.Message]:
     msgs = await bot_client.get_messages(channel, ids=[msg_id])
     return msgs[0] if msgs and msgs[0] else None
 
 
 def is_allowed_user(user_id: int) -> bool:
-    return (
-        user_id == config.owner_user_id
-        or user_id in config.get_allowed_to_use_user_ids()
-    )
+    return user_id == config.owner_user_id or user_id in config.get_allowed_to_use_user_ids()
 
 
-async def obtain_latest_message_id(
-    channel: Chat | Channel, latest_message_links: list[str]
-) -> int:
+async def obtain_latest_message_id(channel: Chat | Channel, latest_message_links: list[str]) -> int:
     link_by_id = [link for link in latest_message_links if str(channel.id) in link]
     if link_by_id:
         return int(link_by_id[0].split(f"{channel.id}/")[-1])
@@ -55,3 +48,12 @@ async def obtain_latest_message_id(
             return int(link_by_name[0].split(f"{channel.username}/")[-1])
 
     raise ValueError(f"{latest_message_links} do not contain {channel} link")
+
+
+async def get_channel_name(channel_id: int, bot_client: TelegramClient) -> str:
+    """Fetch channel name from channel_id, with fallback to channel_id string."""
+    try:
+        channel_entity = await bot_client.get_entity(channel_id)
+        return getattr(channel_entity, "title", None) or getattr(channel_entity, "username", None) or str(channel_id)
+    except Exception:
+        return str(channel_id)
