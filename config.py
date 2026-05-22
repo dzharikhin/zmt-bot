@@ -31,6 +31,8 @@ not_overridable_properties = {
 
 user_client_check_period_seconds = int(os.getenv("USER_CLIENT_CHECK_PERIOD_SECONDS", "10"))
 dialog_list_page_size = int(os.getenv("DIALOG_LIST_PAGE_SIZE", "10"))
+estimation_post_way = os.getenv("ESTIMATION_POST_WAY", "reply")
+
 max_training_workers = int(os.getenv("MAX_TRAINING_WORKERS", "2"))
 max_estimation_workers = int(os.getenv("MAX_ESTIMATION_WORKERS", "2"))
 min_track_length_seconds = int(os.getenv("MIN_TRACK_LENGTH_SECONDS", "60"))

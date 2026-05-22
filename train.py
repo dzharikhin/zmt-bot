@@ -682,7 +682,7 @@ async def estimate(user_id: int, chat_id: int, message_id: int, bot_client: Tele
             user_id,
             track_to_estimate_path,
         )
-        logger.info(f"{user_id=} {message_id=}: {is_recommended=}")
+        logger.info(f"{user_id=} {chat_id=} {message_id=}: {is_recommended=}")
         return is_recommended
 
 

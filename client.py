@@ -148,8 +148,10 @@ async def handle_estimate_queue_tasks(
                 channel_name = cmd.get("channel_name", str(cmd["chat_id"]))
 
                 if is_recommended:
-                    await bot_client.forward_messages(user_id, message)
-                    await bot_client.send_message(user_id, f"#{channel_name}")
+                    if config.estimation_post_way == "reply":
+                        await bot_client.send_message(user_id, f"#{channel_name}", file=message.media, reply_to=message)
+                    else:
+                        await bot_client.forward_messages(user_id, message)
                 else:
                     if message.forward:
                         reply_message = f"[{channel_name}] channel erases forward info, so provide <https://t.me> link explicitly when forwarding to estimation channel"

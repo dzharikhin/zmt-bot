@@ -51,9 +51,17 @@ async def obtain_latest_message_id(channel: Chat | Channel, latest_message_links
 
 
 async def get_channel_name(channel_id: int, bot_client: TelegramClient) -> str:
-    """Fetch channel name from channel_id, with fallback to channel_id string."""
     try:
         channel_entity = await bot_client.get_entity(channel_id)
-        return getattr(channel_entity, "title", None) or getattr(channel_entity, "username", None) or str(channel_id)
-    except Exception:
+        channel_name = getattr(channel_entity, "title", None) or getattr(channel_entity, "username", None)
+        if not channel_name:
+            logger.warning(
+                f"No channel name found for {channel_entity=}. Falling back to id",
+            )
+        return channel_name or str(channel_id)
+    except Exception as e:
+        logger.warning(
+            f"Error on obtaining channel name. Falling back to id",
+            exc_info=e,
+        )
         return str(channel_id)
