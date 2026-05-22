@@ -28,6 +28,6 @@ docker save "tg-zmt-bot:$(poetry version --short)" > "tg-zmt-bot_$(poetry versio
 > to drop cache for selected stages: `--set essentia-builder.no-cache-filter=builder`
 
 ## Add as dependency
-`poetry add --editable essentia-wheels/essentia-2.1b6.dev0-cp312-cp312-manylinux_2_35_x86_64.whl`
+`poetry add --editable essentia/essentia-2.1b6.dev0-cp312-cp312-manylinux_2_35_x86_64.whl`
 > look at wheels size - the biggest is what you need  
 > `--editable` - for local development
