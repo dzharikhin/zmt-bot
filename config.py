@@ -29,26 +29,26 @@ not_overridable_properties = {
     v_name(f"{local_data_path=}"),
 }
 
-user_client_check_period_seconds = 10
-dialog_list_page_size = 10
-max_training_workers = 2
-max_estimation_workers = 2
-min_track_length_seconds = 60
-max_track_length_seconds = 480
-test_samples_fraction = 0.25
+user_client_check_period_seconds = int(os.getenv("USER_CLIENT_CHECK_PERIOD_SECONDS", "10"))
+dialog_list_page_size = int(os.getenv("DIALOG_LIST_PAGE_SIZE", "10"))
+max_training_workers = int(os.getenv("MAX_TRAINING_WORKERS", "2"))
+max_estimation_workers = int(os.getenv("MAX_ESTIMATION_WORKERS", "2"))
+min_track_length_seconds = int(os.getenv("MIN_TRACK_LENGTH_SECONDS", "60"))
+max_track_length_seconds = int(os.getenv("MAX_TRACK_LENGTH_SECONDS", "480"))
+test_samples_fraction = float(os.getenv("TEST_SAMPLES_FRACTION", "0.25"))
 
 model_optimization_iterations = math.floor(math.e**4)
-model_data_contamination_fraction = 0.1
-model_cluster_target_coverage_threshold = 0.7
-model_max_cluster_limit = model_cluster_target_coverage_threshold
-model_metric_guide = "weighted"
+model_data_contamination_fraction = float(os.getenv("MODEL_DATA_CONTAMINATION_FRACTION", "0.1"))
+model_cluster_target_coverage_threshold = float(os.getenv("MODEL_CLUSTER_TARGET_COVERAGE_THRESHOLD", "0.7"))
+model_max_cluster_limit = float(os.getenv("MODEL_MAX_CLUSTER_LIMIT", f"{model_cluster_target_coverage_threshold}"))
+model_metric_guide = os.getenv("MODEL_METRIC_GUIDE", "weighted")
 
 
 def override():
     overrides = {}
     override_from = data_path.joinpath("config.py")
     if override_from.exists():
-        exec(override_from.read_text(), locals=overrides)
+        exec(override_from.read_text(), None, overrides)
     for override_key, override_value in filter(lambda t: t[0] not in not_overridable_properties, overrides.items()):
         globals()[override_key] = override_value
 
