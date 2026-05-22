@@ -8,3 +8,12 @@ Dockerfile
 *.ods
 *.tar
 **/*.Dockerfile
+
+.venv/
+__pycache__/
+.git/
+.opencode/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
