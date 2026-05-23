@@ -630,17 +630,13 @@ async def prepare_model(
         raise TrainUnrecoverable(f"Can't train model {model_id} for user {user_id}") from e
 
 
-def execute_estimation(user_id: int, track_to_estimate_path: pathlib.Path) -> bool:
-    actual_model_id = config.get_current_model_id(user_id)
-    if not actual_model_id:
-        raise EstimationUnrecoverable(f"for user {user_id} no model version set")
-
+def execute_estimation(user_id: int, model_id: int, track_to_estimate_path: pathlib.Path) -> bool:
     cached_model_id, model = _estimation_model_cache.get(user_id, (None, None))
 
-    if not model or actual_model_id != cached_model_id:
-        model_entry = config.get_model(user_id, actual_model_id)
+    if not model or model_id != cached_model_id:
+        model_entry = config.get_model(user_id, model)
         _estimation_model_cache[user_id] = (
-            actual_model_id,
+            model_id,
             _load_model(model_entry.pickle_file_path),
         )
     _, model = _estimation_model_cache[user_id]
@@ -668,7 +664,7 @@ def estimate_inner(model, track_to_estimate_path: pathlib.Path) -> bool:
     return bool(model.predict(data)[0])
 
 
-async def estimate(user_id: int, chat_id: int, message_id: int, bot_client: TelegramClient) -> bool:
+async def estimate(user_id: int, chat_id: int, message_id: int, model_id: int, bot_client: TelegramClient) -> bool:
     message = await get_message(chat_id, message_id, bot_client)
 
     tmp_dir = config.get_user_tmp_dir(user_id)
@@ -680,6 +676,7 @@ async def estimate(user_id: int, chat_id: int, message_id: int, bot_client: Tele
             config.estimation_executor,
             execute_estimation,
             user_id,
+            model_id,
             track_to_estimate_path,
         )
         logger.info(f"{user_id=} {chat_id=} {message_id=}: {is_recommended=}")

@@ -19,13 +19,13 @@ logger.setLevel(logging.DEBUG)
 
 async def build_model_page_response(
     user_id: int,
+    subscription_names: dict[int, list[str]],
     offset_stack: list[int],
     action: Optional[tuple[int, Literal["backward", "forward"]]] = None,
 ) -> tuple[str, list[Button], tuple[bytes, list[DocumentAttributeFilename]]]:
     target_offset, action_type = action if action else (0, None)
     models = config.get_models(user_id)
     models_slice = models[target_offset : target_offset + config.dialog_list_page_size]
-    current_model_id = config.get_current_model_id(user_id)
     if not action_type:
         previous_offset = None
         offset_stack.append(0)
@@ -58,7 +58,7 @@ async def build_model_page_response(
 
     return await format_model_response(
         models_slice,
-        current_model_id,
+        subscription_names,
         offset_stack,
         previous_offset,
         next_offset,
@@ -67,7 +67,7 @@ async def build_model_page_response(
 
 async def format_model_response(
     items: list[config.Model],
-    current_model_id: int,
+    subscription_names: dict[int, list[str]],
     offset_stack: list[float | None] | list[int],
     previous_offset: Optional[float],
     next_offset: Optional[float],
@@ -84,7 +84,7 @@ async def format_model_response(
     )
     models_formatted = "\n".join(
         [
-            f"* {"[current]" if model.model_id == current_model_id else ""} model `{model.model_id}`({model.model_type}): {model.accuracy:.2f}(track stats: {model.disliked_tracks_count}disliked / {model.liked_tracks_count}liked)"
+            f"* [{",".join(subscription_names[model.model_id]) if model.model_id in subscription_names else ""}] model `{model.model_id}`({model.model_type}): {model.accuracy:.2f}(track stats: {model.disliked_tracks_count}disliked / {model.liked_tracks_count}liked)"
             for model in items
         ]
     )

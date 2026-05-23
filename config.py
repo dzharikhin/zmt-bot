@@ -184,20 +184,6 @@ def get_model(user_id: int, model_id: int) -> Optional[Model]:
         **model_stats,
     )
 
-
-def get_current_model_id(user_id: int) -> Optional[int]:
-    current_model_id_file = data_path.joinpath(str(user_id)).joinpath("current_model_id.json")
-    if not current_model_id_file.exists():
-        return None
-    return json.loads(current_model_id_file.read_text())
-
-
-def set_current_model_id(user_id: int, model_id: int):
-    current_model_id_file = data_path.joinpath(str(user_id)).joinpath("current_model_id.json")
-    with current_model_id_file.open(mode="wt") as model_store:
-        model_store.write(json.dumps(model_id))
-
-
 @dataclasses.dataclass
 class ModelStoreContext:
     user_id: int

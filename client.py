@@ -21,15 +21,10 @@ from telethon.events import NewMessage, CallbackQuery
 
 import config
 import train
-from bot_utils import get_channel_name, get_message, is_allowed_user
+from bot_utils import get_channel_name, get_message, is_allowed_user, get_channel_names
 from models import build_model_page_response
 from train import prepare_model, estimate
 
-# commands to implement:
-# - subscribe <link_to_good> <link_to_bad> <link_to_estimate> - set channels to work with
-# - train [force] - train new model and set it as current, force - reload all tracks
-# - list - list available models
-# - set-model <model_id> - set some model as current
 
 logging.basicConfig(
     level=logging.WARN,
@@ -120,11 +115,11 @@ async def send_estimate_queue_task_with_channel(
         {
             "chat_id": event.chat_id,
             "message_id": event.message.id,
-            "subscription": subscription,
+            "model_id": subscription.model_id,
             "channel_name": channel_name,
         }
     )
-    logger.debug(f"Created estimation task for chat_id={event.chat_id} and message_id={event.message.id}")
+    logger.debug(f"Created estimation task for {user_id=} {event.chat_id=} {event.message.id=}")
 
 
 async def handle_estimate_queue_tasks(
@@ -142,7 +137,7 @@ async def handle_estimate_queue_tasks(
         try:
             cmd = queue.get_nowait()
             logger.debug(f"Handling estimation cmd={cmd}")
-            is_recommended = await estimate(user_id, cmd["chat_id"], cmd["message_id"], bot_client)
+            is_recommended = await estimate(user_id, cmd["chat_id"], cmd["message_id"], cmd["model_id"], bot_client)
             message = await get_message(cmd["chat_id"], cmd["message_id"], bot_client)
             if message:
                 channel_name = cmd.get("channel_name", str(cmd["chat_id"]))
@@ -330,23 +325,6 @@ LIST_MODELS_CMD = ArgumentParser(
     exit_on_error=False,
     add_help=False,
 )
-SET_MODEL_CMD = (
-    parser := ArgumentParser(
-        prog="set",
-        epilog="(?i)^/set(.*)$",
-        description="set a model to estimate tracks with",
-        exit_on_error=False,
-        add_help=False,
-    ),
-    parser.add_argument(
-        "-m",
-        "--model_id",
-        required=True,
-        type=int,
-        help="model id to set as current estimation model",
-    ),
-    parser,
-)[-1]
 
 CMDS = [
     START_CMD,  # always first element
@@ -357,7 +335,6 @@ CMDS = [
     SUBSCRIPTIONS_CMD,
     TRAIN_CMD,
     LIST_MODELS_CMD,
-    SET_MODEL_CMD,
 ]
 
 
@@ -634,10 +611,6 @@ async def main():
                 await bot_client.send_message(config.owner_user_id, f"user {event.sender_id} tries to use zmt-bot")
                 return
 
-            if not config.get_subscription(event.sender_id):
-                await event.respond(f"/{SUBSCRIBE_CMD.prog} first")
-                return
-
             args, help_to_print = _parse_args(TRAIN_CMD, event.pattern_match.group(1).strip())
             if help_to_print:
                 await event.respond(help_to_print)
@@ -661,7 +634,8 @@ async def main():
                 await event.respond(f"❌ Error: Initialize channels first. Hint: /init -l <id> -d <id>")
                 return
 
-            message_text, buttons, (pagination_data, attributes) = await build_model_page_response(event.sender_id, [])
+            subscription_names = await get_channel_names({s.estimate_from_channel_id: s.model_id for s in config.get_subscriptions(event.sender_id)}, bot_client)
+            message_text, buttons, (pagination_data, attributes) = await build_model_page_response(event.sender_id, subscription_names, [])
             conditional_params = {"buttons": buttons, "file": pagination_data} if buttons else {}
             await event.respond(
                 message_text,
@@ -676,8 +650,9 @@ async def main():
             target_offset = event.pattern_match.group(2).decode("utf-8").strip()
             value = (await message.download_media(file=bytes)).decode("utf-8")
             offset_stack = json.loads(value)
+            subscription_names = await get_channel_names({s.estimate_from_channel_id: s.model_id for s in config.get_subscriptions(event.sender_id)}, bot_client)
             message_text, buttons, (pagination_data, attributes) = await build_model_page_response(
-                message.sender_id, offset_stack, (int(target_offset), action_type)
+                message.sender_id, subscription_names, offset_stack, (int(target_offset), action_type)
             )
             await event.edit(
                 message_text,
@@ -685,30 +660,6 @@ async def main():
                 attributes=attributes,
                 buttons=buttons,
             )
-
-        @bot_client.on(events.NewMessage(incoming=True, pattern=SET_MODEL_CMD.epilog))
-        async def set_model_handler(event: NewMessage.Event):
-            if not is_allowed_user(event.sender_id):
-                await bot_client.send_message(config.owner_user_id, f"user {event.sender_id} tries to use zmt-bot")
-                return
-
-            if not config.has_user_channels(event.sender_id):
-                await event.respond(f"❌ Error: Initialize channels first. Hint: /init -l <id> -d <id>")
-                return
-
-            args, help_to_print = _parse_args(SET_MODEL_CMD, event.pattern_match.group(1).strip())
-            if help_to_print:
-                await event.respond(help_to_print)
-                return
-
-            if not config.get_model(event.sender_id, args.model_id):
-                await event.respond(
-                    f"❌ Error: Model {args.model_id} does not exist. Hint: /train -t <type> -ll <links>"
-                )
-                return
-
-            config.set_current_model_id(event.sender_id, args.model_id)
-            await event.respond(f"Model {args.model_id} set as default")
 
         tasks["global"] = {"check": asyncio.create_task(check_queue_handlers(tasks, bot_client))}
         await bot_client.run_until_disconnected()

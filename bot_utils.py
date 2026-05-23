@@ -1,4 +1,5 @@
 import logging
+from collections import defaultdict
 from typing import Optional
 
 from telethon import TelegramClient
@@ -65,3 +66,11 @@ async def get_channel_name(channel_id: int, bot_client: TelegramClient) -> str:
             exc_info=e,
         )
         return str(channel_id)
+
+
+async def get_channel_names(subscriptions: dict[int, int], bot_client: TelegramClient) -> dict[int, list[str]]:
+    subs_per_model = defaultdict(list)
+    for channel_id, model_id in subscriptions.items():
+        subs_per_model[model_id].append(await get_channel_name(channel_id, bot_client))
+    return subs_per_model
+
