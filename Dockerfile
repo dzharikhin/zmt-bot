@@ -8,7 +8,7 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV POETRY_CACHE_DIR=/opt/.cache
 
-RUN add-apt-repository ppa:deadsnakes/ppa
+RUN apt update && apt install -y software-properties-common && add-apt-repository ppa:deadsnakes/ppa
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     software-properties-common \
@@ -53,7 +53,8 @@ RUN . /app/.venv/bin/activate && cd /app \
 
 
 FROM ubuntu:jammy-20250404 AS runtime
-RUN add-apt-repository ppa:deadsnakes/ppa
+
+RUN apt update && apt install -y software-properties-common && add-apt-repository ppa:deadsnakes/ppa
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.12 \
