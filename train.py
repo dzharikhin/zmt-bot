@@ -695,7 +695,7 @@ def execute_estimation(
     cached_model_id, model = _estimation_model_cache.get(user_id, (None, None))
 
     if not model or model_id != cached_model_id:
-        model_entry = config.get_model(user_id, model)
+        model_entry = config.get_model(user_id, model_id)
         _estimation_model_cache[user_id] = (
             model_id,
             _load_model(model_entry.pickle_file_path),
