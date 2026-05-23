@@ -29,7 +29,9 @@ not_overridable_properties = {
     v_name(f"{local_data_path=}"),
 }
 
-user_client_check_period_seconds = int(os.getenv("USER_CLIENT_CHECK_PERIOD_SECONDS", "10"))
+user_client_check_period_seconds = int(
+    os.getenv("USER_CLIENT_CHECK_PERIOD_SECONDS", "10")
+)
 dialog_list_page_size = int(os.getenv("DIALOG_LIST_PAGE_SIZE", "10"))
 estimation_post_way = os.getenv("ESTIMATION_POST_WAY", "reply")
 
@@ -40,9 +42,15 @@ max_track_length_seconds = int(os.getenv("MAX_TRACK_LENGTH_SECONDS", "480"))
 test_samples_fraction = float(os.getenv("TEST_SAMPLES_FRACTION", "0.25"))
 
 model_optimization_iterations = math.floor(math.e**4)
-model_data_contamination_fraction = float(os.getenv("MODEL_DATA_CONTAMINATION_FRACTION", "0.1"))
-model_cluster_target_coverage_threshold = float(os.getenv("MODEL_CLUSTER_TARGET_COVERAGE_THRESHOLD", "0.7"))
-model_max_cluster_limit = float(os.getenv("MODEL_MAX_CLUSTER_LIMIT", f"{model_cluster_target_coverage_threshold}"))
+model_data_contamination_fraction = float(
+    os.getenv("MODEL_DATA_CONTAMINATION_FRACTION", "0.1")
+)
+model_cluster_target_coverage_threshold = float(
+    os.getenv("MODEL_CLUSTER_TARGET_COVERAGE_THRESHOLD", "0.7")
+)
+model_max_cluster_limit = float(
+    os.getenv("MODEL_MAX_CLUSTER_LIMIT", f"{model_cluster_target_coverage_threshold}")
+)
 model_metric_guide = os.getenv("MODEL_METRIC_GUIDE", "weighted")
 
 
@@ -51,7 +59,9 @@ def override():
     override_from = data_path.joinpath("config.py")
     if override_from.exists():
         exec(override_from.read_text(), None, overrides)
-    for override_key, override_value in filter(lambda t: t[0] not in not_overridable_properties, overrides.items()):
+    for override_key, override_value in filter(
+        lambda t: t[0] not in not_overridable_properties, overrides.items()
+    ):
         globals()[override_key] = override_value
 
 
@@ -70,7 +80,11 @@ estimation_executor = ProcessPoolExecutor(
 
 
 def get_existing_users() -> list[int]:
-    return [int(user_data.name) for user_data in data_path.iterdir() if re.match("\\d+", user_data.name)]
+    return [
+        int(user_data.name)
+        for user_data in data_path.iterdir()
+        if re.match("\\d+", user_data.name)
+    ]
 
 
 @dataclasses.dataclass
@@ -83,7 +97,9 @@ def get_user_channels(user_id: int) -> Optional[UserChannels]:
     channels_file = data_path.joinpath(str(user_id)).joinpath("channels.json")
     if not channels_file.exists():
         return None
-    return from_dict(data_class=UserChannels, data=json.loads(channels_file.read_text()))
+    return from_dict(
+        data_class=UserChannels, data=json.loads(channels_file.read_text())
+    )
 
 
 def set_user_channels(user_id: int, channels: UserChannels):
@@ -103,7 +119,10 @@ def get_subscriptions(user_id: int) -> list[Subscription]:
     subscriptions_file = data_path.joinpath(str(user_id)).joinpath("subscriptions.json")
     if not subscriptions_file.exists():
         return []
-    return [from_dict(data_class=Subscription, data=item) for item in json.loads(subscriptions_file.read_text())]
+    return [
+        from_dict(data_class=Subscription, data=item)
+        for item in json.loads(subscriptions_file.read_text())
+    ]
 
 
 def add_subscription(user_id: int, subscription: Subscription):
@@ -115,7 +134,9 @@ def add_subscription(user_id: int, subscription: Subscription):
         f.write(json.dumps([dataclasses.asdict(s) for s in subscriptions]))
 
 
-def get_subscription_by_channel(user_id: int, channel_id: int) -> Optional[Subscription]:
+def get_subscription_by_channel(
+    user_id: int, channel_id: int
+) -> Optional[Subscription]:
     subscriptions = get_subscriptions(user_id)
     for sub in subscriptions:
         if sub.estimate_from_channel_id == channel_id:
@@ -128,7 +149,9 @@ def update_subscription_model(user_id: int, channel_id: int, model_id: int):
     for sub in subscriptions:
         if sub.estimate_from_channel_id == channel_id:
             sub.model_id = model_id
-            subscriptions_file = data_path.joinpath(str(user_id)).joinpath("subscriptions.json")
+            subscriptions_file = data_path.joinpath(str(user_id)).joinpath(
+                "subscriptions.json"
+            )
             subscriptions_file.parent.mkdir(exist_ok=True)
             with subscriptions_file.open(mode="wt") as f:
                 f.write(json.dumps([dataclasses.asdict(s) for s in subscriptions]))
@@ -137,7 +160,9 @@ def update_subscription_model(user_id: int, channel_id: int, model_id: int):
 
 def remove_subscription(user_id: int, channel_id: int):
     subscriptions = get_subscriptions(user_id)
-    subscriptions = [sub for sub in subscriptions if sub.estimate_from_channel_id != channel_id]
+    subscriptions = [
+        sub for sub in subscriptions if sub.estimate_from_channel_id != channel_id
+    ]
     subscriptions_file = data_path.joinpath(str(user_id)).joinpath("subscriptions.json")
     subscriptions_file.parent.mkdir(exist_ok=True)
     with subscriptions_file.open(mode="wt") as f:
@@ -149,7 +174,11 @@ def has_user_channels(user_id: int) -> bool:
 
 
 def get_subscribed_user_ids(channel_id: int) -> list[int]:
-    return [user_id for user_id in get_existing_users() if get_subscription_by_channel(user_id, channel_id) is not None]
+    return [
+        user_id
+        for user_id in get_existing_users()
+        if get_subscription_by_channel(user_id, channel_id) is not None
+    ]
 
 
 @dataclasses.dataclass
@@ -169,12 +198,15 @@ def get_models(user_id: int) -> list[Model]:
     return [
         get_model(user_id, int(model_path.stem))
         for model_path in models_path.iterdir()
-        if model_path.is_dir() and model_path.joinpath(f"{model_path.name}.pickle").exists()
+        if model_path.is_dir()
+        and model_path.joinpath(f"{model_path.name}.pickle").exists()
     ]
 
 
 def get_model(user_id: int, model_id: int) -> Optional[Model]:
-    model_path = data_path.joinpath(str(user_id)).joinpath("models").joinpath(str(model_id))
+    model_path = (
+        data_path.joinpath(str(user_id)).joinpath("models").joinpath(str(model_id))
+    )
     if not model_path.exists():
         return None
     model_stats = json.loads(model_path.joinpath("stats.json").read_text())
@@ -183,6 +215,7 @@ def get_model(user_id: int, model_id: int) -> Optional[Model]:
         pickle_file_path=model_path.joinpath(f"{model_path.stem}.pickle"),
         **model_stats,
     )
+
 
 @dataclasses.dataclass
 class ModelStoreContext:
@@ -194,7 +227,9 @@ class ModelStoreContext:
 
 
 def get_model_store_path(user_id: int, model_id: int) -> ModelStoreContext:
-    model_path = data_path.joinpath(str(user_id)).joinpath("models").joinpath(str(model_id))
+    model_path = (
+        data_path.joinpath(str(user_id)).joinpath("models").joinpath(str(model_id))
+    )
     model_path.mkdir(parents=True, exist_ok=True)
 
     return ModelStoreContext(

@@ -91,7 +91,9 @@ class Mp3Filter:
             return False
         if not hasattr(message, "media") or not hasattr(message.media, "document"):
             return False
-        if not hasattr(message.media.document, "mime_type") or message.media.document.mime_type not in {
+        if not hasattr(
+            message.media.document, "mime_type"
+        ) or message.media.document.mime_type not in {
             "audio/mpeg",
             "audio/mp3",
         }:
@@ -102,7 +104,10 @@ class Mp3Filter:
             if isinstance(attr, DocumentAttributeAudio)
         ]:
             return False
-        if audio_attr.duration < self.min_length_seconds or audio_attr.duration > self.max_length_seconds:
+        if (
+            audio_attr.duration < self.min_length_seconds
+            or audio_attr.duration > self.max_length_seconds
+        ):
             return False
         return True
 
@@ -140,7 +145,9 @@ class NoCV(BaseCrossValidator):
 
 
 class LabelScorerUnsupervised:
-    def __init__(self, y_data, score_type: ModelType, *, driving_metric_name, main_metric_name):
+    def __init__(
+        self, y_data, score_type: ModelType, *, driving_metric_name, main_metric_name
+    ):
         super().__init__()
         self.score_type = score_type
         self.y_data = y_data
@@ -196,7 +203,9 @@ class CustomClassifier(BaseEstimator, ClassifierMixin):
         return self._classify_vectorized(predicted_cluster)
 
 
-async def save_track_if_not_exists(user_id: int, message: Message, channel_type: Literal["liked", "disliked"]):
+async def save_track_if_not_exists(
+    user_id: int, message: Message, channel_type: Literal["liked", "disliked"]
+):
     tracks_folder = (
         config.get_disliked_file_store_path(user_id)
         if channel_type == "disliked"
@@ -228,7 +237,9 @@ async def download_audio_from_channel(
         got_message = time.time()
         if not FILTER.filter_message(message):
             if message:
-                logger.info(f"Message {message.stringify()} does not match {FILTER}, skipping")
+                logger.info(
+                    f"Message {message.stringify()} does not match {FILTER}, skipping"
+                )
             continue
         filtered_message = time.time()
         await save_track_if_not_exists(user_id, message, channel_type)
@@ -270,9 +281,13 @@ def _unpack_data(data: pl.LazyFrame, metric_sizes) -> pl.LazyFrame:
     return data
 
 
-def _remove_outliers_in_parts(data: pl.LazyFrame, outliers_fraction, liked) -> pl.DataFrame:
+def _remove_outliers_in_parts(
+    data: pl.LazyFrame, outliers_fraction, liked
+) -> pl.DataFrame:
     raw_data_part = (
-        data.filter(pl.col(LIKED_COLUMN_NAME) == liked).select(pl.all().exclude(LIKED_COLUMN_NAME, ROW_ID_COLUMN_NAME))
+        data.filter(pl.col(LIKED_COLUMN_NAME) == liked).select(
+            pl.all().exclude(LIKED_COLUMN_NAME, ROW_ID_COLUMN_NAME)
+        )
     ).collect(streaming=True)
     return (
         data.filter(pl.col(LIKED_COLUMN_NAME) == liked)
@@ -288,12 +303,16 @@ def _remove_outliers_in_parts(data: pl.LazyFrame, outliers_fraction, liked) -> p
     )
 
 
-def _prepare_data_for_processing(data: pl.LazyFrame, outliers_fraction: float) -> pl.DataFrame:
+def _prepare_data_for_processing(
+    data: pl.LazyFrame, outliers_fraction: float
+) -> pl.DataFrame:
     data = data.fill_null(0.0).fill_nan(0.0)
     data_liked_clean = _remove_outliers_in_parts(data, outliers_fraction, 1)
     data_disliked_clean = _remove_outliers_in_parts(data, outliers_fraction, 0)
 
-    return pl.concat([data_liked_clean, data_disliked_clean]).select(pl.all().exclude(ROW_ID_COLUMN_NAME))
+    return pl.concat([data_liked_clean, data_disliked_clean]).select(
+        pl.all().exclude(ROW_ID_COLUMN_NAME)
+    )
 
 
 def _string_values_to_numbers(data: pl.LazyFrame) -> pl.LazyFrame:
@@ -310,16 +329,23 @@ def _string_values_to_numbers(data: pl.LazyFrame) -> pl.LazyFrame:
             )
             for column_name in key_columns
         ],
-        *[pl.col(column_name).replace_strict(scale_mapping, return_dtype=pl.Int64) for column_name in scale_columns],
+        *[
+            pl.col(column_name).replace_strict(scale_mapping, return_dtype=pl.Int64)
+            for column_name in scale_columns
+        ],
     ).unnest(key_columns)
 
 
 _extractor = prepare_extractor()
 
 
-def _convert(audio_path: pathlib.Path, is_liked: int, track_id: str, **task_id_args) -> MappedAudioFeatures:
+def _convert(
+    audio_path: pathlib.Path, is_liked: int, track_id: str, **task_id_args
+) -> MappedAudioFeatures:
     features_row = extract_features_for_mp3(audio_path.joinpath(track_id), _extractor)
-    target = convert_type(features_row, MappedAudioFeatures, {LIKED_COLUMN_NAME: int(is_liked)})
+    target = convert_type(
+        features_row, MappedAudioFeatures, {LIKED_COLUMN_NAME: int(is_liked)}
+    )
     logger.debug(f"[{task_id_args=},{is_liked=}] extracted features for {track_id=}")
     return target
 
@@ -370,7 +396,9 @@ def train_model_inner(
         DataFrameBuilder(
             working_dir=tmp_dir.joinpath("disliked_dir"),
             index_generator=DataFrameBuilder.GeneratingParams(
-                generator=(f.name for f in disliked_audio_path.iterdir() if f.is_file()),
+                generator=(
+                    f.name for f in disliked_audio_path.iterdir() if f.is_file()
+                ),
                 result_schema=(ROW_ID_COLUMN_NAME, pl.String),
             ),
             mappers=[disliked_feature_extractor],
@@ -390,11 +418,15 @@ def train_model_inner(
             progress_tracker=stats,
         ) as liked_frame_result,
     ):
-        data = build_successfully_processed_dataframe([liked_frame_result, disliked_frame_result])
+        data = build_successfully_processed_dataframe(
+            [liked_frame_result, disliked_frame_result]
+        )
         data = _string_values_to_numbers(data)
         shape_map = get_field_shape_map(AudioFeatures)
         data = _unpack_data(data, shape_map)
-        prepared_data = _prepare_data_for_processing(data, config.model_data_contamination_fraction)
+        prepared_data = _prepare_data_for_processing(
+            data, config.model_data_contamination_fraction
+        )
 
         trained_model = train_model_on_data(prepared_data, model_type, model_store_ctx)
         shutil.rmtree(tmp_dir)
@@ -423,7 +455,9 @@ def target_cluster_data_coverage_fraction_score(
             clustered_data.filter(pl.col(LIKED_COLUMN_NAME) == score_type.value)
             .select(pl.col(cluster_column_name))
             .select(
-                pl.col(cluster_column_name).filter(pl.col(cluster_column_name).is_in(target_clusters)).count()
+                pl.col(cluster_column_name)
+                .filter(pl.col(cluster_column_name).is_in(target_clusters))
+                .count()
                 / pl.col(cluster_column_name).count(),
                 # pl.col("cluster")
                 # .filter(pl.col("cluster").is_in(target_clusters))
@@ -435,9 +469,14 @@ def target_cluster_data_coverage_fraction_score(
         )
         max_cluster_size = cluster_column.value_counts().max().item(0, 1)
         average_cluster_size = y_data.shape[0] / cluster_column.n_unique()
-        group_clusters_count = cluster_column.value_counts().filter(pl.nth(1) > 1).shape[0]
+        group_clusters_count = (
+            cluster_column.value_counts().filter(pl.nth(1) > 1).shape[0]
+        )
 
-        if hasattr(config, "model_metric_guide") and config.model_metric_guide == "algebraic_weighted":
+        if (
+            hasattr(config, "model_metric_guide")
+            and config.model_metric_guide == "algebraic_weighted"
+        ):
             coef = 5.0
             guiding_score = sum(
                 scores := [
@@ -462,12 +501,15 @@ def target_cluster_data_coverage_fraction_score(
     return model_accuracy
 
 
-def _get_target_clusters(clustered_like_value: pl.DataFrame, score_type) -> pl.DataFrame:
+def _get_target_clusters(
+    clustered_like_value: pl.DataFrame, score_type
+) -> pl.DataFrame:
     target_fraction_column_name = f"{score_type.name}_fraction"
     cluster_member_coverage_fraction = clustered_like_value.group_by(pl.last()).agg(
-        (pl.last().filter(pl.col(LIKED_COLUMN_NAME) == score_type.value).count() / pl.last().count()).alias(
-            target_fraction_column_name
-        ),
+        (
+            pl.last().filter(pl.col(LIKED_COLUMN_NAME) == score_type.value).count()
+            / pl.last().count()
+        ).alias(target_fraction_column_name),
         # pl.col("cluster")
         # .filter(pl.col(LIKED_COLUMN_NAME) == 0)
         # .count()
@@ -475,11 +517,14 @@ def _get_target_clusters(clustered_like_value: pl.DataFrame, score_type) -> pl.D
         # pl.col("cluster").count().alias("all"),
     )
     return cluster_member_coverage_fraction.filter(
-        pl.col(target_fraction_column_name) > config.model_cluster_target_coverage_threshold
+        pl.col(target_fraction_column_name)
+        > config.model_cluster_target_coverage_threshold
     )
 
 
-def train_model_on_data(data: pl.DataFrame, model_type, model_store_ctx) -> config.Model:
+def train_model_on_data(
+    data: pl.DataFrame, model_type, model_store_ctx
+) -> config.Model:
     x = data.select(pl.all().exclude(LIKED_COLUMN_NAME))
     y = data.select(pl.col(LIKED_COLUMN_NAME))
 
@@ -527,15 +572,21 @@ def train_model_on_data(data: pl.DataFrame, model_type, model_store_ctx) -> conf
     )
     pipeline.fit(x)
 
-    best_target_cluster_data_coverage_fraction = search.cv_results_[f"mean_test_{main_metric_name}"][search.best_index_]
+    best_target_cluster_data_coverage_fraction = search.cv_results_[
+        f"mean_test_{main_metric_name}"
+    ][search.best_index_]
 
-    best_score_clusterer_pipeline = Pipeline([*pipeline.steps[:-1], ("estimator", search.best_estimator_)])
+    best_score_clusterer_pipeline = Pipeline(
+        [*pipeline.steps[:-1], ("estimator", search.best_estimator_)]
+    )
     cluster_column = pl.Series(
         name="cluster",
         values=LabelScorerUnsupervised.get_labels(search.best_estimator_),
     )
     unique_clusters = cluster_column.unique()
-    target_clusters_with_coverage = _get_target_clusters(y.with_columns(cluster_column), model_type)
+    target_clusters_with_coverage = _get_target_clusters(
+        y.with_columns(cluster_column), model_type
+    )
     target_clusters = target_clusters_with_coverage.to_series(0).to_list()
     target_clusters_stats = (
         cluster_column.to_frame("target_clusters")
@@ -562,11 +613,17 @@ def train_model_on_data(data: pl.DataFrame, model_type, model_store_ctx) -> conf
         model_type,
     )
     logger.info(f"Dumping model")
-    model_file_path = model_store_ctx.model_workdir.joinpath(model_store_ctx.model_pickle_name)
+    model_file_path = model_store_ctx.model_workdir.joinpath(
+        model_store_ctx.model_pickle_name
+    )
     with model_file_path.open(mode="wb") as model_file:
         pickle.dump(model, model_file, protocol=5)
-    logger.info(f"Dumped model user_id={model_store_ctx.user_id} model={model_store_ctx.model_id} to {model_file_path}")
-    model_stats_file_path = model_store_ctx.model_workdir.joinpath(model_store_ctx.model_stats_name)
+    logger.info(
+        f"Dumped model user_id={model_store_ctx.user_id} model={model_store_ctx.model_id} to {model_file_path}"
+    )
+    model_stats_file_path = model_store_ctx.model_workdir.joinpath(
+        model_store_ctx.model_stats_name
+    )
     with model_stats_file_path.open("wt") as model_stats_file:
         data_stats = dict(data.group_by(pl.col(LIKED_COLUMN_NAME)).len().rows())
         model_stats_file.write(
@@ -627,10 +684,14 @@ async def prepare_model(
         )
 
     except TrainUnrecoverable as e:
-        raise TrainUnrecoverable(f"Can't train model {model_id} for user {user_id}") from e
+        raise TrainUnrecoverable(
+            f"Can't train model {model_id} for user {user_id}"
+        ) from e
 
 
-def execute_estimation(user_id: int, model_id: int, track_to_estimate_path: pathlib.Path) -> bool:
+def execute_estimation(
+    user_id: int, model_id: int, track_to_estimate_path: pathlib.Path
+) -> bool:
     cached_model_id, model = _estimation_model_cache.get(user_id, (None, None))
 
     if not model or model_id != cached_model_id:
@@ -657,14 +718,24 @@ def estimate_inner(model, track_to_estimate_path: pathlib.Path) -> bool:
         data = _unpack_data(data, shape_map)
         data = data.fill_null(0.0).fill_nan(0.0).collect(streaming=True)
     except Exception as e:
-        raise EstimationUnrecoverable(f"Failed to get features for {track_to_estimate_path}. Skipping") from e
+        raise EstimationUnrecoverable(
+            f"Failed to get features for {track_to_estimate_path}. Skipping"
+        ) from e
     if data.is_empty():
-        raise EstimationUnrecoverable(f"No features for {track_to_estimate_path}. Skipping")
+        raise EstimationUnrecoverable(
+            f"No features for {track_to_estimate_path}. Skipping"
+        )
 
     return bool(model.predict(data)[0])
 
 
-async def estimate(user_id: int, chat_id: int, message_id: int, model_id: int, bot_client: TelegramClient) -> bool:
+async def estimate(
+    user_id: int,
+    chat_id: int,
+    message_id: int,
+    model_id: int,
+    bot_client: TelegramClient,
+) -> bool:
     message = await get_message(chat_id, message_id, bot_client)
 
     tmp_dir = config.get_user_tmp_dir(user_id)
@@ -700,7 +771,11 @@ if __name__ == "__main__":
     liked_path = pathlib.Path("data/liked_short")
     train_model_inner(model_store_ctx, model_type, tmp_dir, disliked_path, liked_path)
 
-    model = _load_model(pathlib.Path(model_store_ctx.model_workdir.joinpath(model_store_ctx.model_pickle_name)))
+    model = _load_model(
+        pathlib.Path(
+            model_store_ctx.model_workdir.joinpath(model_store_ctx.model_pickle_name)
+        )
+    )
     liked_score = estimate_inner(model, next(liked_path.iterdir()))
     print(f"liked track score: {liked_score}")
     disliked_score = estimate_inner(model, next(liked_path.iterdir()))
