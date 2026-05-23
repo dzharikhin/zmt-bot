@@ -16,6 +16,7 @@
 - `config.py` — env-based config with runtime override in `data/config.py` (bot_token/owner_user_id/data_path/local_data_path are locked)
 
 ## Key conventions
+- **snake case for bot commands** using argparse
 - **Two one-class models** per user (liked + disliked), NOT a binary classifier
 - **Process pools** use `multiprocessing.get_context("spawn")` in config.py
 - **PyTorch CPU-only** via explicit `pytorch_cpu` source in pyproject.toml

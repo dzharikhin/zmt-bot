@@ -270,8 +270,8 @@ UNSUBSCRIBE_CMD = (
 
 SET_SUB_MODEL_CMD = (
     parser := ArgumentParser(
-        prog="set-subscription-model",
-        epilog="(?i)^/set-subscription-model(.*)$",
+        prog="set_subscription_model",
+        epilog="(?i)^/set_subscription_model(.*)$",
         description="update model for a subscription",
         exit_on_error=False,
         add_help=False,
