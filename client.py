@@ -266,9 +266,9 @@ UNSUBSCRIBE_CMD = (
     ),
     parser,
 )[-1]
-SUBSCRIPTIONS_CMD = ArgumentParser(
-    prog="subscriptions",
-    epilog="(?i)^/subscriptions\\s*.*$",
+LIST_SUBSCRIPTIONS_CMD = ArgumentParser(
+    prog="list_subscriptions",
+    epilog="(?i)^/list_subscriptions\\s*.*$",
     description="list all subscriptions",
     exit_on_error=False,
     add_help=False,
@@ -312,8 +312,8 @@ TRAIN_CMD = (
     parser,
 )[-1]
 LIST_MODELS_CMD = ArgumentParser(
-    prog="list",
-    epilog="(?i)^/list\\s*.*$",
+    prog="list_models",
+    epilog="(?i)^/list_models\\s*.*$",
     description="list trained models",
     exit_on_error=False,
     add_help=False,
@@ -324,7 +324,7 @@ CMDS = [
     INIT_CMD,
     SUBSCRIBE_CMD,
     UNSUBSCRIBE_CMD,
-    SUBSCRIPTIONS_CMD,
+    LIST_SUBSCRIPTIONS_CMD,
     TRAIN_CMD,
     LIST_MODELS_CMD,
 ]
@@ -429,7 +429,7 @@ async def main():
             for cmd in [
                 INIT_CMD,
                 SUBSCRIBE_CMD,
-                SUBSCRIPTIONS_CMD,
+                LIST_SUBSCRIPTIONS_CMD,
                 UNSUBSCRIBE_CMD,
                 TRAIN_CMD,
                 LIST_MODELS_CMD,
@@ -551,7 +551,7 @@ async def main():
             await event.respond(f"Unsubscribed from {channel_name}")
 
         @bot_client.on(
-            events.NewMessage(incoming=True, pattern=SUBSCRIPTIONS_CMD.epilog)
+            events.NewMessage(incoming=True, pattern=LIST_SUBSCRIPTIONS_CMD.epilog)
         )
         async def subscriptions_handler(event: NewMessage.Event) -> None:
             if not is_allowed_user(event.sender_id):
