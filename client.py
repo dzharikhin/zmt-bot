@@ -25,7 +25,6 @@ from bot_utils import get_channel_name, get_message, is_allowed_user, get_channe
 from models import build_model_page_response
 from train import prepare_model, estimate
 
-
 logging.basicConfig(
     level=logging.WARN,
     format="%(asctime)s.%(msecs)03d %(levelname)s %(funcName)s: %(message)s",
@@ -267,32 +266,6 @@ UNSUBSCRIBE_CMD = (
     ),
     parser,
 )[-1]
-
-SET_SUB_MODEL_CMD = (
-    parser := ArgumentParser(
-        prog="set_subscription_model",
-        epilog="(?i)^/set_subscription_model(.*)$",
-        description="update model for a subscription",
-        exit_on_error=False,
-        add_help=False,
-    ),
-    parser.add_argument(
-        "-e",
-        "--estimation_channel_id",
-        required=True,
-        type=int,
-        help="estimation channel to update",
-    ),
-    parser.add_argument(
-        "-m",
-        "--model_id",
-        required=True,
-        type=int,
-        help="new model id",
-    ),
-    parser,
-)[-1]
-
 SUBSCRIPTIONS_CMD = ArgumentParser(
     prog="subscriptions",
     epilog="(?i)^/subscriptions\\s*.*$",
@@ -351,7 +324,6 @@ CMDS = [
     INIT_CMD,
     SUBSCRIBE_CMD,
     UNSUBSCRIBE_CMD,
-    SET_SUB_MODEL_CMD,
     SUBSCRIPTIONS_CMD,
     TRAIN_CMD,
     LIST_MODELS_CMD,
@@ -458,7 +430,6 @@ async def main():
                 INIT_CMD,
                 SUBSCRIBE_CMD,
                 SUBSCRIPTIONS_CMD,
-                SET_SUB_MODEL_CMD,
                 UNSUBSCRIBE_CMD,
                 TRAIN_CMD,
                 LIST_MODELS_CMD,
@@ -498,9 +469,7 @@ async def main():
             )
             config.set_user_channels(event.sender_id, channels)
 
-            await event.respond(
-                f"Channels initialized. Train a model: /train -t <type> -ll <links>"
-            )
+            await event.respond(f"Channels initialized. Train a model: /train")
 
         @bot_client.on(events.NewMessage(incoming=True, pattern=SUBSCRIBE_CMD.epilog))
         async def subscribe_handler(event: NewMessage.Event) -> None:
@@ -520,39 +489,38 @@ async def main():
             user_id = event.sender_id
             channels = config.get_user_channels(user_id)
             if not channels:
-                await event.respond(
-                    f"❌ Error: Initialize channels first. Hint: /init -l <id> -d <id>"
-                )
+                await event.respond(f"❌ Error: Initialize channels first. Hint: /init")
                 return
 
             if not config.get_model(user_id, args.model_id):
                 await event.respond(
-                    f"❌ Error: Model {args.model_id} does not exist. Hint: /train -t <type> -ll <links>"
-                )
-                return
-
-            existing_sub = config.get_subscription_by_channel(
-                user_id, args.estimation_channel_id
-            )
-            if existing_sub:
-                await event.respond(
-                    f"❌ Error: Already subscribed to this channel. Hint: /subscriptions"
+                    f"❌ Error: Model {args.model_id} does not exist. Hint: /train"
                 )
                 return
 
             channel_name = await get_channel_name(
                 args.estimation_channel_id, bot_client
             )
-
-            subscription = config.Subscription(
-                estimate_from_channel_id=args.estimation_channel_id,
-                model_id=args.model_id,
+            existing_sub = config.get_subscription_by_channel(
+                user_id, args.estimation_channel_id
             )
-            config.add_subscription(user_id, subscription)
+            if existing_sub:
+                config.update_subscription_model(
+                    event.sender_id, args.estimation_channel_id, args.model_id
+                )
+                await event.respond(
+                    f"Updated {channel_name} to use model #{args.model_id}"
+                )
+            else:
+                subscription = config.Subscription(
+                    estimate_from_channel_id=args.estimation_channel_id,
+                    model_id=args.model_id,
+                )
+                config.add_subscription(user_id, subscription)
 
-            await event.respond(
-                f"Subscribed to {channel_name} with model #{args.model_id}"
-            )
+                await event.respond(
+                    f"Subscribed to {channel_name} with model #{args.model_id}"
+                )
 
         @bot_client.on(events.NewMessage(incoming=True, pattern=UNSUBSCRIBE_CMD.epilog))
         async def unsubscribe_handler(event: NewMessage.Event) -> None:
@@ -578,67 +546,9 @@ async def main():
                 )
                 return
 
-            try:
-                channel_info = await bot_client.get_entity(args.estimation_channel_id)
-                channel_name = (
-                    getattr(channel_info, "title", None)
-                    or getattr(channel_info, "username", None)
-                    or str(args.estimation_channel_id)
-                )
-            except Exception:
-                channel_name = str(args.estimation_channel_id)
-
             config.remove_subscription(event.sender_id, args.estimation_channel_id)
-
+            channel_name = get_channel_name(args.estimation_channel_id, bot_client)
             await event.respond(f"Unsubscribed from {channel_name}")
-
-        @bot_client.on(
-            events.NewMessage(incoming=True, pattern=SET_SUB_MODEL_CMD.epilog)
-        )
-        async def set_sub_model_handler(event: NewMessage.Event) -> None:
-            if not is_allowed_user(event.sender_id):
-                await bot_client.send_message(
-                    config.owner_user_id, f"user {event.sender_id} tries to use zmt-bot"
-                )
-                return
-
-            args, help_to_print = _parse_args(
-                SET_SUB_MODEL_CMD, event.pattern_match.group(1).strip()
-            )
-            if help_to_print:
-                await event.respond(help_to_print)
-                return
-
-            subscription = config.get_subscription_by_channel(
-                event.sender_id, args.estimation_channel_id
-            )
-            if not subscription:
-                await event.respond(
-                    f"❌ Error: Not subscribed to channel {args.estimation_channel_id}"
-                )
-                return
-
-            if not config.get_model(event.sender_id, args.model_id):
-                await event.respond(
-                    f"❌ Error: Model {args.model_id} does not exist. Hint: /train -t <type> -ll <links>"
-                )
-                return
-
-            try:
-                channel_info = await bot_client.get_entity(args.estimation_channel_id)
-                channel_name = (
-                    getattr(channel_info, "title", None)
-                    or getattr(channel_info, "username", None)
-                    or str(args.estimation_channel_id)
-                )
-            except Exception:
-                channel_name = str(args.estimation_channel_id)
-
-            config.update_subscription_model(
-                event.sender_id, args.estimation_channel_id, args.model_id
-            )
-
-            await event.respond(f"Updated {channel_name} to use model #{args.model_id}")
 
         @bot_client.on(
             events.NewMessage(incoming=True, pattern=SUBSCRIPTIONS_CMD.epilog)
@@ -660,18 +570,12 @@ async def main():
             buffer = io.StringIO()
             buffer.write("Your subscriptions:\n")
             for idx, sub in enumerate(subscriptions, 1):
-                try:
-                    channel_info = await bot_client.get_entity(
-                        sub.estimate_from_channel_id
-                    )
-                    channel_name = (
-                        getattr(channel_info, "title", None)
-                        or getattr(channel_info, "username", None)
-                        or str(sub.estimate_from_channel_id)
-                    )
-                except Exception:
-                    channel_name = str(sub.estimate_from_channel_id)
-                buffer.write(f"{idx}. {channel_name} - Model #{sub.model_id}\n")
+                channel_name = await get_channel_name(
+                    sub.estimate_from_channel_id, bot_client
+                )
+                buffer.write(
+                    f"{idx}. {channel_name}({sub.estimate_from_channel_id}) - Model #{sub.model_id}\n"
+                )
 
             await event.respond(buffer.getvalue())
 
@@ -712,9 +616,7 @@ async def main():
 
             user_id = event.sender_id
             if not config.has_user_channels(user_id):
-                await event.respond(
-                    f"❌ Error: Initialize channels first. Hint: /init -l <id> -d <id>"
-                )
+                await event.respond(f"❌ Error: Initialize channels first. Hint: /init")
                 return
 
             await send_train_queue_task(
@@ -731,9 +633,7 @@ async def main():
                 return
 
             if not config.has_user_channels(event.sender_id):
-                await event.respond(
-                    f"❌ Error: Initialize channels first. Hint: /init -l <id> -d <id>"
-                )
+                await event.respond(f"❌ Error: Initialize channels first. Hint: /init")
                 return
 
             subscription_names = await get_channel_names(
