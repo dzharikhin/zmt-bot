@@ -45,6 +45,16 @@ model_optimization_iterations = math.floor(math.e**4)
 model_data_contamination_fraction = float(
     os.getenv("MODEL_DATA_CONTAMINATION_FRACTION", "0.1")
 )
+
+# New ML parameters introduced in Phase‑1 implementation
+model_embedding_version = os.getenv('MODEL_EMBEDDING_VERSION', None)
+model_knn_k = int(os.getenv('MODEL_KNN_K', '5'))
+model_gmm_components = int(os.getenv('MODEL_GMM_COMPONENTS', '16'))
+model_holdout_fraction = float(os.getenv('MODEL_HOLDOUT_FRACTION', '0.20'))
+model_outlier_threshold = float(os.getenv('MODEL_OUTLIER_THRESHOLD', '0.05'))
+model_mode_a_dislike_recall_target = float(os.getenv('MODEL_MODE_A_RECALL', '0.90'))
+model_mode_b_like_recall_target = float(os.getenv('MODEL_MODE_B_RECALL', '0.80'))
+model_min_set_size = int(os.getenv('MODEL_MIN_SET_SIZE', '50'))
 model_cluster_target_coverage_threshold = float(
     os.getenv("MODEL_CLUSTER_TARGET_COVERAGE_THRESHOLD", "0.7")
 )

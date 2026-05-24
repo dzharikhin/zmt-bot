@@ -6,17 +6,18 @@ authors = ["Dmitriy Zharikhin <jorixxx@mail.ru>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = ">=3.12, <3.13"
+python = ">=3.12, <3.15"
 requests = "^2.32.3"
 requests-ratelimiter = "^0.9.2"
 path-dict = "^4.0.0"
 soundfile = "^0.13.1"
 atomics = "^1.0.2"
 scikit-learn = "^1.8.0"
+duckdb = "^1.5.3"
 dacite = "^1.9.2"
 telethon = "^1.42.0"
 mutagen = "^1.47.0"
-linearboost = "^0.1.9"
+
 persist-queue = "^1.0.0"
 standard-aifc = "^3.13.0"
 audioread = "^3.0.1"

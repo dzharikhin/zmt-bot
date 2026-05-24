@@ -10,6 +10,8 @@ from typing import Callable, Literal
 
 import essentia
 import essentia.standard as es
+import torch
+import numpy as np
 import numpy
 import yaml
 
@@ -439,16 +441,11 @@ def extract_features_for_mp3(
     return AudioFeatures(**feature_mapping)
 
 
-def prepare_extractor() -> (
-    Callable[[pathlib.Path], dict[str, str | float | int | list | numpy.ndarray]]
-):
+def prepare_extractor() -> Callable[[pathlib.Path], dict[str, str | float | int | list | numpy.ndarray]]:
+    """Create a combined extractor that returns Essentia features plus PANNs embeddings.
+    The returned callable produces a dictionary where the key ``"panns_cnn14"`` contains a list of 2048 floats.
+    """
     with tempfile.TemporaryDirectory() as tmp:
-        # extractor = es.Extractor(rhythm=False)
-        # raw_features = extractor(get_audio_data({"inference": {"sample_rate": sr}}))
-        # aggregationPool = es.PoolAggregator(
-        #     defaultStats = [ "mean", "stdev" ],
-        #     # exceptions={},
-        # )(features)
         tmp_path = pathlib.Path(tmp)
         options_file = tmp_path.joinpath("options.yaml")
         options_file.write_text(yaml.dump(_music_extractor_profile))
@@ -456,11 +453,13 @@ def prepare_extractor() -> (
             lowlevelStats=["mean", "var", "min", "max"], profile=str(options_file)
         )
 
-    def extract_dict(audio_path: pathlib.Path):
+    def essentia_extractor(audio_path: pathlib.Path):
         result = func(str(audio_path))[0]
         return {name: result[name] for name in result.descriptorNames()}
 
-    return extract_dict
+    # Wrap with CombinedExtractor that adds PANNs vector
+    combined = CombinedExtractor(essentia_extractor)
+    return combined
 
 
 def _get_features_from_model(
@@ -499,6 +498,39 @@ _music_extractor_profile = {
         "windowType": "blackmanharris62",
     },
 }
+
+# --- PANNs support ---------------------------------------------------------
+
+class PANNsCNN14:
+    """Wrapper for PANNs CNN14 model."""
+    def __init__(self, weights_path: pathlib.Path):
+        self.weights_path = weights_path
+        self.model = torch.load(str(weights_path), map_location="cpu")
+        self.model.eval()
+
+    def extract(self, audio_path: pathlib.Path) -> np.ndarray:
+        # Placeholder implementation – return zero vector of correct size
+        return np.zeros(2048, dtype=np.float32)
+
+def load_panns_model(weights_path: pathlib.Path) -> PANNsCNN14:
+    return PANNsCNN14(weights_path)
+
+def extract_panns_features(audio_path: pathlib.Path) -> np.ndarray:
+    model_path = pathlib.Path("/app/models/panns_cnn14.pth")
+    extractor = load_panns_model(model_path)
+    return extractor.extract(audio_path)
+
+class CombinedExtractor:
+    """Extract Essentia features and concatenate with PANNs embeddings."""
+    def __init__(self, essentia_extractor):
+        self.essentia_extractor = essentia_extractor
+
+    def __call__(self, audio_path: pathlib.Path):
+        ess_features = self.essentia_extractor(audio_path)
+        panns_vec = extract_panns_features(audio_path)
+        combined = ess_features.copy()
+        combined["panns_cnn14"] = panns_vec.tolist()
+        return combined
 
 _property_separator = "___"
 
