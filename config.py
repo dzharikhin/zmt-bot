@@ -1,6 +1,5 @@
 import dataclasses
 import json
-import math
 import multiprocessing
 import os
 import pathlib
@@ -23,6 +22,8 @@ def v_name(fstr: str) -> str:
 
 
 not_overridable_properties = {
+    v_name(f"{api_id=}"),
+    v_name(f"{api_hash=}"),
     v_name(f"{bot_token=}"),
     v_name(f"{owner_user_id=}"),
     v_name(f"{data_path=}"),
@@ -39,29 +40,15 @@ max_training_workers = int(os.getenv("MAX_TRAINING_WORKERS", "2"))
 max_estimation_workers = int(os.getenv("MAX_ESTIMATION_WORKERS", "2"))
 min_track_length_seconds = int(os.getenv("MIN_TRACK_LENGTH_SECONDS", "60"))
 max_track_length_seconds = int(os.getenv("MAX_TRACK_LENGTH_SECONDS", "480"))
-test_samples_fraction = float(os.getenv("TEST_SAMPLES_FRACTION", "0.25"))
 
-model_optimization_iterations = math.floor(math.e**4)
-model_data_contamination_fraction = float(
-    os.getenv("MODEL_DATA_CONTAMINATION_FRACTION", "0.1")
-)
-
-# New ML parameters introduced in Phase‑1 implementation
-model_embedding_version = os.getenv('MODEL_EMBEDDING_VERSION', None)
-model_knn_k = int(os.getenv('MODEL_KNN_K', '5'))
-model_gmm_components = int(os.getenv('MODEL_GMM_COMPONENTS', '16'))
-model_holdout_fraction = float(os.getenv('MODEL_HOLDOUT_FRACTION', '0.20'))
-model_outlier_threshold = float(os.getenv('MODEL_OUTLIER_THRESHOLD', '0.05'))
-model_mode_a_dislike_recall_target = float(os.getenv('MODEL_MODE_A_RECALL', '0.90'))
-model_mode_b_like_recall_target = float(os.getenv('MODEL_MODE_B_RECALL', '0.80'))
-model_min_set_size = int(os.getenv('MODEL_MIN_SET_SIZE', '50'))
-model_cluster_target_coverage_threshold = float(
-    os.getenv("MODEL_CLUSTER_TARGET_COVERAGE_THRESHOLD", "0.7")
-)
-model_max_cluster_limit = float(
-    os.getenv("MODEL_MAX_CLUSTER_LIMIT", f"{model_cluster_target_coverage_threshold}")
-)
-model_metric_guide = os.getenv("MODEL_METRIC_GUIDE", "weighted")
+model_knn_k = int(os.getenv("MODEL_KNN_K", "5"))
+model_gmm_components = int(os.getenv("MODEL_GMM_COMPONENTS", "16"))
+model_outlier_threshold = float(os.getenv("MODEL_OUTLIER_THRESHOLD", "0.05"))
+model_mode_a_dislike_recall_target = float(os.getenv("MODEL_MODE_A_RECALL", "0.90"))
+model_mode_b_like_recall_target = float(os.getenv("MODEL_MODE_B_RECALL", "0.80"))
+model_min_set_size = int(os.getenv("MODEL_MIN_SET_SIZE", "50"))
+worker_ack_timeout_seconds = int(os.getenv("WORKER_ACK_TIMEOUT_S", "120"))
+segment_policy = os.getenv("SEGMENT_POLICY", "full")
 
 
 def override():
@@ -78,15 +65,28 @@ def override():
 override()
 
 _spawn_context = multiprocessing.get_context("spawn")
-training_executor = ProcessPoolExecutor(
-    max_workers=max_training_workers,
-    mp_context=_spawn_context,
-)
+_training_executor: ProcessPoolExecutor | None = None
+_estimation_executor: ProcessPoolExecutor | None = None
 
-estimation_executor = ProcessPoolExecutor(
-    max_workers=max_estimation_workers,
-    mp_context=_spawn_context,
-)
+
+def get_training_executor() -> ProcessPoolExecutor:
+    global _training_executor
+    if _training_executor is None:
+        _training_executor = ProcessPoolExecutor(
+            max_workers=max_training_workers,
+            mp_context=_spawn_context,
+        )
+    return _training_executor
+
+
+def get_estimation_executor() -> ProcessPoolExecutor:
+    global _estimation_executor
+    if _estimation_executor is None:
+        _estimation_executor = ProcessPoolExecutor(
+            max_workers=max_estimation_workers,
+            mp_context=_spawn_context,
+        )
+    return _estimation_executor
 
 
 def get_existing_users() -> list[int]:
@@ -275,6 +275,16 @@ def get_user_tmp_dir(user_id: int) -> pathlib.Path:
     tmp_path = data_path.joinpath(str(user_id)).joinpath("tmp")
     tmp_path.mkdir(exist_ok=True)
     return tmp_path
+
+
+def get_feature_cache_path(user_id: int) -> pathlib.Path:
+    cache_dir = data_path / str(user_id)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return cache_dir / "features.duckdb"
+
+
+profiles_root = data_path.joinpath("profiles")
+jobs_root = data_path.joinpath("jobs")
 
 
 def get_allowed_to_use_user_ids() -> list[int]:

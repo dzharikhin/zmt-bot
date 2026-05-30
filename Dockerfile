@@ -45,12 +45,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     liblapack3 \
     libsndfile1 \
     libgomp1 \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 ENV PATH="/app/.venv/bin:$PATH"
 
 COPY --from=builder /usr/local /usr/local
 COPY --from=builder /app/.venv /app/.venv
 COPY . /app
+
+RUN mkdir -p /app/models \
+    && python -c "from urllib.request import urlretrieve; urlretrieve('https://zenodo.org/record/3987831/files/Cnn14_mAP%3D0.431.pth?download=1', '/app/models/panns_cnn14.pth')" \
+    || echo "PANNs weights download failed — mount or download manually"
 
 WORKDIR /app
 ENTRYPOINT ["python"]

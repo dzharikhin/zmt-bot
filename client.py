@@ -12,7 +12,6 @@ from types import CoroutineType
 from typing import cast, Union
 
 import persistqueue
-import polars
 import telethon
 from persistqueue.serializers import json as jser
 from telethon import TelegramClient, events
@@ -399,7 +398,6 @@ async def check_queue_handlers(
 
 
 async def main():
-    polars.show_versions()
     bot_client = await cast(
         Union[CoroutineType, TelegramClient],
         TelegramClient(
