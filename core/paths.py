@@ -11,7 +11,7 @@ def get_embed_version() -> str:
     profile_hash = compute_file_hash(profile_path)
     panns_path = config.panns_weights_path
     panns_hash = compute_file_hash(panns_path)
-    return f"essentia-{essentia_version}+{profile_hash}+panns-{panns_hash}"
+    return f"essentia-{essentia_version}+profile-{profile_hash}+panns-{panns_hash}"
 
 
 def compute_file_hash(file_path: Path) -> str:
