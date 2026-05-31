@@ -473,7 +473,9 @@ async def main():
             )
             config.set_user_channels(event.sender_id, channels)
 
-            await event.respond(f"Channels initialized. Train a model: /{TRAIN_CMD.prog}")
+            await event.respond(
+                f"Channels initialized. Train a model: /{TRAIN_CMD.prog}"
+            )
 
         @bot_client.on(events.NewMessage(incoming=True, pattern=SUBSCRIBE_CMD.epilog))
         async def subscribe_handler(event: NewMessage.Event) -> None:

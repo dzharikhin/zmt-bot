@@ -5,12 +5,17 @@ from pathlib import Path
 import config
 
 
-def get_embed_version() -> str:
+def get_embed_version(
+    profile_path: Path | None = None,
+    panns_weights_path: Path | None = None,
+) -> str:
+    if profile_path is None:
+        profile_path = config.data_path / "essentia_extractor_profile.yaml"
+    if panns_weights_path is None:
+        panns_weights_path = config.panns_weights_path
     essentia_version = pkg_version("essentia")
-    profile_path = config.data_path / "essentia_extractor_profile.yaml"
     profile_hash = compute_file_hash(profile_path)
-    panns_path = config.panns_weights_path
-    panns_hash = compute_file_hash(panns_path)
+    panns_hash = compute_file_hash(panns_weights_path)
     return f"essentia-{essentia_version}+profile-{profile_hash}+panns-{panns_hash}"
 
 

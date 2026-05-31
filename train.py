@@ -175,8 +175,12 @@ def _build_profile(user_id: int, model_id: int) -> config.Model:
 
     logger.info("Loading features from DuckDB")
     storage = DuckDBStorage(db_path)
-    X_liked_raw = storage.load_features(set_name="like", status="ok")
-    X_disliked_raw = storage.load_features(set_name="dislike", status="ok")
+    X_liked_raw = storage.load_features(
+        set_name="like", status="ok", segment_policy=segment_policy
+    )
+    X_disliked_raw = storage.load_features(
+        set_name="dislike", status="ok", segment_policy=segment_policy
+    )
 
     logger.info(
         f"Loaded {len(X_liked_raw)} liked, {len(X_disliked_raw)} disliked features"

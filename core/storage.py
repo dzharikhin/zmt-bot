@@ -110,28 +110,49 @@ class DuckDBStorage:
             ],
         )
 
+    def count_tracks(
+        self,
+        embed_version: str,
+        segment_policy: str,
+    ) -> dict[str, dict[str, int]]:
+        """Return per-set status counts: {set_name: {status: count}}."""
+        rows = self.conn.execute(
+            """
+            SELECT set_name, status, COUNT(*) FROM tracks
+            WHERE embed_version = ? AND segment_policy = ?
+            GROUP BY set_name, status
+            """,
+            [embed_version, segment_policy],
+        ).fetchall()
+
+        counts: dict[str, dict[str, int]] = {}
+        for set_name, status, cnt in rows:
+            counts.setdefault(set_name, {})[status] = cnt
+        return counts
+
     def load_features(
         self,
         set_name: str,
         status: str = "ok",
         embed_version: str | None = None,
+        segment_policy: str | None = None,
     ) -> np.ndarray:
+        conditions = ["set_name = ?", "status = ?"]
+        params: list = [set_name, status]
+
         if embed_version is not None:
-            result = self.conn.execute(
-                """
-                SELECT vector FROM tracks
-                WHERE set_name = ? AND status = ? AND embed_version = ?
-            """,
-                [set_name, status, embed_version],
-            ).fetchall()
-        else:
-            result = self.conn.execute(
-                """
-                SELECT vector FROM tracks
-                WHERE set_name = ? AND status = ?
-            """,
-                [set_name, status],
-            ).fetchall()
+            conditions.append("embed_version = ?")
+            params.append(embed_version)
+
+        if segment_policy is not None:
+            conditions.append("segment_policy = ?")
+            params.append(segment_policy)
+
+        where_clause = " AND ".join(conditions)
+        result = self.conn.execute(
+            f"SELECT vector FROM tracks WHERE {where_clause}",
+            params,
+        ).fetchall()
 
         if not result:
             return np.array([])

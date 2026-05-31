@@ -11,8 +11,11 @@
 ## Architecture
 - `client.py` — asyncio Telegram client, command handlers
 - `core/` — shared infrastructure: `paths.py` (embed versioning), `storage.py` (DuckDB feature cache), `jobs.py` (extraction job tracking), `writer.py` (queue-based extraction workers)
-- `train.py` — ML pipeline: k-NN + GMM one-class models (Phase 2 — `train_model`/`execute_estimation` raise `NotImplementedError`)
-- `audio/features.py` — Essentia + PANNs CNN14 audio feature extraction (~2248-d vector)
+- `train.py` — ML pipeline: k-NN + GMM dual one-class models (Phase 2+3 implemented)
+- `audio/features.py` — Essentia + PANNs CNN14 audio feature extraction (~2248-d vector), with segment+aggregate support
+- `audio/segments.py` — `SegmentSpec` dataclass, `get_segments()` (full, topk_energy, uniform, topk_spectral_flux)
+- `audio/aggregation.py` — `aggregate()` (mean, meanstd, max strategies)
+- `benchmark/compare.py` — Optuna-based benchmark tool comparing embedding variants with 5-fold CV
 - `config.py` — env-based config with runtime override in `data/config.py` (bot_token/owner_user_id/data_path/local_data_path are locked)
 
 ## Key conventions
@@ -21,6 +24,18 @@
 - **Process pools** use `multiprocessing.get_context("spawn")` via lazy accessors `get_training_executor()`/`get_estimation_executor()` in config.py
 - **PyTorch CPU-only** via explicit `pytorch_cpu` source in pyproject.toml
 - **PANNs CNN14 weights** downloaded at Docker build time to `/app/models/panns_cnn14.pth`
-- **DuckDB** per-user feature cache at `data/{user_id}/features.duckdb`
+- **DuckDB** per-user feature cache at `data/{user_id}/features.duckdb`; composite PK `(file_hash, embed_version, segment_policy)`
 - **No local imports** — all imports at module top level; never `import` inside functions/methods
 - **Tests** in `tests/` — run with `poetry run pytest`
+
+## Benchmark tool
+Compare embedding variants (segment policies, aggregation strategies, profiles) with Optuna Bayesian optimization:
+```bash
+poetry run python -m benchmark.compare \
+    --config data/benchmark/embedding_variants.yaml \
+    --objective-weights 0.5 0.5 \
+    --output data/benchmark/report.json \
+    --user-id 123456789 \
+    --n-iterations 50
+```
+See `data/benchmark/embedding_variants.example.yaml` for config format.

@@ -238,6 +238,65 @@ class TestLoadFeatures:
         assert result.shape[0] == 1
         np.testing.assert_array_almost_equal(result[0], [1.0])
 
+    def test_filters_by_segment_policy(self, storage):
+        storage.insert_track(
+            file_hash="h1",
+            vector=[1.0],
+            source_path="/a.mp3",
+            set_name="like",
+            duration_s=100.0,
+            segment_policy="full",
+            embed_version="v1",
+        )
+        storage.insert_track(
+            file_hash="h2",
+            vector=[2.0],
+            source_path="/b.mp3",
+            set_name="like",
+            duration_s=100.0,
+            segment_policy="topk_energy:W=30,K=3|agg=mean",
+            embed_version="v1",
+        )
+        result = storage.load_features(
+            "like", embed_version="v1", segment_policy="full"
+        )
+        assert result.shape[0] == 1
+        np.testing.assert_array_almost_equal(result[0], [1.0])
+
+    def test_filters_by_segment_policy_and_embed_version(self, storage):
+        storage.insert_track(
+            file_hash="h1",
+            vector=[1.0],
+            source_path="/a.mp3",
+            set_name="like",
+            duration_s=100.0,
+            segment_policy="full",
+            embed_version="v1",
+        )
+        storage.insert_track(
+            file_hash="h2",
+            vector=[2.0],
+            source_path="/b.mp3",
+            set_name="like",
+            duration_s=100.0,
+            segment_policy="full",
+            embed_version="v2",
+        )
+        storage.insert_track(
+            file_hash="h3",
+            vector=[3.0],
+            source_path="/c.mp3",
+            set_name="like",
+            duration_s=100.0,
+            segment_policy="topk_energy:W=30,K=3|agg=mean",
+            embed_version="v1",
+        )
+        result = storage.load_features(
+            "like", embed_version="v1", segment_policy="full"
+        )
+        assert result.shape[0] == 1
+        np.testing.assert_array_almost_equal(result[0], [1.0])
+
 
 class TestJobs:
     def test_update_and_get_job(self, storage):
@@ -278,3 +337,110 @@ class TestJobs:
         assert job["progress_done"] == 50
         assert job["progress_total"] == 50
         assert job["kind"] == "extraction"
+
+
+class TestCountTracks:
+    def test_empty_db(self, storage):
+        result = storage.count_tracks("v1", "full")
+        assert result == {}
+
+    def test_single_set_single_status(self, storage):
+        storage.insert_track(
+            file_hash="h1",
+            vector=[1.0],
+            source_path="/a.mp3",
+            set_name="like",
+            duration_s=100.0,
+            segment_policy="full",
+            embed_version="v1",
+        )
+        result = storage.count_tracks("v1", "full")
+        assert result == {"like": {"ok": 1}}
+
+    def test_multiple_sets_and_statuses(self, storage):
+        storage.insert_track(
+            file_hash="h1",
+            vector=[1.0],
+            source_path="/a.mp3",
+            set_name="like",
+            duration_s=100.0,
+            segment_policy="full",
+            embed_version="v1",
+        )
+        storage.insert_track(
+            file_hash="h2",
+            vector=[2.0],
+            source_path="/b.mp3",
+            set_name="like",
+            duration_s=100.0,
+            segment_policy="full",
+            embed_version="v1",
+        )
+        storage.insert_track(
+            file_hash="h3",
+            vector=[],
+            source_path="/c.mp3",
+            set_name="like",
+            duration_s=0.0,
+            segment_policy="full",
+            embed_version="v1",
+            error_code="E_DECODE_FAILED",
+            error_msg="bad",
+        )
+        storage.insert_track(
+            file_hash="h4",
+            vector=[3.0],
+            source_path="/d.mp3",
+            set_name="dislike",
+            duration_s=100.0,
+            segment_policy="full",
+            embed_version="v1",
+        )
+        result = storage.count_tracks("v1", "full")
+        assert result == {"like": {"ok": 2, "failed": 1}, "dislike": {"ok": 1}}
+
+    def test_filters_by_embed_version(self, storage):
+        storage.insert_track(
+            file_hash="h1",
+            vector=[1.0],
+            source_path="/a.mp3",
+            set_name="like",
+            duration_s=100.0,
+            segment_policy="full",
+            embed_version="v1",
+        )
+        storage.insert_track(
+            file_hash="h2",
+            vector=[2.0],
+            source_path="/b.mp3",
+            set_name="like",
+            duration_s=100.0,
+            segment_policy="full",
+            embed_version="v2",
+        )
+        assert storage.count_tracks("v1", "full") == {"like": {"ok": 1}}
+        assert storage.count_tracks("v2", "full") == {"like": {"ok": 1}}
+
+    def test_filters_by_segment_policy(self, storage):
+        storage.insert_track(
+            file_hash="h1",
+            vector=[1.0],
+            source_path="/a.mp3",
+            set_name="like",
+            duration_s=100.0,
+            segment_policy="full",
+            embed_version="v1",
+        )
+        storage.insert_track(
+            file_hash="h2",
+            vector=[2.0],
+            source_path="/b.mp3",
+            set_name="like",
+            duration_s=100.0,
+            segment_policy="topk_energy:W=30,K=3|agg=mean",
+            embed_version="v1",
+        )
+        assert storage.count_tracks("v1", "full") == {"like": {"ok": 1}}
+        assert storage.count_tracks("v1", "topk_energy:W=30,K=3|agg=mean") == {
+            "like": {"ok": 1}
+        }

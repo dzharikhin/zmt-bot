@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "tg-zmt-bot"
-version = "2.0.3"
+version = "2.1.0"
 description = ""
 authors = ["Dmitriy Zharikhin <jorixxx@mail.ru>"]
 readme = "README.md"
@@ -13,6 +13,8 @@ dacite = "^1.9.2"
 telethon = "^1.42.0"
 persist-queue = "^1.0.0"
 scikit-learn = "^1.8.0"
+optuna = "^4.0.0"
+pyyaml = "^6.0.2"
 torch = {version = "^2.10.0", source = "pytorch_cpu"}
 torchvision = {version = "^0.25.0", source = "pytorch_cpu"}
 panns-inference = "^0.1.1"

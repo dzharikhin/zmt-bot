@@ -7,6 +7,7 @@ from typing import Optional
 
 import config
 from audio.features import CombinedExtractor
+from audio.segments import SegmentSpec
 from core.storage import DuckDBStorage
 from core.jobs import JobManager
 from core.paths import compute_file_hash
@@ -80,41 +81,20 @@ class ExtractionResult:
     skipped: int
 
 
-def _extract_one(task: tuple) -> tuple:
-    track_path, file_hash, set_name, metadata = task
-
-    try:
-        extractor = _get_or_create_extractor()
-        vector = extractor(track_path)
-        return (file_hash, vector, metadata)
-    except Exception as e:
-        metadata_with_error = {
-            **metadata,
-            "error_code": "E_DECODE_FAILED",
-            "error_msg": str(e),
-        }
-        return (file_hash, None, metadata_with_error)
-
-
-_extractor: Optional["CombinedExtractor"] = None
-
-
-def _get_or_create_extractor():
-    global _extractor
-    if _extractor is None:
-        _extractor = CombinedExtractor(config.panns_weights_path)
-    return _extractor
-
-
 def _worker_loop(
-    worker_id: int, tasks: list, panns_weights_path: Path, result_queue: mp.Queue
+    worker_id: int,
+    tasks: list,
+    panns_weights_path: Path,
+    result_queue: mp.Queue,
+    profile_path: Path | None = None,
+    segment_spec: SegmentSpec | None = None,
 ):
-    extractor = CombinedExtractor(panns_weights_path)
+    extractor = CombinedExtractor(panns_weights_path, profile_path=profile_path)
 
     for task in tasks:
         track_path, file_hash, set_name, metadata = task
         try:
-            vector = extractor(track_path)
+            vector = extractor(track_path, segment_spec=segment_spec)
             result_queue.put((file_hash, vector, metadata))
         except Exception as e:
             metadata_with_error = {
@@ -133,9 +113,13 @@ def start_extraction_job(
     job_id: str,
     n_workers: int = 4,
     panns_weights_path: Optional[Path] = None,
+    profile_path: Optional[Path] = None,
+    segment_spec: Optional[SegmentSpec] = None,
 ) -> ExtractionResult:
     if panns_weights_path is None:
         panns_weights_path = config.panns_weights_path
+    if segment_spec is None and segment_policy != "full":
+        segment_spec = SegmentSpec.parse(segment_policy)
 
     storage = DuckDBStorage(db_path)
 
@@ -194,7 +178,14 @@ def start_extraction_job(
     for i in range(n_workers):
         p = _spawn.Process(
             target=_worker_loop,
-            args=(i, to_extract[i::n_workers], panns_weights_path, result_queue),
+            args=(
+                i,
+                to_extract[i::n_workers],
+                panns_weights_path,
+                result_queue,
+                profile_path,
+                segment_spec,
+            ),
             daemon=True,
         )
         p.start()
