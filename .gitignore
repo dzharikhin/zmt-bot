@@ -2,3 +2,5 @@
 /.idea
 *.iml
 **/snippets
+/models/panns_cnn14.pth
+/data/essentia_extractor_profile.yaml

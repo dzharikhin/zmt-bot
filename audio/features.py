@@ -3,8 +3,10 @@ import subprocess
 
 import essentia
 import essentia.standard as es
+import librosa
 import numpy as np
 import yaml
+from panns_inference import AudioTagging
 
 import config
 
@@ -72,16 +74,12 @@ def extract_essentia_features(extractor, audio_path: pathlib.Path) -> np.ndarray
 
 class PANNsCNN14:
     def __init__(self, weights_path: pathlib.Path):
-        from panns_inference import AudioTagging
-
         self.tagger = AudioTagging(
             checkpoint_path=str(weights_path),
             device="cpu",
         )
 
     def extract(self, audio_path: pathlib.Path) -> np.ndarray:
-        import librosa
-
         waveform, _sr = librosa.load(str(audio_path), sr=32000, mono=True)
         _clipwise_output, embedding = self.tagger.inference(waveform[None, :])
         mean_pool = embedding.mean(axis=1)
@@ -101,7 +99,7 @@ class CombinedExtractor:
 
 def prepare_extractor() -> CombinedExtractor:
     return CombinedExtractor(
-        panns_weights_path=pathlib.Path("/app/models/panns_cnn14.pth"),
+        panns_weights_path=config.panns_weights_path,
     )
 
 

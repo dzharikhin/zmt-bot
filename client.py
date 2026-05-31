@@ -19,9 +19,8 @@ from telethon.errors import RPCError
 from telethon.events import NewMessage, CallbackQuery
 
 import config
-import train
 from bot_utils import get_channel_name, get_message, is_allowed_user, get_channel_names
-from models import build_model_page_response
+from models import build_model_page_response, ModelType
 from train import prepare_model, estimate
 
 logging.basicConfig(
@@ -36,7 +35,7 @@ logger.setLevel(logging.DEBUG)
 async def send_train_queue_task(
     event,
     latest_message_links: list[str],
-    model_type: train.ModelType,
+    model_type: ModelType,
     limit: int | None,
     is_forced: bool,
 ):
@@ -67,7 +66,7 @@ async def handle_train_queue_tasks(
             cmd = queue.get_nowait()
             logger.debug(f"Handling train cmd={cmd}")
             if isinstance(cmd["model_type"], int):
-                cmd["model_type"] = train.ModelType(cmd["model_type"])
+                cmd["model_type"] = ModelType(cmd["model_type"])
             await prepare_model(
                 user_id,
                 bot_client,
@@ -284,9 +283,9 @@ TRAIN_CMD = (
         "-t",
         "--type",
         required=True,
-        type=train.ModelType.from_string,
-        choices=list(train.ModelType),
-        help=f"model type. {train.ModelType.INCLUDE_LIKED} - posts tracks similar to liked ones, {train.ModelType.EXCLUDE_DISLIKED} - posts other than disliked",
+        type=ModelType.from_string,
+        choices=list(ModelType),
+        help=f"model type. {ModelType.INCLUDE_LIKED} - posts tracks similar to liked ones, {ModelType.EXCLUDE_DISLIKED} - posts other than disliked",
     ),
     parser.add_argument(
         "-l",

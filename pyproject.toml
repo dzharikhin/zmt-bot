@@ -6,7 +6,7 @@ authors = ["Dmitriy Zharikhin <jorixxx@mail.ru>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = ">=3.12, <3.15"
+python = ">=3.14, <3.15"
 requests = "^2.32.3"
 duckdb = "^1.5.3"
 dacite = "^1.9.2"
@@ -17,9 +17,11 @@ torch = {version = "^2.10.0", source = "pytorch_cpu"}
 torchvision = {version = "^0.25.0", source = "pytorch_cpu"}
 panns-inference = "^0.1.1"
 librosa = "^0.11.0"
+essentia = "2.1b6.dev1438"
 
 [tool.poetry.group.dev.dependencies]
 black = "^26.5.1"
+pytest = "^9.0.3"
 
 
 [[tool.poetry.source]]

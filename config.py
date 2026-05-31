@@ -5,9 +5,11 @@ import os
 import pathlib
 import re
 from concurrent.futures.process import ProcessPoolExecutor
-from typing import Optional, Literal
+from typing import Optional
 
 from dacite import from_dict
+
+from models import ModelType
 
 api_id = os.getenv("API_ID")
 api_hash = os.getenv("API_HASH")
@@ -49,6 +51,9 @@ model_mode_b_like_recall_target = float(os.getenv("MODEL_MODE_B_RECALL", "0.80")
 model_min_set_size = int(os.getenv("MODEL_MIN_SET_SIZE", "50"))
 worker_ack_timeout_seconds = int(os.getenv("WORKER_ACK_TIMEOUT_S", "120"))
 segment_policy = os.getenv("SEGMENT_POLICY", "full")
+panns_weights_path = pathlib.Path(
+    os.getenv("PANNS_WEIGHTS_PATH", "/app/models/panns_cnn14.pth")
+)
 
 
 def override():
@@ -194,11 +199,13 @@ def get_subscribed_user_ids(channel_id: int) -> list[int]:
 @dataclasses.dataclass
 class Model:
     model_id: int
-    model_type: Literal["similar", "dissimilar"]
+    model_type: ModelType
     pickle_file_path: pathlib.Path
     accuracy: float
     liked_tracks_count: int
     disliked_tracks_count: int
+    thresholds: Optional[dict] = None
+    embed_version: Optional[str] = None
 
 
 def get_models(user_id: int) -> list[Model]:
@@ -208,8 +215,7 @@ def get_models(user_id: int) -> list[Model]:
     return [
         get_model(user_id, int(model_path.stem))
         for model_path in models_path.iterdir()
-        if model_path.is_dir()
-        and model_path.joinpath(f"{model_path.name}.pickle").exists()
+        if model_path.is_dir() and model_path.joinpath("model.pkl").exists()
     ]
 
 
@@ -220,9 +226,11 @@ def get_model(user_id: int, model_id: int) -> Optional[Model]:
     if not model_path.exists():
         return None
     model_stats = json.loads(model_path.joinpath("stats.json").read_text())
+    if isinstance(model_stats.get("model_type"), str):
+        model_stats["model_type"] = ModelType.from_string(model_stats["model_type"])
     return Model(
         model_id=int(model_path.stem),
-        pickle_file_path=model_path.joinpath(f"{model_path.stem}.pickle"),
+        pickle_file_path=model_path.joinpath("model.pkl"),
         **model_stats,
     )
 
@@ -246,7 +254,7 @@ def get_model_store_path(user_id: int, model_id: int) -> ModelStoreContext:
         user_id=user_id,
         model_id=model_id,
         model_workdir=model_path,
-        model_pickle_name=f"{model_id}.pickle",
+        model_pickle_name="model.pkl",
         model_stats_name="stats.json",
     )
 

@@ -1,15 +1,13 @@
 import asyncio
-import enum
+import json
 import logging
 import pathlib
-import pickle
 import shutil
 import tempfile
 import time
-import typing
+from datetime import datetime
 from typing import Literal, cast
 
-import numpy as np
 import telethon
 from telethon import TelegramClient
 from telethon.tl import types
@@ -19,6 +17,12 @@ from telethon.tl.types import DocumentAttributeAudio
 import config
 from audio.features import extract_features_for_mp3, prepare_extractor
 from bot_utils import get_message, obtain_latest_message_id, get_chat
+from core.modeling import DualOneClassModel
+from core.outliers import detect_outliers
+from core.paths import get_embed_version
+from core.storage import DuckDBStorage
+from core.writer import start_extraction_job
+from models import ModelType
 
 logging.basicConfig(
     level=logging.WARN,
@@ -27,8 +31,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__file__)
 logger.setLevel(logging.DEBUG)
-
-_estimation_model_cache = {}
 
 
 class TrainUnrecoverable(Exception):
@@ -83,21 +85,6 @@ FILTER = Mp3Filter(
 )
 
 
-class ModelType(enum.IntEnum):
-    INCLUDE_LIKED = 1
-    EXCLUDE_DISLIKED = 0
-
-    def __str__(self):
-        return self.name
-
-    @staticmethod
-    def from_string(s):
-        try:
-            return ModelType[s]
-        except KeyError:
-            raise ValueError()
-
-
 async def save_track_if_not_exists(
     user_id: int, message: Message, channel_type: Literal["liked", "disliked"]
 ):
@@ -147,10 +134,117 @@ async def download_audio_from_channel(
         start = time.time()
 
 
-def train_model(user_id: int, model_id: int, model_type: ModelType) -> config.Model:
-    raise NotImplementedError(
-        "train_model requires Phase 2 implementation (k-NN + GMM models)"
+def _build_profile(user_id: int, model_id: int, model_type: ModelType) -> config.Model:
+    """Build two one-class models from liked/disliked tracks (internal API)"""
+    storage = DuckDBStorage(config.get_feature_cache_path(user_id))
+    embed_version = get_embed_version()
+    segment_policy = config.segment_policy
+
+    liked_path = config.get_liked_file_store_path(user_id)
+    disliked_path = config.get_disliked_file_store_path(user_id)
+
+    if not liked_path.exists() or not disliked_path.exists():
+        raise TrainUnrecoverable("Track directories do not exist. Run /init first.")
+
+    liked_tracks = list(liked_path.glob("*.mp3"))
+    disliked_tracks = list(disliked_path.glob("*.mp3"))
+
+    if not liked_tracks or not disliked_tracks:
+        raise TrainUnrecoverable("No tracks found. Add tracks to channels first.")
+
+    logger.info(
+        f"Found {len(liked_tracks)} liked, {len(disliked_tracks)} disliked tracks"
     )
+
+    all_tracks = [(t, "like") for t in liked_tracks] + [
+        (t, "dislike") for t in disliked_tracks
+    ]
+
+    job_id = (
+        f"profile_{user_id}_{model_id}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+    )
+    logger.info(f"Starting feature extraction job {job_id}")
+
+    start_extraction_job(
+        storage=storage,
+        tracks=all_tracks,
+        embed_version=embed_version,
+        segment_policy=segment_policy,
+        job_id=job_id,
+    )
+
+    logger.info("Loading features from DuckDB")
+    X_liked_raw = storage.load_features(set_name="like", status="ok")
+    X_disliked_raw = storage.load_features(set_name="dislike", status="ok")
+
+    logger.info(
+        f"Loaded {len(X_liked_raw)} liked, {len(X_disliked_raw)} disliked features"
+    )
+
+    if len(X_liked_raw) == 0 or len(X_disliked_raw) == 0:
+        raise TrainUnrecoverable("No features extracted. Check logs for errors.")
+
+    if config.model_outlier_threshold > 0:
+        logger.info(
+            f"Applying outlier detection (threshold={config.model_outlier_threshold})"
+        )
+
+        mask_liked, outliers_liked = detect_outliers(
+            X_liked_raw,
+            threshold=config.model_outlier_threshold,
+            knn_k=config.model_knn_k,
+            n_estimators=200,
+            min_set_size=config.model_min_set_size,
+        )
+
+        mask_disliked, outliers_disliked = detect_outliers(
+            X_disliked_raw,
+            threshold=config.model_outlier_threshold,
+            knn_k=config.model_knn_k,
+            n_estimators=200,
+            min_set_size=config.model_min_set_size,
+        )
+
+        logger.info(
+            f"Filtered {len(outliers_liked)} liked, {len(outliers_disliked)} disliked outliers"
+        )
+
+        X_liked = X_liked_raw[mask_liked]
+        X_disliked = X_disliked_raw[mask_disliked]
+    else:
+        logger.info("Outlier detection disabled")
+        X_liked = X_liked_raw
+        X_disliked = X_disliked_raw
+
+    logger.info("Fitting DualOneClassModel")
+    model = DualOneClassModel(
+        knn_k=config.model_knn_k,
+        gmm_components=config.model_gmm_components,
+    )
+    model.fit(X_liked, X_disliked)
+    model.embed_version = embed_version
+    model.segment_policy = segment_policy
+
+    model_store = config.get_model_store_path(user_id, model_id)
+    model_store.model_workdir.mkdir(parents=True, exist_ok=True)
+    model.save(model_store.model_workdir)
+
+    stats = {
+        "model_type": model_type.name,
+        "liked_tracks_count": len(X_liked),
+        "disliked_tracks_count": len(X_disliked),
+        "accuracy": 0.0,
+        "thresholds": model.thresholds,
+        "embed_version": embed_version,
+    }
+    with open(model_store.model_workdir / "stats.json", "w") as f:
+        json.dump(stats, f, indent=2)
+
+    logger.info(f"Model saved to {model_store.model_workdir}")
+
+    storage.close()
+
+    return config.get_model(user_id, model_id)
 
 
 async def prepare_model(
@@ -168,9 +262,12 @@ async def prepare_model(
             raise TrainUnrecoverable(f"User {user_id} has no channels initialized")
 
         if force:
-            shutil.rmtree(config.get_liked_file_store_path(user_id))
-            shutil.rmtree(config.get_disliked_file_store_path(user_id))
-            shutil.rmtree(config.get_user_tmp_dir(user_id).joinpath(str(model_id)))
+            liked_path = config.get_liked_file_store_path(user_id)
+            disliked_path = config.get_disliked_file_store_path(user_id)
+            if liked_path.exists():
+                shutil.rmtree(liked_path)
+            if disliked_path.exists():
+                shutil.rmtree(disliked_path)
 
         await download_audio_from_channel(
             user_id,
@@ -188,9 +285,9 @@ async def prepare_model(
             bot_client,
             limit,
         )
-        model = await asyncio.get_running_loop().run_in_executor(
+        await asyncio.get_running_loop().run_in_executor(
             config.get_training_executor(),
-            train_model,
+            _build_profile,
             user_id,
             model_id,
             model_type,
@@ -202,17 +299,30 @@ async def prepare_model(
         ) from e
 
 
-def _load_model(model_file: pathlib.Path) -> typing.Any:
-    with model_file.open(mode="rb") as model_data:
-        return pickle.load(model_data)
-
-
-def execute_estimation(
+def _execute_estimation(
     user_id: int, model_id: int, track_to_estimate_path: pathlib.Path
 ) -> bool:
-    raise NotImplementedError(
-        "execute_estimation requires Phase 2 implementation (k-NN + GMM models)"
+    """Load model and score track (internal API)"""
+    model_store = config.get_model_store_path(user_id, model_id)
+
+    if not model_store.model_workdir.exists():
+        raise EstimationUnrecoverable(f"Model {model_id} not found for user {user_id}")
+
+    model = DualOneClassModel.load(model_store.model_workdir)
+
+    extractor = prepare_extractor()
+    X = extract_features_for_mp3(track_to_estimate_path, extractor).reshape(1, -1)
+
+    scores = model.predict(X)
+
+    model_entry = config.get_model(user_id, model_id)
+    is_recommended = model.decide(scores, model_entry.model_type)
+
+    logger.debug(
+        f"Scores: like={scores['like']}, dislike={scores['dislike']}, decision={is_recommended}"
     )
+
+    return is_recommended
 
 
 async def estimate(
@@ -231,7 +341,7 @@ async def estimate(
         await message.download_media(file=track_to_estimate_path)
         is_recommended = await asyncio.get_running_loop().run_in_executor(
             config.get_estimation_executor(),
-            execute_estimation,
+            _execute_estimation,
             user_id,
             model_id,
             track_to_estimate_path,

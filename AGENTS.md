@@ -6,7 +6,7 @@
 - **Run**: Docker with env vars `API_HASH`, `API_ID`, `BOT_TOKEN`, `OWNER_USER_ID`; mounts `./data:/app/data` and `./local_data:/app/local_data`
 - **Format**: `poetry run black .`
 - **Format changed files**: `poetry run black client.py config.py train.py`
-- **Python**: 3.12, Poetry
+- **Python**: 3.14, Poetry
 
 ## Architecture
 - `client.py` — asyncio Telegram client, command handlers
@@ -20,7 +20,7 @@
 - **Two one-class models** per user (liked + disliked), NOT a binary classifier
 - **Process pools** use `multiprocessing.get_context("spawn")` via lazy accessors `get_training_executor()`/`get_estimation_executor()` in config.py
 - **PyTorch CPU-only** via explicit `pytorch_cpu` source in pyproject.toml
-- **Essentia wheel** at `essentia/essentia-*-manylinux*.whl`; build from source: `docker buildx bake essentia-builder`
 - **PANNs CNN14 weights** downloaded at Docker build time to `/app/models/panns_cnn14.pth`
 - **DuckDB** per-user feature cache at `data/{user_id}/features.duckdb`
+- **No local imports** — all imports at module top level; never `import` inside functions/methods
 - **Tests** in `tests/` — run with `poetry run pytest`
