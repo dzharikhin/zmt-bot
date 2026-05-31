@@ -23,7 +23,7 @@
 - **Two one-class models** per user (liked + disliked), NOT a binary classifier
 - **Process pools** use `multiprocessing.get_context("spawn")` via lazy accessors `get_training_executor()`/`get_estimation_executor()` in config.py
 - **PyTorch CPU-only** via explicit `pytorch_cpu` source in pyproject.toml
-- **PANNs CNN14 weights** downloaded at Docker build time to `/app/models/panns_cnn14.pth`
+- **PANNs CNN14 assets** user-provided under `data/panns_data/`: weights `panns_cnn14.pth` and labels `class_labels_indices.csv`; container symlinks `/root/panns_data` → `/app/data/panns_data`
 - **DuckDB** per-user feature cache at `data/{user_id}/features.duckdb`; composite PK `(file_hash, embed_version, segment_policy)`
 - **No local imports** — all imports at module top level; never `import` inside functions/methods
 - **Tests** in `tests/` — run with `poetry run pytest`

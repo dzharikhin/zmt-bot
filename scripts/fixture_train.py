@@ -1,7 +1,7 @@
 """Fixture driver for _build_profile — runs training outside Telegram.
 
 Usage:
-    export PANNS_WEIGHTS_PATH=/zmt-bot/models/panns_cnn14.pth
+    export PANNS_WEIGHTS_PATH=/zmt-bot/data/panns_data/panns_cnn14.pth
     poetry run python scripts/fixture_train.py \
         --user-id 1 --model-id 1
 

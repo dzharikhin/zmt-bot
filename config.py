@@ -52,7 +52,7 @@ model_min_set_size = int(os.getenv("MODEL_MIN_SET_SIZE", "50"))
 worker_ack_timeout_seconds = int(os.getenv("WORKER_ACK_TIMEOUT_S", "120"))
 segment_policy = os.getenv("SEGMENT_POLICY", "full")
 panns_weights_path = pathlib.Path(
-    os.getenv("PANNS_WEIGHTS_PATH", "/app/models/panns_cnn14.pth")
+    os.getenv("PANNS_WEIGHTS_PATH", str(data_path / "panns_data" / "panns_cnn14.pth"))
 )
 
 

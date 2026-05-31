@@ -51,9 +51,7 @@ COPY --from=builder /usr/local /usr/local
 COPY --from=builder /app/.venv /app/.venv
 COPY . /app
 
-RUN mkdir -p /app/models \
-    && python -c "from urllib.request import urlretrieve; urlretrieve('https://zenodo.org/record/3987831/files/Cnn14_mAP%3D0.431.pth?download=1', '/app/models/panns_cnn14.pth')" \
-    || echo "PANNs weights download failed — mount or download manually"
+RUN ln -s /app/data/panns_data /root/panns_data
 
 WORKDIR /app
 ENTRYPOINT ["python"]
