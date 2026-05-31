@@ -103,7 +103,7 @@ async def format_model_response(
     )
     models_formatted = "\n".join(
         [
-            f"* [{",".join(subscription_names[model.model_id]) if model.model_id in subscription_names else ""}] model `{model.model_id}`({model.model_type}): {model.accuracy:.2f}(track stats: {model.disliked_tracks_count}disliked / {model.liked_tracks_count}liked)"
+            f"* [{",".join(subscription_names[model.model_id]) if model.model_id in subscription_names else ""}] model `{model.model_id}`: {model.accuracy:.2f}(track stats: {model.disliked_tracks_count}disliked / {model.liked_tracks_count}liked)"
             for model in items
         ]
     )

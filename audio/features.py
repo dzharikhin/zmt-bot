@@ -40,29 +40,32 @@ def get_essentia_extractor():
 _DESCRIPTOR_NAMES: list[str] | None = None
 
 
-def _load_descriptor_names() -> list[str]:
-    profile_path = config.data_path / "essentia_extractor_profile.yaml"
-    with open(profile_path) as f:
-        profile = yaml.safe_load(f)
+def _discover_descriptor_names(pool) -> list[str]:
     names = []
-    for group in ("lowLevel", "rhythm", "tonal"):
-        for desc in profile.get("outputFrames", {}).get(group, []):
-            names.append(f"{group}.{desc}")
+    for name in sorted(pool.descriptorNames()):
+        if name.startswith("metadata."):
+            continue
+        value = pool[name]
+        if isinstance(value, str):
+            continue
+        arr = np.asarray(value)
+        if arr.ndim >= 2:
+            continue
+        if arr.ndim == 1 and len(arr) > 40:
+            continue
+        names.append(name)
     return names
 
 
 def _essentia_pool_to_vector(pool) -> np.ndarray:
     global _DESCRIPTOR_NAMES
     if _DESCRIPTOR_NAMES is None:
-        _DESCRIPTOR_NAMES = _load_descriptor_names()
+        _DESCRIPTOR_NAMES = _discover_descriptor_names(pool)
 
     parts = []
     for name in _DESCRIPTOR_NAMES:
         value = pool[name]
-        if isinstance(value, (list, np.ndarray)):
-            parts.append(np.asarray(value, dtype=np.float32).ravel())
-        else:
-            parts.append(np.array([float(value)], dtype=np.float32))
+        parts.append(np.asarray(value, dtype=np.float32).reshape(-1))
 
     return np.concatenate(parts)
 
@@ -82,8 +85,7 @@ class PANNsCNN14:
     def extract(self, audio_path: pathlib.Path) -> np.ndarray:
         waveform, _sr = librosa.load(str(audio_path), sr=32000, mono=True)
         _clipwise_output, embedding = self.tagger.inference(waveform[None, :])
-        mean_pool = embedding.mean(axis=1)
-        return mean_pool.squeeze(0)
+        return embedding.reshape(-1)
 
 
 class CombinedExtractor:

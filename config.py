@@ -128,25 +128,47 @@ def set_user_channels(user_id: int, channels: UserChannels):
 class Subscription:
     estimate_from_channel_id: int
     model_id: int
+    model_type: ModelType = ModelType.INCLUDE_LIKED
+
+
+def _serialize_subscriptions(subscriptions: list[Subscription]) -> list[dict]:
+    result = []
+    for s in subscriptions:
+        d = dataclasses.asdict(s)
+        d["model_type"] = s.model_type.name
+        result.append(d)
+    return result
+
+
+def _deserialize_subscriptions(items: list[dict]) -> list[Subscription]:
+    subscriptions = []
+    for item in items:
+        if isinstance(item.get("model_type"), str):
+            item["model_type"] = ModelType.from_string(item["model_type"])
+        elif isinstance(item.get("model_type"), int):
+            item["model_type"] = ModelType(item["model_type"])
+        subscriptions.append(Subscription(**item))
+    return subscriptions
 
 
 def get_subscriptions(user_id: int) -> list[Subscription]:
     subscriptions_file = data_path.joinpath(str(user_id)).joinpath("subscriptions.json")
     if not subscriptions_file.exists():
         return []
-    return [
-        from_dict(data_class=Subscription, data=item)
-        for item in json.loads(subscriptions_file.read_text())
-    ]
+    return _deserialize_subscriptions(json.loads(subscriptions_file.read_text()))
+
+
+def _save_subscriptions(user_id: int, subscriptions: list[Subscription]):
+    subscriptions_file = data_path.joinpath(str(user_id)).joinpath("subscriptions.json")
+    subscriptions_file.parent.mkdir(exist_ok=True)
+    with subscriptions_file.open(mode="wt") as f:
+        f.write(json.dumps(_serialize_subscriptions(subscriptions)))
 
 
 def add_subscription(user_id: int, subscription: Subscription):
     subscriptions = get_subscriptions(user_id)
     subscriptions.append(subscription)
-    subscriptions_file = data_path.joinpath(str(user_id)).joinpath("subscriptions.json")
-    subscriptions_file.parent.mkdir(exist_ok=True)
-    with subscriptions_file.open(mode="wt") as f:
-        f.write(json.dumps([dataclasses.asdict(s) for s in subscriptions]))
+    _save_subscriptions(user_id, subscriptions)
 
 
 def get_subscription_by_channel(
@@ -164,12 +186,18 @@ def update_subscription_model(user_id: int, channel_id: int, model_id: int):
     for sub in subscriptions:
         if sub.estimate_from_channel_id == channel_id:
             sub.model_id = model_id
-            subscriptions_file = data_path.joinpath(str(user_id)).joinpath(
-                "subscriptions.json"
-            )
-            subscriptions_file.parent.mkdir(exist_ok=True)
-            with subscriptions_file.open(mode="wt") as f:
-                f.write(json.dumps([dataclasses.asdict(s) for s in subscriptions]))
+            _save_subscriptions(user_id, subscriptions)
+            return
+
+
+def update_subscription_model_type(
+    user_id: int, channel_id: int, model_type: ModelType
+):
+    subscriptions = get_subscriptions(user_id)
+    for sub in subscriptions:
+        if sub.estimate_from_channel_id == channel_id:
+            sub.model_type = model_type
+            _save_subscriptions(user_id, subscriptions)
             return
 
 
@@ -178,10 +206,7 @@ def remove_subscription(user_id: int, channel_id: int):
     subscriptions = [
         sub for sub in subscriptions if sub.estimate_from_channel_id != channel_id
     ]
-    subscriptions_file = data_path.joinpath(str(user_id)).joinpath("subscriptions.json")
-    subscriptions_file.parent.mkdir(exist_ok=True)
-    with subscriptions_file.open(mode="wt") as f:
-        f.write(json.dumps([dataclasses.asdict(s) for s in subscriptions]))
+    _save_subscriptions(user_id, subscriptions)
 
 
 def has_user_channels(user_id: int) -> bool:
@@ -199,7 +224,6 @@ def get_subscribed_user_ids(channel_id: int) -> list[int]:
 @dataclasses.dataclass
 class Model:
     model_id: int
-    model_type: ModelType
     pickle_file_path: pathlib.Path
     accuracy: float
     liked_tracks_count: int
@@ -226,8 +250,7 @@ def get_model(user_id: int, model_id: int) -> Optional[Model]:
     if not model_path.exists():
         return None
     model_stats = json.loads(model_path.joinpath("stats.json").read_text())
-    if isinstance(model_stats.get("model_type"), str):
-        model_stats["model_type"] = ModelType.from_string(model_stats["model_type"])
+    model_stats.pop("model_type", None)
     return Model(
         model_id=int(model_path.stem),
         pickle_file_path=model_path.joinpath("model.pkl"),

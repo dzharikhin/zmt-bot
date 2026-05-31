@@ -52,8 +52,10 @@ class OneClassSetModel:
         n_components = min(self.gmm_components, max(1, len(X_fit) // 2))
         self.gmm = GaussianMixture(
             n_components=n_components,
+            covariance_type="diag",
             random_state=42,
             n_init=3,
+            reg_covar=1e-6,
         )
         self.gmm.fit(X_fit)
 

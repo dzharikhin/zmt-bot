@@ -17,13 +17,13 @@ logger = logging.getLogger(__name__)
 class FeatureWriter:
     def __init__(
         self,
-        storage: DuckDBStorage,
+        db_path: Path,
         task_queue: mp.Queue,
         ack_queue: mp.Queue,
         heartbeat_interval: float = 2.0,
         heartbeat_path: Path = None,
     ):
-        self.storage = storage
+        self.db_path = db_path
         self.task_queue = task_queue
         self.ack_queue = ack_queue
         self.heartbeat_interval = heartbeat_interval
@@ -31,6 +31,7 @@ class FeatureWriter:
         self.running = True
 
     def run(self):
+        storage = DuckDBStorage(self.db_path)
         last_heartbeat = 0
 
         while self.running:
@@ -53,7 +54,7 @@ class FeatureWriter:
                     break
 
                 file_hash, vector, metadata = item
-                self.storage.insert_track(file_hash, vector, **metadata)
+                storage.insert_track(file_hash, vector, **metadata)
 
                 self.ack_queue.put(file_hash)
 
@@ -65,6 +66,8 @@ class FeatureWriter:
 
             except Exception as e:
                 logger.error(f"Writer error: {e}")
+
+        storage.close()
 
     def stop(self):
         self.running = False
@@ -123,7 +126,7 @@ def _worker_loop(
 
 
 def start_extraction_job(
-    storage: DuckDBStorage,
+    db_path: Path,
     tracks: list[tuple[Path, str]],
     embed_version: str,
     segment_policy: str,
@@ -133,6 +136,8 @@ def start_extraction_job(
 ) -> ExtractionResult:
     if panns_weights_path is None:
         panns_weights_path = config.panns_weights_path
+
+    storage = DuckDBStorage(db_path)
 
     to_extract = []
     skipped = 0
@@ -167,14 +172,17 @@ def start_extraction_job(
     if not to_extract:
         job_mgr.update_progress(job_id, progress_done=skipped, progress_total=total)
         job_mgr.complete_job(job_id)
+        storage.close()
         return ExtractionResult(ok=0, failed=0, skipped=skipped)
+
+    storage.close()
 
     task_queue = mp.Queue()
     ack_queue = mp.Queue()
-    heartbeat_path = storage.db_path.parent / ".writer_heartbeat"
+    heartbeat_path = db_path.parent / ".writer_heartbeat"
 
     writer = FeatureWriter(
-        storage, task_queue, ack_queue, heartbeat_path=heartbeat_path
+        db_path, task_queue, ack_queue, heartbeat_path=heartbeat_path
     )
     writer_proc = mp.Process(target=writer.run, daemon=True)
     writer_proc.start()
@@ -209,10 +217,6 @@ def start_extraction_job(
             acked_hash = ack_queue.get(timeout=config.worker_ack_timeout_seconds)
             failed += 1
 
-        job_mgr.update_progress(
-            job_id, progress_done=skipped + ok + failed, progress_total=total
-        )
-
     for w in workers:
         w.join(timeout=30)
 
@@ -222,6 +226,9 @@ def start_extraction_job(
     if heartbeat_path.exists():
         heartbeat_path.unlink()
 
+    storage = DuckDBStorage(db_path)
+    job_mgr = JobManager(storage, config.jobs_root)
     job_mgr.complete_job(job_id)
+    storage.close()
 
     return ExtractionResult(ok=ok, failed=failed, skipped=skipped)

@@ -35,14 +35,12 @@ logger.setLevel(logging.DEBUG)
 async def send_train_queue_task(
     event,
     latest_message_links: list[str],
-    model_type: ModelType,
     limit: int | None,
     is_forced: bool,
 ):
     get_or_create_train_queue(event.sender_id).put(
         {
             "message_id": event.message.id,
-            "model_type": model_type,
             "forced": is_forced,
             "limit": limit,
             "latest_message_links": latest_message_links,
@@ -65,14 +63,11 @@ async def handle_train_queue_tasks(
         try:
             cmd = queue.get_nowait()
             logger.debug(f"Handling train cmd={cmd}")
-            if isinstance(cmd["model_type"], int):
-                cmd["model_type"] = ModelType(cmd["model_type"])
             await prepare_model(
                 user_id,
                 bot_client,
                 cmd["latest_message_links"],
                 cmd["message_id"],
-                cmd["model_type"],
                 cmd["forced"],
                 cmd.get("limit", 1000),
             )
@@ -120,6 +115,7 @@ async def send_estimate_queue_task_with_channel(
             "chat_id": event.chat_id,
             "message_id": event.message.id,
             "model_id": subscription.model_id,
+            "model_type": subscription.model_type.name,
             "channel_name": channel_name,
         }
     )
@@ -143,8 +139,18 @@ async def handle_estimate_queue_tasks(
         try:
             cmd = queue.get_nowait()
             logger.debug(f"Handling estimation cmd={cmd}")
+            model_type = (
+                ModelType.from_string(cmd["model_type"])
+                if isinstance(cmd.get("model_type"), str)
+                else ModelType.INCLUDE_LIKED
+            )
             is_recommended = await estimate(
-                user_id, cmd["chat_id"], cmd["message_id"], cmd["model_id"], bot_client
+                user_id,
+                cmd["chat_id"],
+                cmd["message_id"],
+                cmd["model_id"],
+                model_type,
+                bot_client,
             )
             message = await get_message(cmd["chat_id"], cmd["message_id"], bot_client)
             if message:
@@ -244,6 +250,15 @@ SUBSCRIBE_CMD = (
         type=int,
         help="model id to use for this subscription",
     ),
+    parser.add_argument(
+        "-t",
+        "--type",
+        required=False,
+        type=ModelType.from_string,
+        choices=list(ModelType),
+        default=ModelType.INCLUDE_LIKED,
+        help=f"decision policy. {ModelType.INCLUDE_LIKED} - posts tracks similar to liked ones, {ModelType.EXCLUDE_DISLIKED} - posts other than disliked (default: {ModelType.INCLUDE_LIKED})",
+    ),
     parser,
 )[-1]
 
@@ -278,14 +293,6 @@ TRAIN_CMD = (
         description="train a model to estimate track with and set it as current",
         exit_on_error=False,
         add_help=False,
-    ),
-    parser.add_argument(
-        "-t",
-        "--type",
-        required=True,
-        type=ModelType.from_string,
-        choices=list(ModelType),
-        help=f"model type. {ModelType.INCLUDE_LIKED} - posts tracks similar to liked ones, {ModelType.EXCLUDE_DISLIKED} - posts other than disliked",
     ),
     parser.add_argument(
         "-l",
@@ -466,7 +473,7 @@ async def main():
             )
             config.set_user_channels(event.sender_id, channels)
 
-            await event.respond(f"Channels initialized. Train a model: /train")
+            await event.respond(f"Channels initialized. Train a model: /{TRAIN_CMD.prog}")
 
         @bot_client.on(events.NewMessage(incoming=True, pattern=SUBSCRIBE_CMD.epilog))
         async def subscribe_handler(event: NewMessage.Event) -> None:
@@ -505,18 +512,22 @@ async def main():
                 config.update_subscription_model(
                     event.sender_id, args.estimation_channel_id, args.model_id
                 )
+                config.update_subscription_model_type(
+                    event.sender_id, args.estimation_channel_id, args.type
+                )
                 await event.respond(
-                    f"Updated {channel_name} to use model #{args.model_id}"
+                    f"Updated {channel_name} to use model #{args.model_id} ({args.type})"
                 )
             else:
                 subscription = config.Subscription(
                     estimate_from_channel_id=args.estimation_channel_id,
                     model_id=args.model_id,
+                    model_type=args.type,
                 )
                 config.add_subscription(user_id, subscription)
 
                 await event.respond(
-                    f"Subscribed to {channel_name} with model #{args.model_id}"
+                    f"Subscribed to {channel_name} with model #{args.model_id} ({args.type})"
                 )
 
         @bot_client.on(events.NewMessage(incoming=True, pattern=UNSUBSCRIBE_CMD.epilog))
@@ -571,7 +582,7 @@ async def main():
                     sub.estimate_from_channel_id, bot_client
                 )
                 buffer.write(
-                    f"{idx}. {channel_name}({sub.estimate_from_channel_id}) - Model #{sub.model_id}\n"
+                    f"{idx}. {channel_name}({sub.estimate_from_channel_id}) - Model #{sub.model_id} ({sub.model_type})\n"
                 )
 
             await event.respond(buffer.getvalue())
@@ -617,7 +628,7 @@ async def main():
                 return
 
             await send_train_queue_task(
-                event, args.latest_message_links, args.type, args.limit, args.force
+                event, args.latest_message_links, args.limit, args.force
             )
             await event.respond(f"Training task for id={event.message.id} created")
 

@@ -134,9 +134,9 @@ async def download_audio_from_channel(
         start = time.time()
 
 
-def _build_profile(user_id: int, model_id: int, model_type: ModelType) -> config.Model:
+def _build_profile(user_id: int, model_id: int) -> config.Model:
     """Build two one-class models from liked/disliked tracks (internal API)"""
-    storage = DuckDBStorage(config.get_feature_cache_path(user_id))
+    db_path = config.get_feature_cache_path(user_id)
     embed_version = get_embed_version()
     segment_policy = config.segment_policy
 
@@ -166,7 +166,7 @@ def _build_profile(user_id: int, model_id: int, model_type: ModelType) -> config
     logger.info(f"Starting feature extraction job {job_id}")
 
     start_extraction_job(
-        storage=storage,
+        db_path=db_path,
         tracks=all_tracks,
         embed_version=embed_version,
         segment_policy=segment_policy,
@@ -174,6 +174,7 @@ def _build_profile(user_id: int, model_id: int, model_type: ModelType) -> config
     )
 
     logger.info("Loading features from DuckDB")
+    storage = DuckDBStorage(db_path)
     X_liked_raw = storage.load_features(set_name="like", status="ok")
     X_disliked_raw = storage.load_features(set_name="dislike", status="ok")
 
@@ -230,7 +231,6 @@ def _build_profile(user_id: int, model_id: int, model_type: ModelType) -> config
     model.save(model_store.model_workdir)
 
     stats = {
-        "model_type": model_type.name,
         "liked_tracks_count": len(X_liked),
         "disliked_tracks_count": len(X_disliked),
         "accuracy": 0.0,
@@ -252,7 +252,6 @@ async def prepare_model(
     bot_client: TelegramClient,
     latest_message_links: list[str],
     model_id: int,
-    model_type: ModelType,
     force: bool = False,
     limit: int | None = None,
 ):
@@ -290,7 +289,6 @@ async def prepare_model(
             _build_profile,
             user_id,
             model_id,
-            model_type,
         )
 
     except TrainUnrecoverable as e:
@@ -300,7 +298,10 @@ async def prepare_model(
 
 
 def _execute_estimation(
-    user_id: int, model_id: int, track_to_estimate_path: pathlib.Path
+    user_id: int,
+    model_id: int,
+    track_to_estimate_path: pathlib.Path,
+    model_type: ModelType,
 ) -> bool:
     """Load model and score track (internal API)"""
     model_store = config.get_model_store_path(user_id, model_id)
@@ -315,8 +316,7 @@ def _execute_estimation(
 
     scores = model.predict(X)
 
-    model_entry = config.get_model(user_id, model_id)
-    is_recommended = model.decide(scores, model_entry.model_type)
+    is_recommended = model.decide(scores, model_type)
 
     logger.debug(
         f"Scores: like={scores['like']}, dislike={scores['dislike']}, decision={is_recommended}"
@@ -330,6 +330,7 @@ async def estimate(
     chat_id: int,
     message_id: int,
     model_id: int,
+    model_type: ModelType,
     bot_client: TelegramClient,
 ) -> bool:
     message = await get_message(chat_id, message_id, bot_client)
@@ -345,6 +346,7 @@ async def estimate(
             user_id,
             model_id,
             track_to_estimate_path,
+            model_type,
         )
         logger.info(f"{user_id=} {chat_id=} {message_id=}: {is_recommended=}")
         return is_recommended
