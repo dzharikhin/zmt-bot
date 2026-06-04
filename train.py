@@ -1,8 +1,10 @@
 import asyncio
+import atexit
 import json
 import logging
 import pathlib
 import shutil
+import sys
 import tempfile
 import time
 from datetime import datetime
@@ -25,12 +27,27 @@ from core.writer import start_extraction_job
 from models import ModelType
 
 logging.basicConfig(
-    level=logging.WARN,
+    level=logging.INFO,
     format="%(asctime)s.%(msecs)03d %(levelname)s %(funcName)s: %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger(__file__)
 logger.setLevel(logging.DEBUG)
+
+atexit_handler_registered = False
+
+
+def _log_error_on_exit():
+    """Log error details if process exits with an error"""
+    if sys.exc_info()[0] is not None:
+        logger.error("Exit with exception", exc_info=True)
+
+
+def _register_atexit_handler():
+    global atexit_handler_registered
+    if not atexit_handler_registered:
+        atexit.register(_log_error_on_exit)
+        atexit_handler_registered = True
 
 
 class TrainUnrecoverable(Exception):
@@ -136,6 +153,8 @@ async def download_audio_from_channel(
 
 def _build_profile(user_id: int, model_id: int) -> config.Model:
     """Build two one-class models from liked/disliked tracks (internal API)"""
+    _register_atexit_handler()
+
     db_path = config.get_feature_cache_path(user_id)
     embed_version = get_embed_version()
     segment_policy = config.segment_policy
@@ -165,12 +184,18 @@ def _build_profile(user_id: int, model_id: int) -> config.Model:
     )
     logger.info(f"Starting feature extraction job {job_id}")
 
+    def progress_callback(job_id, done, total, status, **kwargs):
+        if status == "running":
+            pct = (done / total * 100) if total > 0 else 0
+            logger.info(f"Extraction progress: {done}/{total} ({pct:.1f}%) - ok={kwargs.get('ok', 0)}, failed={kwargs.get('failed', 0)}, skipped={kwargs.get('skipped', 0)}")
+
     start_extraction_job(
         db_path=db_path,
         tracks=all_tracks,
         embed_version=embed_version,
         segment_policy=segment_policy,
         job_id=job_id,
+        progress_callback=progress_callback,
     )
 
     logger.info("Loading features from DuckDB")
@@ -296,6 +321,7 @@ async def prepare_model(
         )
 
     except TrainUnrecoverable as e:
+        logger.error(f"Training failed for user {user_id} model {model_id}: {e}", exc_info=True)
         raise TrainUnrecoverable(
             f"Can't train model {model_id} for user {user_id}"
         ) from e
@@ -308,25 +334,29 @@ def _execute_estimation(
     model_type: ModelType,
 ) -> bool:
     """Load model and score track (internal API)"""
-    model_store = config.get_model_store_path(user_id, model_id)
+    try:
+        model_store = config.get_model_store_path(user_id, model_id)
 
-    if not model_store.model_workdir.exists():
-        raise EstimationUnrecoverable(f"Model {model_id} not found for user {user_id}")
+        if not model_store.model_workdir.exists():
+            raise EstimationUnrecoverable(f"Model {model_id} not found for user {user_id}")
 
-    model = DualOneClassModel.load(model_store.model_workdir)
+        model = DualOneClassModel.load(model_store.model_workdir)
 
-    extractor = prepare_extractor()
-    X = extract_features_for_mp3(track_to_estimate_path, extractor).reshape(1, -1)
+        extractor = prepare_extractor()
+        X = extract_features_for_mp3(track_to_estimate_path, extractor).reshape(1, -1)
 
-    scores = model.predict(X)
+        scores = model.predict(X)
 
-    is_recommended = model.decide(scores, model_type)
+        is_recommended = model.decide(scores, model_type)
 
-    logger.debug(
-        f"Scores: like={scores['like']}, dislike={scores['dislike']}, decision={is_recommended}"
-    )
+        logger.debug(
+            f"Scores: like={scores['like']}, dislike={scores['dislike']}, decision={is_recommended}"
+        )
 
-    return is_recommended
+        return is_recommended
+    except Exception as e:
+        logger.error(f"Estimation failed for track {track_to_estimate_path}: {e}", exc_info=True)
+        raise EstimationUnrecoverable(f"Estimation failed: {e}") from e
 
 
 async def estimate(

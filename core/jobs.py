@@ -15,6 +15,7 @@ class JobManager:
         self.jobs_root.mkdir(parents=True, exist_ok=True)
 
     def start_job(self, job_id: str, kind: str, params: dict) -> Path:
+        logger.info(f"Starting job {job_id} of kind '{kind}'")
         job_dir = self.jobs_root / job_id
         job_dir.mkdir(parents=True, exist_ok=True)
 
@@ -61,8 +62,13 @@ class JobManager:
 
             with open(state_path, "w") as f:
                 json.dump(state, f, indent=2)
+            
+            if progress_total > 0:
+                pct = (progress_done / progress_total) * 100
+                logger.debug(f"Job {job_id}: Progress {progress_done}/{progress_total} ({pct:.1f}%)")
 
     def complete_job(self, job_id: str):
+        logger.info(f"Completing job {job_id}")
         job_dir = self.jobs_root / job_id
 
         self.storage.update_job(
@@ -83,6 +89,7 @@ class JobManager:
                 json.dump(state, f, indent=2)
 
     def fail_job(self, job_id: str, error: str):
+        logger.error(f"Job {job_id} failed: {error}", exc_info=True)
         job_dir = self.jobs_root / job_id
 
         self.storage.update_job(
