@@ -49,16 +49,15 @@ def _worker_loop(
                 mtime=metadata.get("mtime"),
                 sample_rate=metadata.get("sample_rate", 16000),
             )
-            result_queue.put((file_hash, True))
+            logger.info(f"Worker {worker_id}: OK {track_path.name}")
+            result_queue.put((file_hash, True, None))
             if (idx + 1) % 10 == 0:
                 logger.info(
                     f"Worker {worker_id}: Completed {idx + 1}/{len(tasks)} tracks"
                 )
         except Exception as e:
-            logger.exception(
-                f"Worker {worker_id}: Failed to extract features from {track_path.name}: {e}"
-            )
-            result_queue.put((file_hash, False))
+            logger.error(f"Worker {worker_id}: FAILED {track_path.name}: {e}")
+            result_queue.put((file_hash, False, str(e)))
 
     logger.info(f"Worker {worker_id}: Finished, processed {len(tasks)} tracks")
 
@@ -106,7 +105,8 @@ def start_extraction_job(
 
     total = skipped + len(to_extract)
     logger.info(
-        f"Job {job_id}: Cache probe complete - {skipped} cached, {len(to_extract)} to extract, {total} total"
+        f"Job {job_id}: Cache probe complete - {skipped} cached, "
+        f"{len(to_extract)} to extract, {total} total"
     )
 
     job_store = JobStore(user_id)
@@ -163,12 +163,13 @@ def start_extraction_job(
     job_mgr = JobManager(job_store)
 
     for _ in range(expected):
-        file_hash, success = result_queue.get()
+        file_hash, success, error_msg = result_queue.get()
         if success:
             ok += 1
+            logger.info(f"Job {job_id}: {file_hash} — OK")
         else:
             failed += 1
-            logger.error(f"Job {job_id}: Feature extraction failed for {file_hash}")
+            logger.error(f"Job {job_id}: {file_hash} — FAILED: {error_msg}")
 
         current_done = ok + failed + skipped
         if current_done - last_progress >= 10 or current_done == total:
@@ -200,7 +201,8 @@ def start_extraction_job(
         )
 
     logger.info(
-        f"Job {job_id}: Completed - total={total}, ok={ok}, failed={failed}, skipped={skipped}"
+        f"Job {job_id}: Completed - total={total}, ok={ok}, failed={failed}, "
+        f"skipped={skipped}"
     )
 
     return ExtractionResult(ok=ok, failed=failed, skipped=skipped)

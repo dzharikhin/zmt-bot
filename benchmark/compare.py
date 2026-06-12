@@ -1,5 +1,6 @@
 import argparse
 import json
+import logging
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,6 +17,8 @@ from core.outliers import detect_outliers
 from core.paths import get_embed_version
 from core.storage import FeatureStore
 from core.writer import start_extraction_job
+
+logger = logging.getLogger(__name__)
 
 
 def objective(trial, X_liked, X_disliked, w_a, w_b):
@@ -181,9 +184,7 @@ def main():
         if args.variants and args.variants not in name:
             continue
 
-        print(f"\n{'='*60}")
-        print(f"Processing: {name}")
-        print(f"{'='*60}")
+        logger.info(f"Processing: {name}")
 
         essentia_profile = embedding_var["essentia_profile"]
         profile_path = Path(essentia_profile)
@@ -203,9 +204,14 @@ def main():
         variant_embed_version = get_embed_version(profile_path, panns_weights_path)
         variant_segment_policy = segment_spec.canonical()
 
-        job_id = f"bench_{user_id}_{name}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
+        job_id = (
+            f"bench_{user_id}_{name}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
+        )
 
         t0 = time.monotonic()
+        logger.info(
+            f"Job {job_id}: Starting feature extraction for {len(all_tracks)} tracks"
+        )
         extraction_result = start_extraction_job(
             user_id=user_id,
             tracks=all_tracks,
@@ -218,9 +224,19 @@ def main():
             segment_spec=segment_spec,
         )
         extraction_time_s = time.monotonic() - t0
+        logger.info(
+            f"Job {job_id}: Extraction completed in {extraction_time_s:.1f}s "
+            f"({extraction_result.ok} succeeded, {extraction_result.failed} failed, "
+            f"{extraction_result.skipped} cached)"
+        )
 
         store = FeatureStore(user_id, variant_embed_version, variant_segment_policy)
         track_counts = store.count_tracks()
+        logger.info(
+            f"Job {job_id}: Feature counts — liked: {track_counts.get('like', 0)} ok / "
+            f"{len(liked_tracks)} total, disliked: {track_counts.get('dislike', 0)} "
+            f"ok / {len(disliked_tracks)} total"
+        )
         with store.training_view("like") as liked_pq:
             X_liked = FeatureStore.load_vectors(liked_pq)
         with store.training_view("dislike") as disliked_pq:
@@ -243,9 +259,10 @@ def main():
             "newly_extracted": extraction_result.ok,
         }
 
-        if len(X_liked) < 10 or len(X_disliked) < 10:
-            print(
-                f"  Skipping — insufficient data ({len(X_liked)} liked, {len(X_disliked)} disliked)"
+        if liked_ok < 10 or disliked_ok < 10:
+            logger.warning(
+                f"Skipping — insufficient data ({liked_ok} liked, {disliked_ok} "
+                f"disliked)"
             )
             continue
 
@@ -274,9 +291,10 @@ def main():
             f"({extraction_result.ok} new, {extraction_result.skipped} cached, "
             f"{extraction_result.failed} failed)"
         )
-        print(f"  Liked: {track_counts.get('like', 0)} ok / {len(liked_tracks)} total")
-        print(
-            f"  Disliked: {track_counts.get('dislike', 0)} ok / {len(disliked_tracks)} total"
+        logger.info(
+            f"Feature counts — Liked: {track_counts.get('like', 0)} ok / "
+            f"{len(liked_tracks)} total, Disliked: {track_counts.get('dislike', 0)} "
+            f"ok / {len(disliked_tracks)} total"
         )
         print(f"  Best weighted recall: {opt_result['weighted_recall']:.3f}")
         print(f"  Best params: {opt_result['best_params']}")
@@ -296,16 +314,16 @@ def main():
     with open(args.output, "w") as f:
         json.dump(report, f, indent=2)
 
-    print(f"\nReport saved to {args.output}")
+    logger.info(f"Report saved to {args.output}")
 
     if report["best_variant"]:
         bv = report["best_variant"]
-        print(f"\nBest variant: {bv['name']}")
-        print(f"   Segment policy: {bv['segment_policy']}")
-        print(f"   Weighted recall: {bv['optimization']['weighted_recall']:.3f}")
-        print(f"   Best params: {bv['optimization']['best_params']}")
+        logger.info(f"Best variant: {bv['name']}")
+        logger.info(f"   Segment policy: {bv['segment_policy']}")
+        logger.info(f"   Weighted recall: {bv['optimization']['weighted_recall']:.3f}")
+        logger.info(f"   Best params: {bv['optimization']['best_params']}")
         ext = bv["extraction"]
-        print(
+        logger.info(
             f"   Extraction time: {ext['time_s']:.1f}s "
             f"(liked: {ext['liked']['ok']}/{ext['liked']['total']}, "
             f"disliked: {ext['disliked']['ok']}/{ext['disliked']['total']})"
