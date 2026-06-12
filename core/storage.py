@@ -1,72 +1,36 @@
 import logging
+import os
+from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import duckdb
 import numpy as np
 
+import config
+
 logger = logging.getLogger(__name__)
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS tracks (
-  file_hash      TEXT NOT NULL,
-  source_path    TEXT NOT NULL,
-  set_name       TEXT NOT NULL CHECK (set_name IN ('like','dislike')),
-  bytes          BIGINT,
-  mtime          DOUBLE,
-  duration_s     DOUBLE,
-  sample_rate    INTEGER,
-  segment_policy TEXT NOT NULL,
-  embed_version  TEXT NOT NULL,
-  extracted_at   TIMESTAMP,
-  status         TEXT NOT NULL CHECK (status IN ('ok', 'failed', 'in_progress')),
-  error_code     TEXT,
-  error_msg      TEXT,
-  vector         FLOAT[],
-  PRIMARY KEY (file_hash, embed_version, segment_policy)
-);
-CREATE INDEX IF NOT EXISTS tracks_set_status ON tracks(set_name, status);
 
-CREATE TABLE IF NOT EXISTS jobs (
-  job_id            TEXT PRIMARY KEY,
-  kind              TEXT NOT NULL,
-  status            TEXT NOT NULL,
-  progress_total    INTEGER,
-  progress_done     INTEGER,
-  started_at        TIMESTAMP,
-  last_heartbeat_at TIMESTAMP,
-  finished_at       TIMESTAMP,
-  params_json       TEXT,
-  error_json        TEXT
-);
-"""
+class FeatureStore:
+    def __init__(self, user_id: int, embed_version: str, segment_policy: str):
+        self.user_id = user_id
+        self.embed_version = embed_version
+        self.segment_policy = segment_policy
+        self._root = config.get_feature_store_root(user_id)
 
+    def partition_dir(self, set_name: str) -> Path:
+        d = self._root / self.embed_version / self.segment_policy / set_name
+        d.mkdir(parents=True, exist_ok=True)
+        return d
 
-class DuckDBStorage:
-    def __init__(self, db_path: Path):
-        self.db_path = db_path
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn = duckdb.connect(str(self.db_path))
-        self.conn.execute(SCHEMA)
-        self.conn.execute("PRAGMA wal_autocheckpoint='1GB'")
+    def list_cached_hashes(self, set_name: str) -> set[str]:
+        d = self.partition_dir(set_name)
+        return {p.stem for p in d.glob("*.parquet")}
 
-    def probe_cache(
-        self,
-        file_hash: str,
-        embed_version: str,
-        segment_policy: str,
-    ) -> Optional[np.ndarray]:
-        result = self.conn.execute(
-            """
-            SELECT vector, status FROM tracks
-            WHERE file_hash = ? AND embed_version = ? AND segment_policy = ?
-        """,
-            [file_hash, embed_version, segment_policy],
-        ).fetchone()
-
-        if result and result[1] == "ok":
-            return np.asarray(result[0], dtype=np.float32)
-        return None
+    def has(self, file_hash: str, set_name: str) -> bool:
+        return (self.partition_dir(set_name) / f"{file_hash}.parquet").exists()
 
     def insert_track(
         self,
@@ -75,102 +39,122 @@ class DuckDBStorage:
         source_path: str,
         set_name: str,
         duration_s: float,
-        segment_policy: str,
-        embed_version: str,
-        bytes_: int = None,
-        mtime: float = None,
-        sample_rate: int = None,
-        error_code: str = None,
-        error_msg: str = None,
+        bytes_: int | None = None,
+        mtime: float | None = None,
+        sample_rate: int | None = None,
     ):
-        status = "ok" if error_code is None else "failed"
+        d = self.partition_dir(set_name)
+        tmp_path = d / f"{file_hash}.parquet.tmp"
+        final_path = d / f"{file_hash}.parquet"
 
-        self.conn.execute(
-            """
-            INSERT INTO tracks
-            (file_hash, source_path, set_name, bytes, mtime, duration_s, sample_rate,
-             segment_policy, embed_version, extracted_at, status, error_code, error_msg, vector)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?)
-            ON CONFLICT (file_hash, embed_version, segment_policy) DO NOTHING
-        """,
-            [
-                file_hash,
-                source_path,
-                set_name,
-                bytes_,
-                mtime,
-                duration_s,
-                sample_rate,
-                segment_policy,
-                embed_version,
-                status,
-                error_code,
-                error_msg,
-                vector,
-            ],
-        )
+        vector_sql = f"[{','.join(str(v) for v in vector)}]"
+        bytes_val = bytes_ if bytes_ is not None else "NULL"
+        mtime_val = mtime if mtime is not None else "NULL"
+        sample_rate_val = sample_rate if sample_rate is not None else "NULL"
 
-    def count_tracks(
-        self,
-        embed_version: str,
-        segment_policy: str,
-    ) -> dict[str, dict[str, int]]:
-        """Return per-set status counts: {set_name: {status: count}}."""
-        rows = self.conn.execute(
-            """
-            SELECT set_name, status, COUNT(*) FROM tracks
-            WHERE embed_version = ? AND segment_policy = ?
-            GROUP BY set_name, status
-            """,
-            [embed_version, segment_policy],
-        ).fetchall()
+        conn = duckdb.connect()
+        try:
+            conn.execute(
+                "CREATE TABLE temp (file_hash VARCHAR, source_path VARCHAR, set_name VARCHAR, bytes BIGINT, mtime DOUBLE, duration_s DOUBLE, sample_rate INTEGER, extracted_at TIMESTAMP, vector FLOAT[])"
+            )
+            conn.execute(
+                f"INSERT INTO temp VALUES ('{file_hash}', '{source_path}', '{set_name}', {bytes_val}, {mtime_val}, {duration_s}, {sample_rate_val}, CURRENT_TIMESTAMP, {vector_sql})"
+            )
+            conn.execute(
+                f"COPY temp TO '{tmp_path}' (FORMAT PARQUET, COMPRESSION ZSTD)"
+            )
+            conn.execute("DROP TABLE temp")
+        finally:
+            conn.close()
 
-        counts: dict[str, dict[str, int]] = {}
-        for set_name, status, cnt in rows:
-            counts.setdefault(set_name, {})[status] = cnt
+        os.replace(tmp_path, final_path)
+
+    def count_tracks(self) -> dict[str, int]:
+        counts = {}
+        for set_name in ("like", "dislike"):
+            d = self.partition_dir(set_name)
+            counts[set_name] = len(list(d.glob("*.parquet")))
         return counts
 
-    def load_features(
-        self,
-        set_name: str,
-        status: str = "ok",
-        embed_version: str | None = None,
-        segment_policy: str | None = None,
-    ) -> np.ndarray:
-        conditions = ["set_name = ?", "status = ?"]
-        params: list = [set_name, status]
+    @contextmanager
+    def training_view(self, set_name: str):
+        path = self._materialize(set_name)
+        try:
+            yield path
+        finally:
+            self._cleanup(path)
 
-        if embed_version is not None:
-            conditions.append("embed_version = ?")
-            params.append(embed_version)
+    def _materialize(self, set_name: str) -> Path:
+        tmp_dir = config.get_training_tmp_dir(self.user_id)
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        local_path = (
+            tmp_dir
+            / f"merged_{set_name}_{self.embed_version}_{self.segment_policy}_{ts}.parquet"
+        )
 
-        if segment_policy is not None:
-            conditions.append("segment_policy = ?")
-            params.append(segment_policy)
+        nas_dir = self.partition_dir(set_name)
+        conn = duckdb.connect()
+        try:
+            conn.execute(f"""
+                COPY (SELECT vector FROM read_parquet('{nas_dir}/*.parquet'))
+                TO '{local_path}' (FORMAT PARQUET, COMPRESSION ZSTD)
+            """)
+        finally:
+            conn.close()
+        return local_path
 
-        where_clause = " AND ".join(conditions)
-        result = self.conn.execute(
-            f"SELECT vector FROM tracks WHERE {where_clause}",
-            params,
-        ).fetchall()
+    def _cleanup(self, path: Path):
+        if path.exists():
+            path.unlink()
 
-        if not result:
+    @staticmethod
+    def load_vectors(parquet_path: Path) -> np.ndarray:
+        conn = duckdb.connect()
+        try:
+            rows = conn.execute(
+                f"SELECT vector FROM read_parquet('{parquet_path}')"
+            ).fetchall()
+        finally:
+            conn.close()
+        if not rows:
             return np.array([])
+        return np.array([np.asarray(row[0], dtype=np.float32) for row in rows])
 
-        return np.array([np.asarray(row[0], dtype=np.float32) for row in result])
+
+class JobStore:
+    SCHEMA = """
+    CREATE TABLE IF NOT EXISTS jobs (
+      job_id            TEXT PRIMARY KEY,
+      kind              TEXT NOT NULL,
+      status            TEXT NOT NULL,
+      progress_total    INTEGER,
+      progress_done     INTEGER,
+      started_at        TIMESTAMP,
+      last_heartbeat_at TIMESTAMP,
+      finished_at       TIMESTAMP,
+      params_json       TEXT,
+      error_json        TEXT
+    );
+    """
+
+    def __init__(self, user_id: int):
+        db_path = config.get_job_store_path(user_id)
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        self.conn = duckdb.connect(str(db_path))
+        self.conn.execute(self.SCHEMA)
 
     def update_job(
         self,
         job_id: str,
-        kind: str = None,
-        status: str = None,
-        progress_total: int = None,
-        progress_done: int = None,
-        started_at: str = None,
-        last_heartbeat_at: str = None,
-        finished_at: str = None,
-        params_json: str = None,
-        error_json: str = None,
+        kind: str | None = None,
+        status: str | None = None,
+        progress_total: int | None = None,
+        progress_done: int | None = None,
+        started_at: str | None = None,
+        last_heartbeat_at: str | None = None,
+        finished_at: str | None = None,
+        params_json: str | None = None,
+        error_json: str | None = None,
     ):
         self.conn.execute(
             """
@@ -187,7 +171,7 @@ class DuckDBStorage:
                 finished_at     = COALESCE(excluded.finished_at, jobs.finished_at),
                 params_json     = COALESCE(excluded.params_json, jobs.params_json),
                 error_json      = COALESCE(excluded.error_json, jobs.error_json)
-        """,
+            """,
             [
                 job_id,
                 kind,
@@ -202,11 +186,11 @@ class DuckDBStorage:
             ],
         )
 
-    def get_job(self, job_id: str) -> Optional[dict[str, Any]]:
+    def get_job(self, job_id: str) -> dict[str, Any] | None:
         result = self.conn.execute(
             """
             SELECT * FROM jobs WHERE job_id = ?
-        """,
+            """,
             [job_id],
         ).fetchone()
 

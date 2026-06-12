@@ -18,11 +18,11 @@ from telethon.tl.types import DocumentAttributeAudio
 
 import config
 from audio.features import extract_features_for_mp3, prepare_extractor
-from bot_utils import get_message, obtain_latest_message_id, get_chat
+from bot_utils import get_chat, get_message, obtain_latest_message_id
 from core.modeling import DualOneClassModel
 from core.outliers import detect_outliers
 from core.paths import get_embed_version
-from core.storage import DuckDBStorage
+from core.storage import FeatureStore
 from core.writer import start_extraction_job
 from models import ModelType
 
@@ -155,7 +155,6 @@ def _build_profile(user_id: int, model_id: int) -> config.Model:
     """Build two one-class models from liked/disliked tracks (internal API)"""
     _register_atexit_handler()
 
-    db_path = config.get_feature_cache_path(user_id)
     embed_version = get_embed_version()
     segment_policy = config.segment_policy
 
@@ -187,10 +186,12 @@ def _build_profile(user_id: int, model_id: int) -> config.Model:
     def progress_callback(job_id, done, total, status, **kwargs):
         if status == "running":
             pct = (done / total * 100) if total > 0 else 0
-            logger.info(f"Extraction progress: {done}/{total} ({pct:.1f}%) - ok={kwargs.get('ok', 0)}, failed={kwargs.get('failed', 0)}, skipped={kwargs.get('skipped', 0)}")
+            logger.info(
+                f"Extraction progress: {done}/{total} ({pct:.1f}%) - ok={kwargs.get('ok', 0)}, failed={kwargs.get('failed', 0)}, skipped={kwargs.get('skipped', 0)}"
+            )
 
     start_extraction_job(
-        db_path=db_path,
+        user_id=user_id,
         tracks=all_tracks,
         embed_version=embed_version,
         segment_policy=segment_policy,
@@ -198,14 +199,13 @@ def _build_profile(user_id: int, model_id: int) -> config.Model:
         progress_callback=progress_callback,
     )
 
-    logger.info("Loading features from DuckDB")
-    storage = DuckDBStorage(db_path)
-    X_liked_raw = storage.load_features(
-        set_name="like", status="ok", segment_policy=segment_policy
-    )
-    X_disliked_raw = storage.load_features(
-        set_name="dislike", status="ok", segment_policy=segment_policy
-    )
+    logger.info("Loading features from parquet cache")
+    store = FeatureStore(user_id, embed_version, segment_policy)
+
+    with store.training_view("like") as liked_pq:
+        X_liked_raw = FeatureStore.load_vectors(liked_pq)
+    with store.training_view("dislike") as disliked_pq:
+        X_disliked_raw = FeatureStore.load_vectors(disliked_pq)
 
     logger.info(
         f"Loaded {len(X_liked_raw)} liked, {len(X_disliked_raw)} disliked features"
@@ -271,8 +271,6 @@ def _build_profile(user_id: int, model_id: int) -> config.Model:
 
     logger.info(f"Model saved to {model_store.model_workdir}")
 
-    storage.close()
-
     return config.get_model(user_id, model_id)
 
 
@@ -321,7 +319,9 @@ async def prepare_model(
         )
 
     except TrainUnrecoverable as e:
-        logger.error(f"Training failed for user {user_id} model {model_id}: {e}", exc_info=True)
+        logger.error(
+            f"Training failed for user {user_id} model {model_id}: {e}", exc_info=True
+        )
         raise TrainUnrecoverable(
             f"Can't train model {model_id} for user {user_id}"
         ) from e
@@ -338,7 +338,9 @@ def _execute_estimation(
         model_store = config.get_model_store_path(user_id, model_id)
 
         if not model_store.model_workdir.exists():
-            raise EstimationUnrecoverable(f"Model {model_id} not found for user {user_id}")
+            raise EstimationUnrecoverable(
+                f"Model {model_id} not found for user {user_id}"
+            )
 
         model = DualOneClassModel.load(model_store.model_workdir)
 
@@ -355,7 +357,9 @@ def _execute_estimation(
 
         return is_recommended
     except Exception as e:
-        logger.error(f"Estimation failed for track {track_to_estimate_path}: {e}", exc_info=True)
+        logger.error(
+            f"Estimation failed for track {track_to_estimate_path}: {e}", exc_info=True
+        )
         raise EstimationUnrecoverable(f"Estimation failed: {e}") from e
 
 
@@ -371,7 +375,7 @@ async def estimate(
 
     tmp_dir = config.get_user_tmp_dir(user_id)
     with tempfile.TemporaryDirectory(dir=tmp_dir) as tmp:
-        track_to_estimate_path = pathlib.Path(tmp).joinpath(f"to-estimate.mp3")
+        track_to_estimate_path = pathlib.Path(tmp).joinpath("to-estimate.mp3")
         track_to_estimate_path.unlink(missing_ok=True)
         await message.download_media(file=track_to_estimate_path)
         is_recommended = await asyncio.get_running_loop().run_in_executor(

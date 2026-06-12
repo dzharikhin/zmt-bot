@@ -1,16 +1,16 @@
-from core.storage import DuckDBStorage
-from core.paths import get_embed_version, compute_file_hash
 from core.jobs import JobManager
-from core.writer import FeatureWriter, start_extraction_job, ExtractionResult
-from core.modeling import DualOneClassModel, OneClassSetModel, ModelLoadError
+from core.modeling import DualOneClassModel, ModelLoadError, OneClassSetModel
 from core.outliers import detect_outliers
+from core.paths import compute_file_hash, get_embed_version
+from core.storage import FeatureStore, JobStore
+from core.writer import ExtractionResult, start_extraction_job
 
 __all__ = [
-    "DuckDBStorage",
+    "FeatureStore",
+    "JobStore",
     "get_embed_version",
     "compute_file_hash",
     "JobManager",
-    "FeatureWriter",
     "start_extraction_job",
     "ExtractionResult",
     "DualOneClassModel",

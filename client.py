@@ -4,24 +4,24 @@ import io
 import json
 import logging
 import re
-from argparse import ArgumentParser, ArgumentError
+from argparse import ArgumentError, ArgumentParser
 from asyncio import Task
 from concurrent.futures.process import BrokenProcessPool
 from multiprocessing.managers import Namespace
 from types import CoroutineType
-from typing import cast, Union
+from typing import Union, cast
 
 import persistqueue
 import telethon
 from persistqueue.serializers import json as jser
 from telethon import TelegramClient, events
 from telethon.errors import RPCError
-from telethon.events import NewMessage, CallbackQuery
+from telethon.events import CallbackQuery, NewMessage
 
 import config
-from bot_utils import get_channel_name, get_message, is_allowed_user, get_channel_names
-from models import build_model_page_response, ModelType
-from train import prepare_model, estimate
+from bot_utils import get_channel_name, get_channel_names, get_message, is_allowed_user
+from models import ModelType, build_model_page_response
+from train import estimate, prepare_model
 
 logging.basicConfig(
     level=logging.WARN,
@@ -341,7 +341,7 @@ def _parse_args(
     try:
         args = arg_parser.parse_args(cmd_line.split())
         return args, None
-    except ArgumentError as e:
+    except ArgumentError:
         buffer = io.StringIO()
         arg_parser.print_usage(buffer)
         return None, buffer.getvalue()
@@ -416,9 +416,7 @@ async def main():
         logger.debug(f"Started bot {await bot_client.get_me()}")
 
         def filter_not_mapped(event: NewMessage.Event):
-            return event.is_channel == False and _not_matched_command(
-                event.message.message
-            )
+            return not event.is_channel and _not_matched_command(event.message.message)
 
         @bot_client.on(events.NewMessage(incoming=True, func=filter_not_mapped))
         @bot_client.on(events.NewMessage(incoming=True, pattern=START_CMD.epilog))
@@ -459,11 +457,11 @@ async def main():
                 return
 
             try:
-                liked_channel = await bot_client.get_entity(args.liked_channel_id)
-                disliked_channel = await bot_client.get_entity(args.disliked_channel_id)
-            except Exception as e:
+                await bot_client.get_entity(args.liked_channel_id)
+                await bot_client.get_entity(args.disliked_channel_id)
+            except Exception:
                 await event.respond(
-                    f"❌ Error: Cannot access one or both channels. Check bot permissions."
+                    "❌ Error: Cannot access one or both channels. Check bot permissions."
                 )
                 return
 
@@ -495,7 +493,7 @@ async def main():
             user_id = event.sender_id
             channels = config.get_user_channels(user_id)
             if not channels:
-                await event.respond(f"❌ Error: Initialize channels first. Hint: /init")
+                await event.respond("❌ Error: Initialize channels first. Hint: /init")
                 return
 
             if not config.get_model(user_id, args.model_id):
@@ -573,7 +571,7 @@ async def main():
             subscriptions = config.get_subscriptions(event.sender_id)
             if not subscriptions:
                 await event.respond(
-                    f"No subscriptions yet. Add: /subscribe -e <channel> -m <model>"
+                    "No subscriptions yet. Add: /subscribe -e <channel> -m <model>"
                 )
                 return
 
@@ -626,7 +624,7 @@ async def main():
 
             user_id = event.sender_id
             if not config.has_user_channels(user_id):
-                await event.respond(f"❌ Error: Initialize channels first. Hint: /init")
+                await event.respond("❌ Error: Initialize channels first. Hint: /init")
                 return
 
             await send_train_queue_task(
@@ -643,7 +641,7 @@ async def main():
                 return
 
             if not config.has_user_channels(event.sender_id):
-                await event.respond(f"❌ Error: Initialize channels first. Hint: /init")
+                await event.respond("❌ Error: Initialize channels first. Hint: /init")
                 return
 
             subscription_names = await get_channel_names(

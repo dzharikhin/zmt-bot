@@ -2,13 +2,13 @@ import pathlib
 import subprocess
 import tempfile
 
-import essentia
-import essentia.standard as es
 import librosa
 import numpy as np
 from panns_inference import AudioTagging
 
 import config
+import essentia
+import essentia.standard as es
 from audio.aggregation import aggregate
 from audio.segments import SegmentSpec, get_segments
 from core.paths import compute_file_hash

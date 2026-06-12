@@ -12,7 +12,9 @@ import sys
 import urllib.request
 from pathlib import Path
 
-PANNS_WEIGHTS_URL = "https://zenodo.org/record/3987831/files/Cnn14_mAP%3D0.431.pth?download=1"
+PANNS_WEIGHTS_URL = (
+    "https://zenodo.org/record/3987831/files/Cnn14_mAP%3D0.431.pth?download=1"
+)
 LABELS_URL = "https://storage.googleapis.com/us_audioset/youtube_corpus/v1/csv/class_labels_indices.csv"
 
 FILES = {

@@ -9,13 +9,13 @@ import optuna
 import yaml
 from sklearn.model_selection import KFold
 
+import config
 from audio.segments import SegmentSpec
 from core.modeling import DualOneClassModel
 from core.outliers import detect_outliers
 from core.paths import get_embed_version
-from core.storage import DuckDBStorage
+from core.storage import FeatureStore
 from core.writer import start_extraction_job
-import config
 
 
 def objective(trial, X_liked, X_disliked, w_a, w_b):
@@ -165,7 +165,6 @@ def main():
 
     w_a, w_b = args.objective_weights
     user_id = args.user_id
-    db_path = config.get_feature_cache_path(user_id)
 
     liked_path = config.get_liked_file_store_path(user_id)
     disliked_path = config.get_disliked_file_store_path(user_id)
@@ -208,7 +207,7 @@ def main():
 
         t0 = time.monotonic()
         extraction_result = start_extraction_job(
-            db_path=db_path,
+            user_id=user_id,
             tracks=all_tracks,
             embed_version=variant_embed_version,
             segment_policy=variant_segment_policy,
@@ -220,38 +219,25 @@ def main():
         )
         extraction_time_s = time.monotonic() - t0
 
-        storage = DuckDBStorage(db_path)
-        track_counts = storage.count_tracks(
-            variant_embed_version, variant_segment_policy
-        )
-        X_liked = storage.load_features(
-            "like",
-            "ok",
-            embed_version=variant_embed_version,
-            segment_policy=variant_segment_policy,
-        )
-        X_disliked = storage.load_features(
-            "dislike",
-            "ok",
-            embed_version=variant_embed_version,
-            segment_policy=variant_segment_policy,
-        )
-        storage.close()
+        store = FeatureStore(user_id, variant_embed_version, variant_segment_policy)
+        track_counts = store.count_tracks()
+        with store.training_view("like") as liked_pq:
+            X_liked = FeatureStore.load_vectors(liked_pq)
+        with store.training_view("dislike") as disliked_pq:
+            X_disliked = FeatureStore.load_vectors(disliked_pq)
 
-        liked_counts = track_counts.get("like", {})
-        disliked_counts = track_counts.get("dislike", {})
+        liked_ok = track_counts.get("like", 0)
+        disliked_ok = track_counts.get("dislike", 0)
 
         extraction_stats = {
             "time_s": round(extraction_time_s, 3),
             "liked": {
                 "total": len(liked_tracks),
-                "ok": liked_counts.get("ok", 0),
-                "failed": liked_counts.get("failed", 0),
+                "ok": liked_ok,
             },
             "disliked": {
                 "total": len(disliked_tracks),
-                "ok": disliked_counts.get("ok", 0),
-                "failed": disliked_counts.get("failed", 0),
+                "ok": disliked_ok,
             },
             "cached": extraction_result.skipped,
             "newly_extracted": extraction_result.ok,
@@ -283,11 +269,15 @@ def main():
             }
         )
 
-        print(f"  Extraction: {extraction_time_s:.1f}s "
-              f"({extraction_result.ok} new, {extraction_result.skipped} cached, "
-              f"{extraction_result.failed} failed)")
-        print(f"  Liked: {liked_counts.get('ok', 0)} ok / {len(liked_tracks)} total")
-        print(f"  Disliked: {disliked_counts.get('ok', 0)} ok / {len(disliked_tracks)} total")
+        print(
+            f"  Extraction: {extraction_time_s:.1f}s "
+            f"({extraction_result.ok} new, {extraction_result.skipped} cached, "
+            f"{extraction_result.failed} failed)"
+        )
+        print(f"  Liked: {track_counts.get('like', 0)} ok / {len(liked_tracks)} total")
+        print(
+            f"  Disliked: {track_counts.get('dislike', 0)} ok / {len(disliked_tracks)} total"
+        )
         print(f"  Best weighted recall: {opt_result['weighted_recall']:.3f}")
         print(f"  Best params: {opt_result['best_params']}")
 
@@ -315,9 +305,11 @@ def main():
         print(f"   Weighted recall: {bv['optimization']['weighted_recall']:.3f}")
         print(f"   Best params: {bv['optimization']['best_params']}")
         ext = bv["extraction"]
-        print(f"   Extraction time: {ext['time_s']:.1f}s "
-              f"(liked: {ext['liked']['ok']}/{ext['liked']['total']}, "
-              f"disliked: {ext['disliked']['ok']}/{ext['disliked']['total']})")
+        print(
+            f"   Extraction time: {ext['time_s']:.1f}s "
+            f"(liked: {ext['liked']['ok']}/{ext['liked']['total']}, "
+            f"disliked: {ext['disliked']['ok']}/{ext['disliked']['total']})"
+        )
 
 
 if __name__ == "__main__":

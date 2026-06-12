@@ -4,13 +4,13 @@
 - **Entrypoint**: `client.py` — Telegram bot using Telethon
 - **Build**: `VER=$(poetry version --short) docker buildx bake --progress=plain tg-zmt-bot`
 - **Run**: Docker with env vars `API_HASH`, `API_ID`, `BOT_TOKEN`, `OWNER_USER_ID`; mounts `./data:/app/data` and `./local_data:/app/local_data`
-- **Format**: `poetry run black .`
-- **Format changed files**: `poetry run black client.py config.py train.py`
+- **Format**: `poetry run black . && poetry run ruff check --fix .`
+- **Format changed files**: `poetry run black client.py config.py train.py && poetry run ruff check --fix client.py config.py train.py`
 - **Python**: 3.14, Poetry
 
 ## Architecture
 - `client.py` — asyncio Telegram client, command handlers
-- `core/` — shared infrastructure: `paths.py` (embed versioning), `storage.py` (DuckDB feature cache), `jobs.py` (extraction job tracking), `writer.py` (queue-based extraction workers)
+- `core/` — shared infrastructure: `paths.py` (embed versioning), `storage.py` (FeatureStore + JobStore), `jobs.py` (JobManager), `writer.py` (extraction job coordinator)
 - `train.py` — ML pipeline: k-NN + GMM dual one-class models (Phase 2+3 implemented)
 - `audio/features.py` — Essentia + PANNs CNN14 audio feature extraction (~2248-d vector), with segment+aggregate support
 - `audio/segments.py` — `SegmentSpec` dataclass, `get_segments()` (full, topk_energy, uniform, topk_spectral_flux)
@@ -24,7 +24,7 @@
 - **Process pools** use `multiprocessing.get_context("spawn")` via lazy accessors `get_training_executor()`/`get_estimation_executor()` in config.py
 - **PyTorch CPU-only** via explicit `pytorch_cpu` source in pyproject.toml
 - **PANNs CNN14 assets** user-provided under `data/panns_data/`: weights `panns_cnn14.pth` and labels `class_labels_indices.csv`; container symlinks `/root/panns_data` → `/app/data/panns_data`
-- **DuckDB** per-user feature cache at `data/{user_id}/features.duckdb`; composite PK `(file_hash, embed_version, segment_policy)`
+- **Feature cache** per-user on NAS at `data/{user_id}/features/{embed_version}/{segment_policy}/{set_name}/{file_hash}.parquet`; one parquet shard per track, atomic via tmp+rename. Probe = directory listing + set membership. Training reads via a short-lived merged parquet on `local_data/{user_id}/tmp/`. Job state in `local_data/{user_id}/jobs.duckdb`.
 - **No local imports** — all imports at module top level; never `import` inside functions/methods
 - **Tests** in `tests/` — run with `poetry run pytest`
 

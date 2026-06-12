@@ -308,14 +308,25 @@ def get_user_tmp_dir(user_id: int) -> pathlib.Path:
     return tmp_path
 
 
-def get_feature_cache_path(user_id: int) -> pathlib.Path:
-    cache_dir = data_path / str(user_id)
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    return cache_dir / "features.duckdb"
+def get_feature_store_root(user_id: int) -> pathlib.Path:
+    root = data_path / str(user_id) / "features"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def get_job_store_path(user_id: int) -> pathlib.Path:
+    job_dir = local_data_path / str(user_id)
+    job_dir.mkdir(parents=True, exist_ok=True)
+    return job_dir / "jobs.duckdb"
+
+
+def get_training_tmp_dir(user_id: int) -> pathlib.Path:
+    tmp_dir = local_data_path / str(user_id) / "tmp"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    return tmp_dir
 
 
 profiles_root = data_path.joinpath("profiles")
-jobs_root = data_path.joinpath("jobs")
 
 
 def get_allowed_to_use_user_ids() -> list[int]:

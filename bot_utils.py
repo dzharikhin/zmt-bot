@@ -5,7 +5,7 @@ from typing import Optional
 from telethon import TelegramClient
 from telethon.tl import custom
 from telethon.tl.functions.channels import GetChannelsRequest
-from telethon.tl.types import Chat, Channel
+from telethon.tl.types import Channel, Chat
 from telethon.tl.types.messages import Chats
 
 import config
@@ -73,7 +73,7 @@ async def get_channel_name(channel_id: int, bot_client: TelegramClient) -> str:
         return channel_name or str(channel_id)
     except Exception as e:
         logger.warning(
-            f"Error on obtaining channel name. Falling back to id",
+            "Error on obtaining channel name. Falling back to id",
             exc_info=e,
         )
         return str(channel_id)
