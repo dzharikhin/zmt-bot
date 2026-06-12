@@ -62,6 +62,13 @@ def _worker_loop(
     logger.info(f"Worker {worker_id}: Finished, processed {len(tasks)} tracks")
 
 
+def _setup_worker_logging():
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s.%(msecs)03d %(levelname)s %(funcName)s: %(message)s",
+    )
+
+
 def start_extraction_job(
     user_id: int,
     tracks: list[tuple[Path, str]],
@@ -147,6 +154,7 @@ def start_extraction_job(
                 segment_spec,
             ),
             daemon=True,
+            initializer=_setup_worker_logging,
         )
         p.start()
         workers.append(p)

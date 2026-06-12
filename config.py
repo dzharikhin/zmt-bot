@@ -1,5 +1,6 @@
 import dataclasses
 import json
+import logging
 import multiprocessing
 import os
 import pathlib
@@ -69,6 +70,14 @@ def override():
 
 override()
 
+
+def _setup_worker_logging():
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s.%(msecs)03d %(levelname)s %(funcName)s: %(message)s",
+    )
+
+
 _spawn_context = multiprocessing.get_context("spawn")
 _training_executor: ProcessPoolExecutor | None = None
 _estimation_executor: ProcessPoolExecutor | None = None
@@ -80,6 +89,7 @@ def get_training_executor() -> ProcessPoolExecutor:
         _training_executor = ProcessPoolExecutor(
             max_workers=max_training_workers,
             mp_context=_spawn_context,
+            initializer=_setup_worker_logging,
         )
     return _training_executor
 
@@ -90,6 +100,7 @@ def get_estimation_executor() -> ProcessPoolExecutor:
         _estimation_executor = ProcessPoolExecutor(
             max_workers=max_estimation_workers,
             mp_context=_spawn_context,
+            initializer=_setup_worker_logging,
         )
     return _estimation_executor
 

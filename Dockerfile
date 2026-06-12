@@ -37,6 +37,7 @@ RUN poetry env use 3.14 && . /app/.venv/bin/activate && cd /app \
 
 
 FROM python:3.14-slim AS runtime
+ENV PYTHONUNBUFFERED=1
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libopenblas0 \
