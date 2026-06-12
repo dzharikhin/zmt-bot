@@ -15,8 +15,8 @@ api_id = os.getenv("API_ID")
 api_hash = os.getenv("API_HASH")
 bot_token = os.getenv("BOT_TOKEN")
 owner_user_id = int(os.getenv("OWNER_USER_ID", "0"))
-data_path = pathlib.Path("data")
-local_data_path = pathlib.Path("local_data")
+data_path = pathlib.Path("data").resolve()
+local_data_path = pathlib.Path("local_data").resolve()
 
 
 def v_name(fstr: str) -> str:
