@@ -72,9 +72,12 @@ override()
 
 
 def _setup_worker_logging():
-    logging.basicConfig(
+    from core.logging import setup_logging
+
+    setup_logging(
         level=logging.INFO,
         format="%(asctime)s.%(msecs)03d %(levelname)s %(funcName)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
     )
 
 

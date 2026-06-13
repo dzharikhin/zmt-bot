@@ -20,10 +20,11 @@ from telethon.events import CallbackQuery, NewMessage
 
 import config
 from bot_utils import get_channel_name, get_channel_names, get_message, is_allowed_user
+from core.logging import setup_logging
 from models import ModelType, build_model_page_response
 from train import estimate, prepare_model
 
-logging.basicConfig(
+setup_logging(
     level=logging.WARN,
     format="%(asctime)s.%(msecs)03d %(levelname)s %(funcName)s: %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",

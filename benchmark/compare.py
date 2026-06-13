@@ -19,6 +19,7 @@ from core.storage import FeatureStore
 from core.writer import start_extraction_job
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 
 def objective(trial, X_liked, X_disliked, w_a, w_b):
@@ -204,9 +205,7 @@ def main():
         variant_embed_version = get_embed_version(profile_path, panns_weights_path)
         variant_segment_policy = segment_spec.canonical()
 
-        job_id = (
-            f"bench_{user_id}_{name}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
-        )
+        job_id = f"bench_{user_id}_{name}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
 
         t0 = time.monotonic()
         logger.info(

@@ -26,11 +26,6 @@ from core.storage import FeatureStore
 from core.writer import start_extraction_job
 from models import ModelType
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s.%(msecs)03d %(levelname)s %(funcName)s: %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
 logger = logging.getLogger(__file__)
 logger.setLevel(logging.DEBUG)
 

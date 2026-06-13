@@ -32,11 +32,14 @@ def _worker_loop(
     profile_path: Optional[Path],
     segment_spec: Optional[SegmentSpec],
 ):
-    logging.basicConfig(
+    from core.logging import setup_logging
+
+    setup_logging(
         level=logging.INFO,
         format="%(asctime)s.%(msecs)03d %(levelname)s %(funcName)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
     )
-    logger = logging.getLogger(__name__)
+
     logger.info(f"Worker {worker_id}: Starting with {len(tasks)} tasks")
     extractor = CombinedExtractor(panns_weights_path, profile_path=profile_path)
     store = FeatureStore(user_id, embed_version, segment_policy)

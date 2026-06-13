@@ -1,4 +1,3 @@
-import logging
 from collections import defaultdict
 from typing import Optional
 
@@ -10,11 +9,6 @@ from telethon.tl.types.messages import Chats
 
 import config
 
-logging.basicConfig(
-    level=logging.WARN,
-    format="%(asctime)s.%(msecs)03d %(levelname)s %(funcName)s: %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
 logger = logging.getLogger(__file__)
 logger.setLevel(logging.DEBUG)
 
