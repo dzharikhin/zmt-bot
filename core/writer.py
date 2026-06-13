@@ -23,15 +23,20 @@ class ExtractionResult:
 
 def _worker_loop(
     worker_id: int,
-    tasks: list,
+    tasks: list[tuple[Path, str, str, dict]],
     panns_weights_path: Path,
     user_id: int,
     embed_version: str,
     segment_policy: str,
     result_queue: mp.Queue,
-    profile_path: Path | None = None,
-    segment_spec: SegmentSpec | None = None,
+    profile_path: Optional[Path],
+    segment_spec: Optional[SegmentSpec],
 ):
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s.%(msecs)03d %(levelname)s %(funcName)s: %(message)s",
+    )
+    logger = logging.getLogger(__name__)
     logger.info(f"Worker {worker_id}: Starting with {len(tasks)} tasks")
     extractor = CombinedExtractor(panns_weights_path, profile_path=profile_path)
     store = FeatureStore(user_id, embed_version, segment_policy)
@@ -60,13 +65,6 @@ def _worker_loop(
             result_queue.put((file_hash, False, str(e)))
 
     logger.info(f"Worker {worker_id}: Finished, processed {len(tasks)} tracks")
-
-
-def _setup_worker_logging():
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s.%(msecs)03d %(levelname)s %(funcName)s: %(message)s",
-    )
 
 
 def start_extraction_job(
@@ -154,7 +152,6 @@ def start_extraction_job(
                 segment_spec,
             ),
             daemon=True,
-            initializer=_setup_worker_logging,
         )
         p.start()
         workers.append(p)
