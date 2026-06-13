@@ -21,7 +21,8 @@ from telethon.events import CallbackQuery, NewMessage
 import config
 from bot_utils import get_channel_name, get_channel_names, get_message, is_allowed_user
 from core.logging import setup_logging
-from models import ModelType, build_model_page_response
+from models import ModelType
+from bot_model_helpers import build_model_page_response
 from train import estimate, prepare_model
 
 setup_logging(
