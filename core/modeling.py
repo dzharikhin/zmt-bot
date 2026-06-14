@@ -48,16 +48,38 @@ class OneClassSetModel:
         self.knn = NearestNeighbors(n_neighbors=min(self.knn_k + 1, len(X_fit) - 1))
         self.knn.fit(X_fit)
 
-        # Fit GMM
+        # Fit GMM with retry logic for numerical stability
         n_components = min(self.gmm_components, max(1, len(X_fit) // 2))
-        self.gmm = GaussianMixture(
-            n_components=n_components,
-            covariance_type="diag",
-            random_state=42,
-            n_init=3,
-            reg_covar=1e-6,
-        )
-        self.gmm.fit(X_fit)
+        reg_covar = 1e-4
+        max_retries = 5
+        retry_count = 0
+        while retry_count <= max_retries:
+            try:
+                self.gmm = GaussianMixture(
+                    n_components=n_components,
+                    covariance_type="diag",
+                    random_state=42,
+                    n_init=3,
+                    reg_covar=reg_covar,
+                )
+                self.gmm.fit(X_fit)
+                break
+            except ValueError:
+                retry_count += 1
+                if retry_count <= max_retries:
+                    n_components = max(1, n_components // 2)
+                    reg_covar = min(1e-2, reg_covar * 10)
+                    if retry_count == max_retries:
+                        n_components = 1
+                        reg_covar = 1e-2
+                        self.gmm = GaussianMixture(
+                            n_components=n_components,
+                            covariance_type="diag",
+                            random_state=42,
+                            n_init=3,
+                            reg_covar=reg_covar,
+                        )
+                        self.gmm.fit(X_fit)
 
         # Compute raw scores for the fit set (used as calibration reference)
         # k-NN: exclude self-distance by slicing [:, 1:]
@@ -121,7 +143,8 @@ class OneClassSetModel:
             cal_raw: Raw isotonic regression prediction (may be NaN)
             raw_score: The input raw score
             score_range: Tuple of (min, max) from calibration data
-            direction: "knn" (higher raw = lower calibrated) or "gmm" (higher raw = higher calibrated)
+            direction: "knn" (higher raw = lower calibrated) or
+                       "gmm" (higher raw = higher calibrated)
         """
         if not np.isnan(cal_raw):
             return float(np.clip(cal_raw, 0.0, 1.0))
@@ -225,7 +248,8 @@ class DualOneClassModel:
     def load(cls, path: Path):
         """Load model artifact from disk
 
-        No backward compatibility with old GMeans models — raises on incompatible pickles.
+        No backward compatibility with old GMeans models — raises on
+        incompatible pickles.
         """
         with open(path / "model.pkl", "rb") as f:
             artifact = pickle.load(f)

@@ -63,8 +63,18 @@ def objective(trial, X_liked, X_disliked, w_a, w_b):
             trial.set_user_attr("mode_b_recall", 0.0)
             return 0.0
 
-        model = DualOneClassModel(knn_k=knn_k, gmm_components=gmm_components)
-        model.fit(X_l_tr_f, X_d_tr_f)
+        try:
+            model = DualOneClassModel(knn_k=knn_k, gmm_components=gmm_components)
+            model.fit(X_l_tr_f, X_d_tr_f)
+        except ValueError as e:
+            logger.warning(
+                f"Trial failed with ValueError: {e}. "
+                f"Params: knn_k={knn_k}, gmm_components={gmm_components}, "
+                f"outlier_threshold={outlier_threshold}"
+            )
+            trial.set_user_attr("mode_a_recall", 0.0)
+            trial.set_user_attr("mode_b_recall", 0.0)
+            return 0.0
 
         d_scores = [
             model.dislike_model.score(x.reshape(1, -1))["calibrated"] for x in X_d_te
@@ -205,7 +215,10 @@ def main():
         variant_embed_version = get_embed_version(profile_path, panns_weights_path)
         variant_segment_policy = segment_spec.canonical()
 
-        job_id = f"bench_{user_id}_{name}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
+        job_id = (
+            f"bench_{user_id}_{name}_"
+            f"{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
+        )
 
         t0 = time.monotonic()
         logger.info(
