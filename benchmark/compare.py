@@ -180,6 +180,13 @@ def main():
     w_a, w_b = args.objective_weights
     user_id = args.user_id
 
+    existing_report = {}
+    if Path(args.output).exists():
+        with open(args.output) as f:
+            existing_report = json.load(f)
+
+    processed_names = {r["name"] for r in existing_report.get("results", [])}
+
     liked_path = config.get_liked_file_store_path(user_id)
     disliked_path = config.get_disliked_file_store_path(user_id)
     liked_tracks = list(liked_path.glob("*.mp3"))
@@ -188,11 +195,15 @@ def main():
         (t, "dislike") for t in disliked_tracks
     ]
 
-    results = []
+    results = existing_report.get("results", [])
 
     for embedding_var in config_data["embeddings"]:
         name = embedding_var["name"]
         if args.variants and args.variants not in name:
+            continue
+
+        if name in processed_names:
+            logger.info(f"Skipping: {name} (already in report)")
             continue
 
         logger.info(f"Processing: {name}")
@@ -311,25 +322,25 @@ def main():
         print(f"  Best weighted recall: {opt_result['weighted_recall']:.3f}")
         print(f"  Best params: {opt_result['best_params']}")
 
-    report = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "objective_weights": {"mode_a": w_a, "mode_b": w_b},
-        "n_iterations": args.n_iterations,
-        "results": results,
-        "best_variant": (
-            max(results, key=lambda r: r["optimization"]["weighted_recall"])
-            if results
-            else None
-        ),
-    }
+        report = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "objective_weights": {"mode_a": w_a, "mode_b": w_b},
+            "n_iterations": args.n_iterations,
+            "results": results,
+            "best_variant": (
+                max(results, key=lambda r: r["optimization"]["weighted_recall"])
+                if results
+                else None
+            ),
+        }
 
-    with open(args.output, "w") as f:
-        json.dump(report, f, indent=2)
+        with open(args.output, "w") as f:
+            json.dump(report, f, indent=2)
 
-    logger.info(f"Report saved to {args.output}")
+        logger.info(f"Report saved to {args.output}")
 
-    if report["best_variant"]:
-        bv = report["best_variant"]
+    if results:
+        bv = max(results, key=lambda r: r["optimization"]["weighted_recall"])
         logger.info(f"Best variant: {bv['name']}")
         logger.info(f"   Segment policy: {bv['segment_policy']}")
         logger.info(f"   Weighted recall: {bv['optimization']['weighted_recall']:.3f}")
