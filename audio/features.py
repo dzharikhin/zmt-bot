@@ -52,7 +52,7 @@ def _discover_descriptor_names(pool) -> list[tuple[str, int]]:
         value = pool[name]
         if isinstance(value, str):
             continue
-        arr = np.asarray(value)
+        arr = np.atleast_1d(np.asarray(value))
         if arr.ndim >= 2:
             continue
         if arr.ndim == 1 and len(arr) > 40:

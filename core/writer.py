@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Optional
 
 import config
-from audio.features import CombinedExtractor
 from audio.segments import SegmentSpec
 from core.jobs import JobManager
 from core.paths import compute_file_hash
@@ -32,6 +31,7 @@ def _worker_loop(
     profile_path: Optional[Path],
     segment_spec: Optional[SegmentSpec],
 ):
+    from audio.features import CombinedExtractor
     from core.logging import setup_logging
 
     setup_logging(
