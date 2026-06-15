@@ -41,11 +41,11 @@ def get_essentia_extractor(profile_path: pathlib.Path | None = None):
     return es.MusicExtractor(profile=str(profile_path))
 
 
-_DESCRIPTOR_NAMES_BY_PROFILE: dict[str, list[str]] = {}
+_DESCRIPTOR_NAMES_BY_PROFILE: dict[str, list[tuple[str, int]]] = {}
 
 
-def _discover_descriptor_names(pool) -> list[str]:
-    names = []
+def _discover_descriptor_names(pool) -> list[tuple[str, int]]:
+    descriptor_info = []
     for name in sorted(pool.descriptorNames()):
         if name.startswith("metadata."):
             continue
@@ -57,8 +57,8 @@ def _discover_descriptor_names(pool) -> list[str]:
             continue
         if arr.ndim == 1 and len(arr) > 40:
             continue
-        names.append(name)
-    return names
+        descriptor_info.append((name, len(arr)))
+    return descriptor_info
 
 
 def _essentia_pool_to_vector(
@@ -71,12 +71,21 @@ def _essentia_pool_to_vector(
     if profile_key not in _DESCRIPTOR_NAMES_BY_PROFILE:
         _DESCRIPTOR_NAMES_BY_PROFILE[profile_key] = _discover_descriptor_names(pool)
 
-    names = _DESCRIPTOR_NAMES_BY_PROFILE[profile_key]
+    descriptor_info = _DESCRIPTOR_NAMES_BY_PROFILE[profile_key]
 
     parts = []
-    for name in names:
+    for name, expected_length in descriptor_info:
+        if name not in pool.descriptorNames():
+            parts.append(np.zeros(expected_length, dtype=np.float32))
+            continue
         value = pool[name]
-        parts.append(np.asarray(value, dtype=np.float32).reshape(-1))
+        arr = np.asarray(value, dtype=np.float32).reshape(-1)
+        if len(arr) < expected_length:
+            pad = np.zeros(expected_length - len(arr), dtype=np.float32)
+            arr = np.concatenate([arr, pad])
+        elif len(arr) > expected_length:
+            arr = arr[:expected_length]
+        parts.append(arr)
 
     return np.concatenate(parts)
 
