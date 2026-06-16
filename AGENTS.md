@@ -12,7 +12,8 @@
 - `client.py` — asyncio Telegram client, command handlers
 - `core/` — shared infrastructure: `paths.py` (embed versioning), `storage.py` (FeatureStore + JobStore), `jobs.py` (JobManager), `writer.py` (extraction job coordinator)
 - `train.py` — ML pipeline: k-NN + GMM dual one-class models (Phase 2+3 implemented)
-- `audio/features.py` — Essentia + PANNs CNN14 audio feature extraction (~2248-d vector), with segment+aggregate support
+- `audio/features.py` — Heavy ML engine: essentia, PANNs CNN14, feature extraction functions; `prepare_extractor()` factory
+- `audio/extractor.py` — Lightweight: `CombinedExtractor` class (DI pattern), `extract_features_for_mp3` proxy
 - `audio/segments.py` — `SegmentSpec` dataclass, `get_segments()` (full, topk_energy, uniform, topk_spectral_flux)
 - `audio/aggregation.py` — `aggregate()` (mean, meanstd, max strategies)
 - `benchmark/compare.py` — Optuna-based benchmark tool comparing embedding variants with 5-fold CV
@@ -25,7 +26,7 @@
 - **PyTorch CPU-only** via explicit `pytorch_cpu` source in pyproject.toml
 - **PANNs CNN14 assets** user-provided under `data/panns_data/`: weights `panns_cnn14.pth` and labels `class_labels_indices.csv`; container symlinks `/root/panns_data` → `/app/data/panns_data`
 - **Feature cache** per-user on NAS at `data/{user_id}/features/{embed_version}/{segment_policy}/{set_name}/{file_hash}.parquet`; one parquet shard per track, atomic via tmp+rename. Probe = directory listing + set membership. Training reads via a short-lived merged parquet on `local_data/{user_id}/tmp/`. Job state in `local_data/{user_id}/jobs.duckdb`.
-- **No local imports** — all imports at module top level; never `import` inside functions/methods
+- **Static module-level imports only** — no function-level imports, no dynamic imports (e.g., `importlib.import_module()`, `exec()`, `eval()`). All imports must be at the top of the module file.
 - **Tests** in `tests/` — run with `poetry run pytest`
 
 ## Benchmark tool

@@ -9,8 +9,7 @@ from panns_inference import AudioTagging
 import config
 import essentia
 import essentia.standard as es
-from audio.aggregation import aggregate
-from audio.segments import SegmentSpec, get_segments
+from audio.extractor import CombinedExtractor
 from core.paths import compute_file_hash
 
 essentia.EssentiaLogger().warningActive = False
@@ -97,6 +96,20 @@ def extract_essentia_features(
     return _essentia_pool_to_vector(features, profile_path)
 
 
+def extract_essentia_features_segment(
+    extractor,
+    audio_path: pathlib.Path,
+    profile_path: pathlib.Path | None,
+    start: float,
+    end: float,
+) -> np.ndarray:
+    cropped_path = _ffmpeg_crop_to_tempwav(audio_path, start, end)
+    try:
+        return _essentia_pool_to_vector(extractor(str(cropped_path)), profile_path)
+    finally:
+        cropped_path.unlink(missing_ok=True)
+
+
 class PANNsCNN14:
     def __init__(self, weights_path: pathlib.Path):
         self.tagger = AudioTagging(
@@ -123,53 +136,6 @@ class PANNsCNN14:
             return np.zeros(2048, dtype=np.float32)
         _clipwise_output, embedding = self.tagger.inference(waveform[None, :])
         return embedding.reshape(-1)
-
-
-class CombinedExtractor:
-    def __init__(
-        self,
-        panns_weights_path: pathlib.Path,
-        profile_path: pathlib.Path | None = None,
-    ):
-        self.profile_path = profile_path
-        self.essentia_extractor = get_essentia_extractor(profile_path)
-        self.panns_model = PANNsCNN14(panns_weights_path)
-
-    def __call__(
-        self,
-        audio_path: pathlib.Path,
-        segment_spec: SegmentSpec | None = None,
-    ) -> np.ndarray:
-        spec = segment_spec or SegmentSpec(
-            type="full", window_s=None, k=None, aggregation="mean"
-        )
-        segments = get_segments(audio_path, spec)
-
-        essentia_vectors = []
-        panns_vectors = []
-
-        for start, end in segments:
-            if spec.type == "full":
-                essentia_vec = extract_essentia_features(
-                    self.essentia_extractor, audio_path, self.profile_path
-                )
-                panns_vec = self.panns_model.extract(audio_path)
-            else:
-                cropped_path = _ffmpeg_crop_to_tempwav(audio_path, start, end)
-                try:
-                    essentia_vec = extract_essentia_features(
-                        self.essentia_extractor, cropped_path, self.profile_path
-                    )
-                finally:
-                    cropped_path.unlink(missing_ok=True)
-                panns_vec = self.panns_model.extract_segment(audio_path, start, end)
-
-            essentia_vectors.append(essentia_vec)
-            panns_vectors.append(panns_vec)
-
-        essentia_agg = aggregate(essentia_vectors, spec.aggregation)
-        panns_agg = aggregate(panns_vectors, spec.aggregation)
-        return np.concatenate([essentia_agg, panns_agg])
 
 
 def _ffmpeg_crop_to_tempwav(
@@ -202,15 +168,12 @@ def prepare_extractor(
 ) -> CombinedExtractor:
     if panns_weights_path is None:
         panns_weights_path = config.panns_weights_path
+    essentia_extractor = get_essentia_extractor(profile_path)
+    panns_model = PANNsCNN14(panns_weights_path)
     return CombinedExtractor(
-        panns_weights_path=panns_weights_path,
+        essentia_extractor=essentia_extractor,
+        panns_model=panns_model,
+        essentia_extract_fn=extract_essentia_features,
+        essentia_extract_segment_fn=extract_essentia_features_segment,
         profile_path=profile_path,
     )
-
-
-def extract_features_for_mp3(
-    audio_path: pathlib.Path,
-    extractor: CombinedExtractor,
-    segment_spec: SegmentSpec | None = None,
-) -> np.ndarray:
-    return extractor(audio_path, segment_spec=segment_spec)

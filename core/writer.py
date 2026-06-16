@@ -1,12 +1,14 @@
 import logging
-import multiprocessing as mp
 from dataclasses import dataclass
+from multiprocessing import get_context
 from pathlib import Path
 from typing import Optional
 
 import config
+from audio.features import prepare_extractor
 from audio.segments import SegmentSpec
 from core.jobs import JobManager
+from core.logging import setup_logging
 from core.paths import compute_file_hash
 from core.storage import FeatureStore, JobStore
 
@@ -27,21 +29,20 @@ def _worker_loop(
     user_id: int,
     embed_version: str,
     segment_policy: str,
-    result_queue: mp.Queue,
+    result_queue,
     profile_path: Optional[Path],
     segment_spec: Optional[SegmentSpec],
 ):
-    from audio.features import CombinedExtractor
-    from core.logging import setup_logging
-
     setup_logging(
-        level=logging.INFO,
+        level=10,
         format="%(asctime)s.%(msecs)03d %(levelname)s %(funcName)s: %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
     logger.info(f"Worker {worker_id}: Starting with {len(tasks)} tasks")
-    extractor = CombinedExtractor(panns_weights_path, profile_path=profile_path)
+    extractor = prepare_extractor(
+        panns_weights_path=panns_weights_path, profile_path=profile_path
+    )
     store = FeatureStore(user_id, embed_version, segment_policy)
 
     for idx, (track_path, file_hash, set_name, metadata) in enumerate(tasks):
@@ -136,12 +137,11 @@ def start_extraction_job(
 
     job_store.close()
 
-    result_queue = mp.Queue()
-    _spawn = mp.get_context("spawn")
+    result_queue = get_context("spawn").Queue()
 
     workers = []
     for i in range(n_workers):
-        p = _spawn.Process(
+        p = get_context("spawn").Process(
             target=_worker_loop,
             args=(
                 i,

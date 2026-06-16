@@ -17,7 +17,8 @@ from telethon.tl.custom import Message
 from telethon.tl.types import DocumentAttributeAudio
 
 import config
-from audio.features import extract_features_for_mp3, prepare_extractor
+from audio.extractor import extract_features_for_mp3
+from audio.features import prepare_extractor
 from bot_utils import get_chat, get_message, obtain_latest_message_id
 from core.modeling import DualOneClassModel
 from core.outliers import detect_outliers
