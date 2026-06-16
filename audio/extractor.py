@@ -1,3 +1,5 @@
+import numpy as np
+
 from audio.aggregation import aggregate
 from audio.segments import SegmentSpec, get_segments
 
@@ -47,7 +49,7 @@ class CombinedExtractor:
 
         essentia_agg = aggregate(essentia_vectors, spec.aggregation)
         panns_agg = aggregate(panns_vectors, spec.aggregation)
-        return aggregate([essentia_agg, panns_agg], spec.aggregation)
+        return np.concatenate([essentia_agg, panns_agg])
 
 
 def extract_features_for_mp3(audio_path, extractor):
