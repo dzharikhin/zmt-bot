@@ -22,3 +22,5 @@ def setup_logging(
         handler.setFormatter(logging.Formatter(format, datefmt))
         handler.setLevel(level)
         root.addHandler(handler)
+
+    logging.getLogger("numba").setLevel(logging.WARNING)
