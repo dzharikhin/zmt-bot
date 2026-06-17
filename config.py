@@ -44,12 +44,22 @@ max_estimation_workers = int(os.getenv("MAX_ESTIMATION_WORKERS", "2"))
 min_track_length_seconds = int(os.getenv("MIN_TRACK_LENGTH_SECONDS", "60"))
 max_track_length_seconds = int(os.getenv("MAX_TRACK_LENGTH_SECONDS", "480"))
 
-model_knn_k = int(os.getenv("MODEL_KNN_K", "5"))
-model_gmm_components = int(os.getenv("MODEL_GMM_COMPONENTS", "16"))
+model_knn_k_min = int(os.getenv("MODEL_KNN_K_MIN", "5"))
+model_knn_k_max = int(os.getenv("MODEL_KNN_K_MAX", "15"))
+model_knn_k_scale = float(os.getenv("MODEL_KNN_K_SCALE", "0.5"))
+model_gmm_components_max = int(os.getenv("MODEL_GMM_COMPONENTS_MAX", "16"))
+model_gmm_min_points_per_component = int(
+    os.getenv("MODEL_GMM_MIN_POINTS_PER_COMPONENT", "40")
+)
 model_outlier_threshold = float(os.getenv("MODEL_OUTLIER_THRESHOLD", "0.05"))
 model_mode_a_dislike_recall_target = float(os.getenv("MODEL_MODE_A_RECALL", "0.90"))
 model_mode_b_like_recall_target = float(os.getenv("MODEL_MODE_B_RECALL", "0.80"))
 model_min_set_size = int(os.getenv("MODEL_MIN_SET_SIZE", "50"))
+model_cv_folds = int(os.getenv("MODEL_CV_FOLDS", "5"))
+model_max_imbalance_ratio = float(os.getenv("MODEL_MAX_IMBALANCE_RATIO", "3.0"))
+
+model_knn_k = model_knn_k_max
+model_gmm_components = model_gmm_components_max
 worker_ack_timeout_seconds = int(os.getenv("WORKER_ACK_TIMEOUT_S", "120"))
 segment_policy = os.getenv("SEGMENT_POLICY", "full")
 panns_weights_path = pathlib.Path(

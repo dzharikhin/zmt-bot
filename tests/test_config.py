@@ -99,7 +99,13 @@ def test_model_stats_ignores_legacy_model_type(tmp_path, monkeypatch):
     model_dir.mkdir(parents=True)
     (model_dir / "model.pkl").write_bytes(b"")
 
-    model = DualOneClassModel(knn_k=3, gmm_components=4)
+    model = DualOneClassModel(
+        knn_k_min=3,
+        knn_k_max=3,
+        gmm_components_max=4,
+        gmm_min_points_per_component=10,
+        cv_folds=None,
+    )
     artifact = {
         "model": model,
         "built_at": "2026-01-01",

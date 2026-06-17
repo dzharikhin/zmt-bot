@@ -6,11 +6,14 @@ from pathlib import Path
 import numpy as np
 from sklearn.isotonic import IsotonicRegression
 from sklearn.mixture import GaussianMixture
+from sklearn.model_selection import KFold
 from sklearn.neighbors import NearestNeighbors
 
 from models import ModelType
 
 logger = logging.getLogger(__name__)
+
+_MODEL_SCHEMA_VERSION = 2
 
 
 class ModelLoadError(Exception):
@@ -23,11 +26,25 @@ class OneClassSetModel:
     Calibration: raw density scores are mapped to rank-percentile within the set's
     own distribution via IsotonicRegression. "calibrated" ≈ 1.0 means the point
     is well inside the set's density; ≈ 0.0 means it's at the fringe.
+
+    Model capacity (knn_k, gmm_components) is adaptively derived from training
+    set size to avoid overfitting on small sets and underfitting on large ones.
     """
 
-    def __init__(self, knn_k: int = 5, gmm_components: int = 16):
-        self.knn_k = knn_k
-        self.gmm_components = gmm_components
+    def __init__(
+        self,
+        knn_k_min: int = 5,
+        knn_k_max: int = 15,
+        knn_k_scale: float = 0.5,
+        gmm_components_max: int = 16,
+        gmm_min_points_per_component: int = 40,
+    ):
+        self.knn_k_min = knn_k_min
+        self.knn_k_max = knn_k_max
+        self.knn_k_scale = knn_k_scale
+        self.gmm_components_max = gmm_components_max
+        self.gmm_min_points_per_component = gmm_min_points_per_component
+
         self.knn = None
         self.gmm = None
         self.knn_calibrator = None
@@ -36,6 +53,18 @@ class OneClassSetModel:
         self._knn_score_range = None
         self._gmm_score_range = None
 
+        self.knn_k_used: int | None = None
+        self.gmm_components_used: int | None = None
+
+    def _effective_knn_k(self, n: int) -> int:
+        k = round(self.knn_k_scale * np.sqrt(n))
+        k = max(self.knn_k_min, min(self.knn_k_max, k))
+        return min(k, n - 1)
+
+    def _effective_gmm_components(self, n: int) -> int:
+        by_density = max(1, n // self.gmm_min_points_per_component)
+        return max(2, min(self.gmm_components_max, by_density))
+
     def fit(self, X: np.ndarray):
         """Fit k-NN, GMM, and isotonic calibrators on full training data"""
         if len(X) == 0:
@@ -43,16 +72,25 @@ class OneClassSetModel:
 
         X_fit = X
         self.X_fit = X_fit
+        n = len(X_fit)
 
-        # Fit k-NN — k+1 neighbors, slice [:, 1:] to exclude self-distance
-        self.knn = NearestNeighbors(n_neighbors=min(self.knn_k + 1, len(X_fit) - 1))
+        knn_k_eff = self._effective_knn_k(n)
+        gmm_n_eff = self._effective_gmm_components(n)
+        self.knn_k_used = knn_k_eff
+        self.gmm_components_used = gmm_n_eff
+
+        logger.info(
+            f"OneClassSetModel.fit: n={n}, knn_k={knn_k_eff}, "
+            f"gmm_components={gmm_n_eff}"
+        )
+
+        self.knn = NearestNeighbors(n_neighbors=knn_k_eff + 1)
         self.knn.fit(X_fit)
 
-        # Fit GMM with retry logic for numerical stability
-        n_components = min(self.gmm_components, max(1, len(X_fit) // 2))
         reg_covar = 1e-4
         max_retries = 5
         retry_count = 0
+        n_components = gmm_n_eff
         while retry_count <= max_retries:
             try:
                 self.gmm = GaussianMixture(
@@ -80,14 +118,12 @@ class OneClassSetModel:
                             reg_covar=reg_covar,
                         )
                         self.gmm.fit(X_fit)
+        self.gmm_components_used = n_components
 
-        # Compute raw scores for the fit set (used as calibration reference)
-        # k-NN: exclude self-distance by slicing [:, 1:]
         knn_dists_fit, _ = self.knn.kneighbors(X_fit)
         knn_scores_fit = knn_dists_fit[:, 1:].mean(axis=1)
         gmm_scores_fit = self.gmm.score_samples(X_fit)
 
-        # Isotonic calibration: rank-percentile within the fit distribution
         knn_sorted = np.sort(knn_scores_fit)
         knn_targets = np.arange(1, len(knn_sorted) + 1) / len(knn_sorted)
         self.knn_calibrator = IsotonicRegression(y_min=0.0, y_max=1.0)
@@ -108,16 +144,11 @@ class OneClassSetModel:
         Returns:
             Dict with calibrated (mean of knn+gmm calibrated), raw_knn, raw_gmm_loglik
         """
-        # k-NN distance (lower = more similar to set)
-        # Skip first neighbor to exclude self-distance, consistent with fit()
         knn_dist, _ = self.knn.kneighbors(X)
         knn_score = knn_dist[:, 1:].mean(axis=1)[0]
 
-        # GMM log-likelihood (higher = more likely under set distribution)
         gmm_loglik = self.gmm.score_samples(X)[0]
 
-        # Calibrate via isotonic regression
-        # Out-of-range values get boundary calibration (0.0 or 1.0)
         knn_cal_raw = self.knn_calibrator.predict([knn_score])[0]
         gmm_cal_raw = self.gmm_calibrator.predict([gmm_loglik])[0]
 
@@ -168,13 +199,47 @@ class OneClassSetModel:
 
 
 class DualOneClassModel:
-    """Two one-class models: one for liked, one for disliked"""
+    """Two one-class models: one for liked, one for disliked
 
-    def __init__(self, knn_k: int = 5, gmm_components: int = 16):
-        self.knn_k = knn_k
-        self.gmm_components = gmm_components
-        self.liked_model = OneClassSetModel(knn_k, gmm_components)
-        self.dislike_model = OneClassSetModel(knn_k, gmm_components)
+    Thresholds are computed via k-fold cross-validated out-of-fold scoring
+    when cv_folds >= 2, giving honest recall guarantees. Falls back to
+    in-sample percentiles when cv_folds is None or < 2.
+    """
+
+    def __init__(
+        self,
+        knn_k_min: int = 5,
+        knn_k_max: int = 15,
+        knn_k_scale: float = 0.5,
+        gmm_components_max: int = 16,
+        gmm_min_points_per_component: int = 40,
+        cv_folds: int | None = None,
+        mode_a_recall_target: float = 0.90,
+        mode_b_recall_target: float = 0.80,
+    ):
+        self.knn_k_min = knn_k_min
+        self.knn_k_max = knn_k_max
+        self.knn_k_scale = knn_k_scale
+        self.gmm_components_max = gmm_components_max
+        self.gmm_min_points_per_component = gmm_min_points_per_component
+        self.cv_folds = cv_folds
+        self.mode_a_recall_target = mode_a_recall_target
+        self.mode_b_recall_target = mode_b_recall_target
+
+        self.liked_model = OneClassSetModel(
+            knn_k_min=knn_k_min,
+            knn_k_max=knn_k_max,
+            knn_k_scale=knn_k_scale,
+            gmm_components_max=gmm_components_max,
+            gmm_min_points_per_component=gmm_min_points_per_component,
+        )
+        self.dislike_model = OneClassSetModel(
+            knn_k_min=knn_k_min,
+            knn_k_max=knn_k_max,
+            knn_k_scale=knn_k_scale,
+            gmm_components_max=gmm_components_max,
+            gmm_min_points_per_component=gmm_min_points_per_component,
+        )
         self.thresholds = {"mode_a": 0.55, "mode_b": 0.65}
         self.embed_version = None
         self.segment_policy = None
@@ -185,27 +250,90 @@ class DualOneClassModel:
         self.liked_model.fit(X_liked)
         self.dislike_model.fit(X_disliked)
         self._compute_thresholds(X_liked, X_disliked)
+
+        n_liked = len(X_liked)
+        n_disliked = len(X_disliked)
+        n_min = max(1, min(n_liked, n_disliked))
+        imbalance_ratio = round(max(n_liked, n_disliked) / n_min, 2)
+
         self.stats = {
-            "liked_n": len(X_liked),
-            "disliked_n": len(X_disliked),
+            "liked_n": n_liked,
+            "disliked_n": n_disliked,
+            "imbalance_ratio": imbalance_ratio,
+            "liked_knn_k_used": self.liked_model.knn_k_used,
+            "liked_gmm_components_used": self.liked_model.gmm_components_used,
+            "disliked_knn_k_used": self.dislike_model.knn_k_used,
+            "disliked_gmm_components_used": self.dislike_model.gmm_components_used,
+            "cv_folds_used": (
+                self.cv_folds if self.cv_folds and self.cv_folds >= 2 else None
+            ),
+            "mode_a_recall_target": self.mode_a_recall_target,
+            "mode_b_recall_target": self.mode_b_recall_target,
         }
         return self
+
+    def _cv_scores(self, X: np.ndarray) -> np.ndarray:
+        """Out-of-fold calibrated scores via k-fold CV
+
+        Each fold trains a fresh OneClassSetModel (same hyperparams) and scores
+        the held-out partition. The concatenated held-out scores approximate
+        the distribution a new point would face at inference time.
+        """
+        n_splits = min(self.cv_folds, len(X))
+        kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
+        oof_scores = np.empty(len(X), dtype=np.float64)
+
+        for train_idx, test_idx in kf.split(X):
+            X_train, X_test = X[train_idx], X[test_idx]
+            fold_model = OneClassSetModel(
+                knn_k_min=self.knn_k_min,
+                knn_k_max=self.knn_k_max,
+                knn_k_scale=self.knn_k_scale,
+                gmm_components_max=self.gmm_components_max,
+                gmm_min_points_per_component=self.gmm_min_points_per_component,
+            )
+            fold_model.fit(X_train)
+            for i, idx in enumerate(test_idx):
+                oof_scores[idx] = fold_model.score(X_test[i].reshape(1, -1))[
+                    "calibrated"
+                ]
+
+        return oof_scores
 
     def _compute_thresholds(self, X_liked: np.ndarray, X_disliked: np.ndarray):
         """Determine thresholds for mode (a) and mode (b)
 
-        Mode (a): Reject definite dislikes (90% recall on dislikes)
-        Mode (b): Accept definite likes (80% recall on likes)
-        """
-        dislike_scores = [
-            self.dislike_model.score(x.reshape(1, -1))["calibrated"] for x in X_disliked
-        ]
-        self.thresholds["mode_a"] = np.percentile(dislike_scores, 10)
+        Mode (a): Reject definite dislikes (recall_target on dislikes)
+        Mode (b): Accept definite likes (recall_target on likes)
 
-        like_scores = [
-            self.liked_model.score(x.reshape(1, -1))["calibrated"] for x in X_liked
-        ]
-        self.thresholds["mode_b"] = np.percentile(like_scores, 20)
+        When cv_folds >= 2, thresholds are derived from out-of-fold scores
+        for honest recall guarantees. Otherwise in-sample scores are used.
+        """
+        use_cv = self.cv_folds is not None and self.cv_folds >= 2
+
+        if use_cv:
+            dislike_scores = self._cv_scores(X_disliked)
+            like_scores = self._cv_scores(X_liked)
+        else:
+            dislike_scores = np.array(
+                [
+                    self.dislike_model.score(x.reshape(1, -1))["calibrated"]
+                    for x in X_disliked
+                ]
+            )
+            like_scores = np.array(
+                [
+                    self.liked_model.score(x.reshape(1, -1))["calibrated"]
+                    for x in X_liked
+                ]
+            )
+
+        self.thresholds["mode_a"] = float(
+            np.percentile(dislike_scores, 100 * (1 - self.mode_a_recall_target))
+        )
+        self.thresholds["mode_b"] = float(
+            np.percentile(like_scores, 100 * (1 - self.mode_b_recall_target))
+        )
 
     def predict(self, X: np.ndarray) -> dict:
         """Score a track against both models"""
@@ -229,6 +357,7 @@ class DualOneClassModel:
         path.mkdir(parents=True, exist_ok=True)
 
         artifact = {
+            "schema_version": _MODEL_SCHEMA_VERSION,
             "model": self,
             "built_at": datetime.now(timezone.utc).isoformat(),
             "embed_version": self.embed_version,
@@ -236,8 +365,14 @@ class DualOneClassModel:
             "stats": self.stats,
             "thresholds": self.thresholds,
             "config": {
-                "knn_k": self.knn_k,
-                "gmm_components": self.gmm_components,
+                "knn_k_min": self.knn_k_min,
+                "knn_k_max": self.knn_k_max,
+                "knn_k_scale": self.knn_k_scale,
+                "gmm_components_max": self.gmm_components_max,
+                "gmm_min_points_per_component": self.gmm_min_points_per_component,
+                "cv_folds": self.cv_folds,
+                "mode_a_recall_target": self.mode_a_recall_target,
+                "mode_b_recall_target": self.mode_b_recall_target,
             },
         }
 
@@ -248,17 +383,24 @@ class DualOneClassModel:
     def load(cls, path: Path):
         """Load model artifact from disk
 
-        No backward compatibility with old GMeans models — raises on
-        incompatible pickles.
+        Requires schema_version 2. Raises ModelLoadError on incompatible
+        formats (missing schema_version, old v1 pickles, corrupt files).
         """
         with open(path / "model.pkl", "rb") as f:
             artifact = pickle.load(f)
 
+        if isinstance(artifact, dict) and "schema_version" in artifact:
+            if artifact["schema_version"] != _MODEL_SCHEMA_VERSION:
+                raise ModelLoadError(
+                    f"Model schema version {artifact.get('schema_version')} "
+                    f"is no longer supported (required: {_MODEL_SCHEMA_VERSION}). "
+                    f"Please retrain with /train."
+                )
+            return artifact["model"]
+
         if isinstance(artifact, dict) and "model" in artifact:
-            model = artifact["model"]
-        else:
             raise ModelLoadError(
-                "Incompatible model format. Please retrain with /train."
+                "Model schema version is too old. Please retrain with /train."
             )
 
-        return model
+        raise ModelLoadError("Incompatible model format. Please retrain with /train.")

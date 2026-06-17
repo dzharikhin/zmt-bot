@@ -210,6 +210,9 @@ def _build_profile(user_id: int, model_id: int) -> config.Model:
     if len(X_liked_raw) == 0 or len(X_disliked_raw) == 0:
         raise TrainUnrecoverable("No features extracted. Check logs for errors.")
 
+    outliers_removed_liked = 0
+    outliers_removed_disliked = 0
+
     if config.model_outlier_threshold > 0:
         logger.info(
             f"Applying outlier detection (threshold={config.model_outlier_threshold})"
@@ -218,7 +221,7 @@ def _build_profile(user_id: int, model_id: int) -> config.Model:
         mask_liked, outliers_liked = detect_outliers(
             X_liked_raw,
             threshold=config.model_outlier_threshold,
-            knn_k=config.model_knn_k,
+            knn_k=config.model_knn_k_max,
             n_estimators=200,
             min_set_size=config.model_min_set_size,
         )
@@ -226,13 +229,16 @@ def _build_profile(user_id: int, model_id: int) -> config.Model:
         mask_disliked, outliers_disliked = detect_outliers(
             X_disliked_raw,
             threshold=config.model_outlier_threshold,
-            knn_k=config.model_knn_k,
+            knn_k=config.model_knn_k_max,
             n_estimators=200,
             min_set_size=config.model_min_set_size,
         )
 
+        outliers_removed_liked = len(outliers_liked)
+        outliers_removed_disliked = len(outliers_disliked)
         logger.info(
-            f"Filtered {len(outliers_liked)} liked, {len(outliers_disliked)} disliked outliers"
+            f"Filtered {outliers_removed_liked} liked, "
+            f"{outliers_removed_disliked} disliked outliers"
         )
 
         X_liked = X_liked_raw[mask_liked]
@@ -242,10 +248,34 @@ def _build_profile(user_id: int, model_id: int) -> config.Model:
         X_liked = X_liked_raw
         X_disliked = X_disliked_raw
 
+    n_liked = len(X_liked)
+    n_disliked = len(X_disliked)
+    n_min = max(1, min(n_liked, n_disliked))
+    imbalance_ratio = round(max(n_liked, n_disliked) / n_min, 2)
+
+    if imbalance_ratio > config.model_max_imbalance_ratio:
+        logger.warning(
+            f"Imbalance ratio {imbalance_ratio} exceeds threshold "
+            f"{config.model_max_imbalance_ratio} "
+            f"(liked={n_liked}, disliked={n_disliked}). "
+            f"Consider adding more tracks to the smaller set."
+        )
+    else:
+        logger.info(
+            f"Imbalance ratio {imbalance_ratio} "
+            f"(liked={n_liked}, disliked={n_disliked})"
+        )
+
     logger.info("Fitting DualOneClassModel")
     model = DualOneClassModel(
-        knn_k=config.model_knn_k,
-        gmm_components=config.model_gmm_components,
+        knn_k_min=config.model_knn_k_min,
+        knn_k_max=config.model_knn_k_max,
+        knn_k_scale=config.model_knn_k_scale,
+        gmm_components_max=config.model_gmm_components_max,
+        gmm_min_points_per_component=config.model_gmm_min_points_per_component,
+        cv_folds=config.model_cv_folds,
+        mode_a_recall_target=config.model_mode_a_dislike_recall_target,
+        mode_b_recall_target=config.model_mode_b_like_recall_target,
     )
     model.fit(X_liked, X_disliked)
     model.embed_version = embed_version
@@ -256,11 +286,14 @@ def _build_profile(user_id: int, model_id: int) -> config.Model:
     model.save(model_store.model_workdir)
 
     stats = {
-        "liked_tracks_count": len(X_liked),
-        "disliked_tracks_count": len(X_disliked),
+        **model.stats,
+        "liked_tracks_count": n_liked,
+        "disliked_tracks_count": n_disliked,
         "accuracy": 0.0,
         "thresholds": model.thresholds,
         "embed_version": embed_version,
+        "outliers_removed_liked": outliers_removed_liked,
+        "outliers_removed_disliked": outliers_removed_disliked,
     }
     with open(model_store.model_workdir / "stats.json", "w") as f:
         json.dump(stats, f, indent=2)

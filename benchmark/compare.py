@@ -24,8 +24,16 @@ logger.setLevel(logging.DEBUG)
 
 def objective(trial, X_liked, X_disliked, w_a, w_b):
     """Optuna objective: weighted sum of mode_a and mode_b recall via k-fold CV."""
-    knn_k = trial.suggest_int("knn_k", 3, 15)
-    gmm_components = trial.suggest_int("gmm_components", 8, 32)
+    knn_k_min = trial.suggest_int("knn_k_min", 3, 8)
+    knn_k_max = trial.suggest_int("knn_k_max", 8, 25)
+    if knn_k_max < knn_k_min:
+        raise optuna.exceptions.TrialPruned("knn_k_max < knn_k_min")
+
+    knn_k_scale = trial.suggest_float("knn_k_scale", 0.3, 1.0)
+    gmm_components_max = trial.suggest_int("gmm_components_max", 8, 32)
+    gmm_min_points_per_component = trial.suggest_int(
+        "gmm_min_points_per_component", 20, 80
+    )
     outlier_threshold = trial.suggest_float("outlier_threshold", 0.01, 0.10)
 
     n_splits = min(5, len(X_liked), len(X_disliked))
@@ -47,13 +55,13 @@ def objective(trial, X_liked, X_disliked, w_a, w_b):
         mask_l, _ = detect_outliers(
             X_l_tr,
             threshold=outlier_threshold,
-            knn_k=knn_k,
+            knn_k=knn_k_max,
             min_set_size=config.model_min_set_size,
         )
         mask_d, _ = detect_outliers(
             X_d_tr,
             threshold=outlier_threshold,
-            knn_k=knn_k,
+            knn_k=knn_k_max,
             min_set_size=config.model_min_set_size,
         )
         X_l_tr_f, X_d_tr_f = X_l_tr[mask_l], X_d_tr[mask_d]
@@ -64,12 +72,23 @@ def objective(trial, X_liked, X_disliked, w_a, w_b):
             return 0.0
 
         try:
-            model = DualOneClassModel(knn_k=knn_k, gmm_components=gmm_components)
+            model = DualOneClassModel(
+                knn_k_min=knn_k_min,
+                knn_k_max=knn_k_max,
+                knn_k_scale=knn_k_scale,
+                gmm_components_max=gmm_components_max,
+                gmm_min_points_per_component=gmm_min_points_per_component,
+                cv_folds=None,
+                mode_a_recall_target=config.model_mode_a_dislike_recall_target,
+                mode_b_recall_target=config.model_mode_b_like_recall_target,
+            )
             model.fit(X_l_tr_f, X_d_tr_f)
         except ValueError as e:
             logger.warning(
                 f"Trial failed with ValueError: {e}. "
-                f"Params: knn_k={knn_k}, gmm_components={gmm_components}, "
+                f"Params: knn_k_min={knn_k_min}, knn_k_max={knn_k_max}, "
+                f"knn_k_scale={knn_k_scale}, gmm_components_max={gmm_components_max}, "
+                f"gmm_min_points_per_component={gmm_min_points_per_component}, "
                 f"outlier_threshold={outlier_threshold}"
             )
             trial.set_user_attr("mode_a_recall", 0.0)
@@ -112,8 +131,13 @@ def optimize_embedding(X_liked, X_disliked, w_a, w_b, n_iterations=50):
     best = study.best_trial
     return {
         "best_params": {
-            "knn_k": int(best.params["knn_k"]),
-            "gmm_components": int(best.params["gmm_components"]),
+            "knn_k_min": int(best.params["knn_k_min"]),
+            "knn_k_max": int(best.params["knn_k_max"]),
+            "knn_k_scale": float(best.params["knn_k_scale"]),
+            "gmm_components_max": int(best.params["gmm_components_max"]),
+            "gmm_min_points_per_component": int(
+                best.params["gmm_min_points_per_component"]
+            ),
             "outlier_threshold": float(best.params["outlier_threshold"]),
         },
         "weighted_recall": float(best.value),
@@ -325,6 +349,11 @@ def main():
         report = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "objective_weights": {"mode_a": w_a, "mode_b": w_b},
+            "threshold_regime": {
+                "mode_a_recall_target": config.model_mode_a_dislike_recall_target,
+                "mode_b_recall_target": config.model_mode_b_like_recall_target,
+                "cv_folds_in_benchmark": None,
+            },
             "n_iterations": args.n_iterations,
             "results": results,
             "best_variant": (
