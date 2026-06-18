@@ -118,7 +118,15 @@ class FeatureStore:
             conn.close()
         if not rows:
             return np.array([])
-        return np.array([np.asarray(row[0], dtype=np.float32) for row in rows])
+        arrays = [np.asarray(row[0], dtype=np.float32) for row in rows]
+        shapes = {a.shape for a in arrays}
+        if len(shapes) > 1:
+            raise RuntimeError(
+                f"Inhomogeneous vector shapes in {parquet_path}: "
+                f"{sorted(shapes)}. Feature cache is corrupt; purge the "
+                f"per-variant feature partition and re-extract."
+            )
+        return np.stack(arrays)
 
 
 class JobStore:

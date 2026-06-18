@@ -2,13 +2,13 @@ import pathlib
 import subprocess
 import tempfile
 
+import essentia.standard as es
 import librosa
 import numpy as np
 from panns_inference import AudioTagging
 
 import config
 import essentia
-import essentia.standard as es
 from audio.extractor import CombinedExtractor
 from core.paths import compute_file_hash
 
@@ -105,7 +105,8 @@ def extract_essentia_features_segment(
 ) -> np.ndarray:
     cropped_path = _ffmpeg_crop_to_tempwav(audio_path, start, end)
     try:
-        return _essentia_pool_to_vector(extractor(str(cropped_path)), profile_path)
+        features, _frames = extractor(str(cropped_path))
+        return _essentia_pool_to_vector(features, profile_path)
     finally:
         cropped_path.unlink(missing_ok=True)
 

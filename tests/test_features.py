@@ -1,9 +1,15 @@
+import pathlib
+
 import numpy as np
 import pytest
 import soundfile as sf
 
 from audio import features as audio_features
-from audio.features import _discover_descriptor_names, _essentia_pool_to_vector
+from audio.features import (
+    _discover_descriptor_names,
+    _essentia_pool_to_vector,
+    extract_essentia_features_segment,
+)
 
 try:
     import essentia.standard as es
@@ -177,3 +183,40 @@ class TestEssentiaExtraction:
         assert result.ndim == 1
         assert result.dtype == np.float32
         assert len(result) > 0
+
+
+class TestExtractEssentiaFeaturesSegmentUnpacksTuple:
+    def test_unpacks_tuple_from_extractor(self, tmp_path, monkeypatch):
+        profile_path = tmp_path / "profile.yaml"
+        profile_path.write_text("# test profile\nprofile: test\n")
+        profile_key = audio_features.compute_file_hash(profile_path)
+        audio_features._DESCRIPTOR_NAMES_BY_PROFILE[profile_key] = [
+            ("lowlevel.val", 1),
+            ("rhythm.beats", 3),
+        ]
+
+        mock_pool = make_mock_pool(
+            scalars={"lowlevel.val": 0.5},
+            vectors_1d={"rhythm.beats": [0.1, 0.2, 0.3]},
+        )
+
+        def fake_extractor(_audio_path):
+            return (mock_pool, "frames_placeholder")
+
+        fake_wav = tmp_path / "cropped.wav"
+        fake_wav.write_bytes(b"fake")
+
+        monkeypatch.setattr(
+            audio_features,
+            "_ffmpeg_crop_to_tempwav",
+            lambda _path, _start, _end: fake_wav,
+        )
+
+        result = extract_essentia_features_segment(
+            fake_extractor, pathlib.Path("/fake/audio.mp3"), profile_path, 0.0, 10.0
+        )
+
+        assert isinstance(result, np.ndarray)
+        assert result.ndim == 1
+        assert result.dtype == np.float32
+        assert len(result) == 4
