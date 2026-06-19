@@ -14,10 +14,10 @@ class MockPANNsModel:
 
 
 def make_extractor(essentia_dim=50, num_segments=1):
-    def essentia_extract_fn(extractor, audio_path, profile_path):
+    def essentia_extract_fn(extractor, audio_path):
         return np.ones(essentia_dim, dtype=np.float32)
 
-    def essentia_extract_segment_fn(extractor, audio_path, profile_path, start, end):
+    def essentia_extract_segment_fn(extractor, audio_path, start, end):
         return np.ones(essentia_dim, dtype=np.float32)
 
     extractor = CombinedExtractor(
@@ -25,7 +25,6 @@ def make_extractor(essentia_dim=50, num_segments=1):
         panns_model=MockPANNsModel(),
         essentia_extract_fn=essentia_extract_fn,
         essentia_extract_segment_fn=essentia_extract_segment_fn,
-        profile_path=None,
     )
 
     def fake_get_segments(audio_path, spec):
@@ -115,7 +114,7 @@ class TestCombinedExtractorMultiSegment:
         assert result.shape == (30 * 2 + 2048 * 2,)
 
     def test_output_is_concatenation_not_aggregation(self):
-        def essentia_extract_fn(extractor, audio_path, profile_path):
+        def essentia_extract_fn(extractor, audio_path):
             return np.ones(10, dtype=np.float32) * 2.0
 
         extractor, fake_get_segments = make_extractor(essentia_dim=10)

@@ -3,6 +3,7 @@ from importlib.metadata import version as pkg_version
 from pathlib import Path
 
 import config
+from audio.features import schema_fingerprint
 
 
 def get_embed_version(
@@ -14,9 +15,15 @@ def get_embed_version(
     if panns_weights_path is None:
         panns_weights_path = config.panns_weights_path
     essentia_version = pkg_version("essentia")
-    profile_hash = compute_file_hash(profile_path)
-    panns_hash = compute_file_hash(panns_weights_path)
-    return f"essentia-{essentia_version}+profile-{profile_hash}+panns-{panns_hash}"
+    profile_hash = compute_file_hash(profile_path)[:16]
+    panns_hash = compute_file_hash(panns_weights_path)[:16]
+    schema_hash = schema_fingerprint()
+    return (
+        f"essentia-{essentia_version}"
+        f"+profile-{profile_hash}"
+        f"+panns-{panns_hash}"
+        f"+schema-{schema_hash}"
+    )
 
 
 def compute_file_hash(file_path: Path) -> str:

@@ -151,7 +151,12 @@ def _build_profile(user_id: int, model_id: int) -> config.Model:
     """Build two one-class models from liked/disliked tracks (internal API)"""
     _register_atexit_handler()
 
-    embed_version = get_embed_version()
+    resolved_profile = config.data_path / "essentia_extractor_profile.yaml"
+    model_store = config.get_model_store_path(user_id, model_id)
+    bundled_profile = model_store.model_workdir / "essentia_profile.yaml"
+    shutil.copy(resolved_profile, bundled_profile)
+
+    embed_version = get_embed_version(profile_path=bundled_profile)
     segment_policy = config.segment_policy
 
     liked_path = config.get_liked_file_store_path(user_id)
@@ -193,6 +198,7 @@ def _build_profile(user_id: int, model_id: int) -> config.Model:
         segment_policy=segment_policy,
         job_id=job_id,
         progress_callback=progress_callback,
+        profile_path=bundled_profile,
     )
 
     logger.info("Loading features from parquet cache")
@@ -281,8 +287,6 @@ def _build_profile(user_id: int, model_id: int) -> config.Model:
     model.embed_version = embed_version
     model.segment_policy = segment_policy
 
-    model_store = config.get_model_store_path(user_id, model_id)
-    model_store.model_workdir.mkdir(parents=True, exist_ok=True)
     model.save(model_store.model_workdir)
 
     stats = {
@@ -373,7 +377,22 @@ def _execute_estimation(
 
         model = DualOneClassModel.load(model_store.model_workdir)
 
-        extractor = prepare_extractor()
+        bundled_profile = model_store.model_workdir / "essentia_profile.yaml"
+        if not bundled_profile.exists():
+            raise EstimationUnrecoverable(
+                f"Bundled profile not found at {bundled_profile}. "
+                f"Please retrain with /train."
+            )
+
+        current_embed_version = get_embed_version(profile_path=bundled_profile)
+        if current_embed_version != model.embed_version:
+            raise EstimationUnrecoverable(
+                f"embed_version mismatch: model was trained with "
+                f"'{model.embed_version}' but current pipeline produces "
+                f"'{current_embed_version}'. Please retrain with /train."
+            )
+
+        extractor = prepare_extractor(profile_path=bundled_profile)
         X = extract_features_for_mp3(track_to_estimate_path, extractor).reshape(1, -1)
 
         scores = model.predict(X)
@@ -385,6 +404,8 @@ def _execute_estimation(
         )
 
         return is_recommended
+    except EstimationUnrecoverable:
+        raise
     except Exception as e:
         logger.error(
             f"Estimation failed for track {track_to_estimate_path}: {e}", exc_info=True

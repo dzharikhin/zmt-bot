@@ -13,7 +13,7 @@ from models import ModelType
 
 logger = logging.getLogger(__name__)
 
-_MODEL_SCHEMA_VERSION = 2
+_MODEL_SCHEMA_VERSION = 3
 
 
 class ModelLoadError(Exception):

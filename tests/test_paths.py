@@ -1,5 +1,6 @@
 import pytest
 
+from audio import features as audio_features
 from core.paths import compute_file_hash, get_embed_version
 
 
@@ -67,4 +68,42 @@ class TestGetEmbedVersion:
         w2.write_bytes(b"weights2")
         v1 = get_embed_version(profile_path=profile, panns_weights_path=w1)
         v2 = get_embed_version(profile_path=profile, panns_weights_path=w2)
+        assert v1 != v2
+
+    def test_hash_components_truncated_to_16(self, tmp_path):
+        profile = tmp_path / "profile.yaml"
+        profile.write_text("profile: v1")
+        weights = tmp_path / "weights.pth"
+        weights.write_bytes(b"weights")
+        v = get_embed_version(profile_path=profile, panns_weights_path=weights)
+        parts = v.split("+")
+        for part in parts:
+            if (
+                part.startswith("profile-")
+                or part.startswith("panns-")
+                or part.startswith("schema-")
+            ):
+                hash_val = part.split("-", 1)[1]
+                assert len(hash_val) == 16
+
+    def test_version_contains_schema_component(self, tmp_path):
+        profile = tmp_path / "profile.yaml"
+        profile.write_text("profile: v1")
+        weights = tmp_path / "weights.pth"
+        weights.write_bytes(b"weights")
+        v = get_embed_version(profile_path=profile, panns_weights_path=weights)
+        assert "+schema-" in v
+
+
+class TestGetEmbedVersionSchema:
+    def test_schema_change_changes_version(self, tmp_path, monkeypatch):
+        profile = tmp_path / "profile.yaml"
+        profile.write_text("profile: v1")
+        weights = tmp_path / "weights.pth"
+        weights.write_bytes(b"weights")
+        v1 = get_embed_version(profile_path=profile, panns_weights_path=weights)
+        monkeypatch.setattr(
+            audio_features, "_DESCRIPTOR_SCHEMA", (("test.new_desc", 1, None),)
+        )
+        v2 = get_embed_version(profile_path=profile, panns_weights_path=weights)
         assert v1 != v2

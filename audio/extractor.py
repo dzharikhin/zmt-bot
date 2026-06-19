@@ -11,9 +11,7 @@ class CombinedExtractor:
         panns_model,
         essentia_extract_fn,
         essentia_extract_segment_fn,
-        profile_path=None,
     ):
-        self.profile_path = profile_path
         self.essentia_extractor = essentia_extractor
         self.panns_model = panns_model
         self.essentia_extract_fn = essentia_extract_fn
@@ -35,12 +33,12 @@ class CombinedExtractor:
         for start, end in segments:
             if spec.type == "full":
                 essentia_vec = self.essentia_extract_fn(
-                    self.essentia_extractor, audio_path, self.profile_path
+                    self.essentia_extractor, audio_path
                 )
                 panns_vec = self.panns_model.extract(audio_path)
             else:
                 essentia_vec = self.essentia_extract_segment_fn(
-                    self.essentia_extractor, audio_path, self.profile_path, start, end
+                    self.essentia_extractor, audio_path, start, end
                 )
                 panns_vec = self.panns_model.extract_segment(audio_path, start, end)
 

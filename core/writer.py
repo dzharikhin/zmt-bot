@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Optional
 
 import config
-from audio.features import prepare_extractor
+from audio.features import assert_schema_dim_consistent, prepare_extractor
 from audio.segments import SegmentSpec
 from core.jobs import JobManager
 from core.logging import setup_logging
@@ -134,6 +134,8 @@ def start_extraction_job(
         if progress_callback:
             progress_callback(job_id, total, total, "complete")
         return ExtractionResult(ok=0, failed=0, skipped=skipped)
+
+    assert_schema_dim_consistent(profile_path)
 
     job_store.close()
 
