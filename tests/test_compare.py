@@ -56,10 +56,10 @@ class TestObjective:
         trial.suggest_float("outlier_threshold", 0.01, 0.10)
         objective(trial, liked_data, disliked_data, 0.5, 0.5)
         frozen = study.trials[0]
-        assert "mode_a_recall" in frozen.user_attrs
-        assert "mode_b_recall" in frozen.user_attrs
-        assert isinstance(frozen.user_attrs["mode_a_recall"], float)
-        assert isinstance(frozen.user_attrs["mode_b_recall"], float)
+        assert "exclude_disliked_recall" in frozen.user_attrs
+        assert "include_liked_recall" in frozen.user_attrs
+        assert isinstance(frozen.user_attrs["exclude_disliked_recall"], float)
+        assert isinstance(frozen.user_attrs["include_liked_recall"], float)
 
     def test_separable_data_high_recall(self, rng):
         X_liked = rng.normal(loc=0.0, scale=0.5, size=(100, 5))
@@ -95,8 +95,8 @@ class TestOptimizeEmbedding:
         result = optimize_embedding(liked_data, disliked_data, 0.5, 0.5, n_iterations=3)
         assert "best_params" in result
         assert "weighted_recall" in result
-        assert "mode_a_recall" in result
-        assert "mode_b_recall" in result
+        assert "exclude_disliked_recall" in result
+        assert "include_liked_recall" in result
         assert "n_trials" in result
         assert "trial_history" in result
 
@@ -137,8 +137,8 @@ class TestOptimizeEmbedding:
         for trial_entry in result["trial_history"]:
             assert "params" in trial_entry
             assert "value" in trial_entry
-            assert "mode_a_recall" in trial_entry
-            assert "mode_b_recall" in trial_entry
+            assert "exclude_disliked_recall" in trial_entry
+            assert "include_liked_recall" in trial_entry
 
     def test_weighted_recall_is_float(self, liked_data, disliked_data):
         result = optimize_embedding(liked_data, disliked_data, 0.5, 0.5, n_iterations=3)
@@ -146,8 +146,8 @@ class TestOptimizeEmbedding:
 
     def test_recalls_are_float(self, liked_data, disliked_data):
         result = optimize_embedding(liked_data, disliked_data, 0.5, 0.5, n_iterations=3)
-        assert isinstance(result["mode_a_recall"], float)
-        assert isinstance(result["mode_b_recall"], float)
+        assert isinstance(result["exclude_disliked_recall"], float)
+        assert isinstance(result["include_liked_recall"], float)
 
     def test_deterministic_with_same_seed(self, liked_data, disliked_data):
         result1 = optimize_embedding(

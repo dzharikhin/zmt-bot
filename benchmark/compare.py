@@ -23,7 +23,7 @@ logger.setLevel(logging.DEBUG)
 
 
 def objective(trial, X_liked, X_disliked, w_a, w_b):
-    """Optuna objective: weighted sum of mode_a and mode_b recall via k-fold CV."""
+    """Optuna objective: weighted sum of exclude_disliked and include_liked recall via k-fold CV."""
     knn_k_min = trial.suggest_int("knn_k_min", 3, 8)
     knn_k_max = trial.suggest_int("knn_k_max", 8, 25)
     if knn_k_max < knn_k_min:
@@ -38,12 +38,12 @@ def objective(trial, X_liked, X_disliked, w_a, w_b):
 
     n_splits = min(5, len(X_liked), len(X_disliked))
     if n_splits < 2:
-        trial.set_user_attr("mode_a_recall", 0.0)
-        trial.set_user_attr("mode_b_recall", 0.0)
+        trial.set_user_attr("exclude_disliked_recall", 0.0)
+        trial.set_user_attr("include_liked_recall", 0.0)
         return 0.0
 
     kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
-    mode_a_recalls, mode_b_recalls = [], []
+    exclude_disliked_recalls, include_liked_recalls = [], []
 
     folds_liked = list(kf.split(X_liked))
     folds_disliked = list(kf.split(X_disliked))
@@ -67,8 +67,8 @@ def objective(trial, X_liked, X_disliked, w_a, w_b):
         X_l_tr_f, X_d_tr_f = X_l_tr[mask_l], X_d_tr[mask_d]
 
         if len(X_l_tr_f) < 2 or len(X_d_tr_f) < 2:
-            trial.set_user_attr("mode_a_recall", 0.0)
-            trial.set_user_attr("mode_b_recall", 0.0)
+            trial.set_user_attr("exclude_disliked_recall", 0.0)
+            trial.set_user_attr("include_liked_recall", 0.0)
             return 0.0
 
         try:
@@ -79,8 +79,8 @@ def objective(trial, X_liked, X_disliked, w_a, w_b):
                 gmm_components_max=gmm_components_max,
                 gmm_min_points_per_component=gmm_min_points_per_component,
                 cv_folds=None,
-                mode_a_recall_target=config.model_mode_a_dislike_recall_target,
-                mode_b_recall_target=config.model_mode_b_like_recall_target,
+                exclude_disliked_recall_target=config.model_exclude_disliked_recall_target,
+                include_liked_recall_target=config.model_include_liked_recall_target,
             )
             model.fit(X_l_tr_f, X_d_tr_f)
         except ValueError as e:
@@ -91,29 +91,57 @@ def objective(trial, X_liked, X_disliked, w_a, w_b):
                 f"gmm_min_points_per_component={gmm_min_points_per_component}, "
                 f"outlier_threshold={outlier_threshold}"
             )
-            trial.set_user_attr("mode_a_recall", 0.0)
-            trial.set_user_attr("mode_b_recall", 0.0)
+            trial.set_user_attr("exclude_disliked_recall", 0.0)
+            trial.set_user_attr("include_liked_recall", 0.0)
+            return 0.0
+
+        try:
+            model = DualOneClassModel(
+                knn_k_min=knn_k_min,
+                knn_k_max=knn_k_max,
+                knn_k_scale=knn_k_scale,
+                gmm_components_max=gmm_components_max,
+                gmm_min_points_per_component=gmm_min_points_per_component,
+                cv_folds=None,
+                exclude_disliked_recall_target=config.model_exclude_disliked_recall_target,
+                include_liked_recall_target=config.model_include_liked_recall_target,
+            )
+            model.fit(X_l_tr_f, X_d_tr_f)
+        except ValueError as e:
+            logger.warning(
+                f"Trial failed with ValueError: {e}. "
+                f"Params: knn_k_min={knn_k_min}, knn_k_max={knn_k_max}, "
+                f"knn_k_scale={knn_k_scale}, gmm_components_max={gmm_components_max}, "
+                f"gmm_min_points_per_component={gmm_min_points_per_component}, "
+                f"outlier_threshold={outlier_threshold}"
+            )
+            trial.set_user_attr("exclude_disliked_recall", 0.0)
+            trial.set_user_attr("include_liked_recall", 0.0)
             return 0.0
 
         d_scores = [
             model.dislike_model.score(x.reshape(1, -1))["calibrated"] for x in X_d_te
         ]
-        mode_a_recalls.append(
-            np.mean([s < model.thresholds["mode_a"] for s in d_scores])
+        exclude_disliked_recalls.append(
+            np.mean([s < model.thresholds["exclude_disliked"] for s in d_scores])
         )
 
         l_scores = [
             model.liked_model.score(x.reshape(1, -1))["calibrated"] for x in X_l_te
         ]
-        mode_b_recalls.append(
-            np.mean([s > model.thresholds["mode_b"] for s in l_scores])
+        include_liked_recalls.append(
+            np.mean([s > model.thresholds["include_liked"] for s in l_scores])
         )
 
-    mode_a = float(np.mean(mode_a_recalls)) if mode_a_recalls else 0.0
-    mode_b = float(np.mean(mode_b_recalls)) if mode_b_recalls else 0.0
-    weighted = w_a * mode_a + w_b * mode_b
-    trial.set_user_attr("mode_a_recall", mode_a)
-    trial.set_user_attr("mode_b_recall", mode_b)
+    exclude_disliked = (
+        float(np.mean(exclude_disliked_recalls)) if exclude_disliked_recalls else 0.0
+    )
+    include_liked = (
+        float(np.mean(include_liked_recalls)) if include_liked_recalls else 0.0
+    )
+    trial.set_user_attr("exclude_disliked_recall", exclude_disliked)
+    trial.set_user_attr("include_liked_recall", include_liked)
+    weighted = w_a * exclude_disliked + w_b * include_liked
     return weighted
 
 
@@ -141,15 +169,15 @@ def optimize_embedding(X_liked, X_disliked, w_a, w_b, n_iterations=50):
             "outlier_threshold": float(best.params["outlier_threshold"]),
         },
         "weighted_recall": float(best.value),
-        "mode_a_recall": float(best.user_attrs["mode_a_recall"]),
-        "mode_b_recall": float(best.user_attrs["mode_b_recall"]),
+        "exclude_disliked_recall": float(best.user_attrs["exclude_disliked_recall"]),
+        "include_liked_recall": float(best.user_attrs["include_liked_recall"]),
         "n_trials": n_iterations,
         "trial_history": [
             {
                 "params": t.params,
                 "value": t.value,
-                "mode_a_recall": t.user_attrs.get("mode_a_recall"),
-                "mode_b_recall": t.user_attrs.get("mode_b_recall"),
+                "exclude_disliked_recall": t.user_attrs.get("exclude_disliked_recall"),
+                "include_liked_recall": t.user_attrs.get("include_liked_recall"),
             }
             for t in study.trials
         ],
@@ -169,7 +197,7 @@ def main():
         type=float,
         nargs=2,
         default=[0.5, 0.5],
-        help="Weights for mode_a and mode_b recall",
+        help="Weights for exclude_disliked and include_liked recall",
     )
     parser.add_argument(
         "--output", type=str, required=True, help="Output JSON report path"
@@ -348,10 +376,10 @@ def main():
 
         report = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "objective_weights": {"mode_a": w_a, "mode_b": w_b},
+            "objective_weights": {"exclude_disliked": w_a, "include_liked": w_b},
             "threshold_regime": {
-                "mode_a_recall_target": config.model_mode_a_dislike_recall_target,
-                "mode_b_recall_target": config.model_mode_b_like_recall_target,
+                "exclude_disliked_recall_target": config.model_exclude_disliked_recall_target,
+                "include_liked_recall_target": config.model_include_liked_recall_target,
                 "cv_folds_in_benchmark": None,
             },
             "n_iterations": args.n_iterations,

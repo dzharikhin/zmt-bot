@@ -13,7 +13,7 @@ from models import ModelType
 
 logger = logging.getLogger(__name__)
 
-_MODEL_SCHEMA_VERSION = 3
+_MODEL_SCHEMA_VERSION = 4
 
 
 class ModelLoadError(Exception):
@@ -214,8 +214,8 @@ class DualOneClassModel:
         gmm_components_max: int = 16,
         gmm_min_points_per_component: int = 40,
         cv_folds: int | None = None,
-        mode_a_recall_target: float = 0.90,
-        mode_b_recall_target: float = 0.80,
+        exclude_disliked_recall_target: float = 0.90,
+        include_liked_recall_target: float = 0.80,
     ):
         self.knn_k_min = knn_k_min
         self.knn_k_max = knn_k_max
@@ -223,8 +223,8 @@ class DualOneClassModel:
         self.gmm_components_max = gmm_components_max
         self.gmm_min_points_per_component = gmm_min_points_per_component
         self.cv_folds = cv_folds
-        self.mode_a_recall_target = mode_a_recall_target
-        self.mode_b_recall_target = mode_b_recall_target
+        self.exclude_disliked_recall_target = exclude_disliked_recall_target
+        self.include_liked_recall_target = include_liked_recall_target
 
         self.liked_model = OneClassSetModel(
             knn_k_min=knn_k_min,
@@ -240,7 +240,7 @@ class DualOneClassModel:
             gmm_components_max=gmm_components_max,
             gmm_min_points_per_component=gmm_min_points_per_component,
         )
-        self.thresholds = {"mode_a": 0.55, "mode_b": 0.65}
+        self.thresholds = {"exclude_disliked": 0.55, "include_liked": 0.65}
         self.embed_version = None
         self.segment_policy = None
         self.stats = {}
@@ -267,8 +267,8 @@ class DualOneClassModel:
             "cv_folds_used": (
                 self.cv_folds if self.cv_folds and self.cv_folds >= 2 else None
             ),
-            "mode_a_recall_target": self.mode_a_recall_target,
-            "mode_b_recall_target": self.mode_b_recall_target,
+            "exclude_disliked_recall_target": self.exclude_disliked_recall_target,
+            "include_liked_recall_target": self.include_liked_recall_target,
         }
         return self
 
@@ -301,10 +301,10 @@ class DualOneClassModel:
         return oof_scores
 
     def _compute_thresholds(self, X_liked: np.ndarray, X_disliked: np.ndarray):
-        """Determine thresholds for mode (a) and mode (b)
+        """Determine thresholds for exclude_disliked and include_liked
 
-        Mode (a): Reject definite dislikes (recall_target on dislikes)
-        Mode (b): Accept definite likes (recall_target on likes)
+        exclude_disliked: Reject definite dislikes (recall_target on dislikes)
+        include_liked: Accept definite likes (recall_target on likes)
 
         When cv_folds >= 2, thresholds are derived from out-of-fold scores
         for honest recall guarantees. Otherwise in-sample scores are used.
@@ -328,11 +328,13 @@ class DualOneClassModel:
                 ]
             )
 
-        self.thresholds["mode_a"] = float(
-            np.percentile(dislike_scores, 100 * (1 - self.mode_a_recall_target))
+        self.thresholds["exclude_disliked"] = float(
+            np.percentile(
+                dislike_scores, 100 * (1 - self.exclude_disliked_recall_target)
+            )
         )
-        self.thresholds["mode_b"] = float(
-            np.percentile(like_scores, 100 * (1 - self.mode_b_recall_target))
+        self.thresholds["include_liked"] = float(
+            np.percentile(like_scores, 100 * (1 - self.include_liked_recall_target))
         )
 
     def predict(self, X: np.ndarray) -> dict:
@@ -346,9 +348,11 @@ class DualOneClassModel:
     def decide(self, scores: dict, model_type: ModelType) -> bool:
         """Apply decision logic based on model type"""
         if model_type == ModelType.EXCLUDE_DISLIKED:
-            return bool(scores["dislike"]["calibrated"] < self.thresholds["mode_a"])
+            return bool(
+                scores["dislike"]["calibrated"] < self.thresholds["exclude_disliked"]
+            )
         elif model_type == ModelType.INCLUDE_LIKED:
-            return bool(scores["like"]["calibrated"] > self.thresholds["mode_b"])
+            return bool(scores["like"]["calibrated"] > self.thresholds["include_liked"])
         else:
             raise ValueError(f"Unknown model_type: {model_type}")
 
@@ -371,8 +375,8 @@ class DualOneClassModel:
                 "gmm_components_max": self.gmm_components_max,
                 "gmm_min_points_per_component": self.gmm_min_points_per_component,
                 "cv_folds": self.cv_folds,
-                "mode_a_recall_target": self.mode_a_recall_target,
-                "mode_b_recall_target": self.mode_b_recall_target,
+                "exclude_disliked_recall_target": self.exclude_disliked_recall_target,
+                "include_liked_recall_target": self.include_liked_recall_target,
             },
         }
 

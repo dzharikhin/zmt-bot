@@ -280,8 +280,8 @@ def _build_profile(user_id: int, model_id: int) -> config.Model:
         gmm_components_max=config.model_gmm_components_max,
         gmm_min_points_per_component=config.model_gmm_min_points_per_component,
         cv_folds=config.model_cv_folds,
-        mode_a_recall_target=config.model_mode_a_dislike_recall_target,
-        mode_b_recall_target=config.model_mode_b_like_recall_target,
+        exclude_disliked_recall_target=config.model_exclude_disliked_recall_target,
+        include_liked_recall_target=config.model_include_liked_recall_target,
     )
     model.fit(X_liked, X_disliked)
     model.embed_version = embed_version

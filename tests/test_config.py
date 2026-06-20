@@ -112,7 +112,7 @@ def test_model_stats_ignores_legacy_model_type(tmp_path, monkeypatch):
         "embed_version": "v1",
         "segment_policy": "full",
         "stats": {},
-        "thresholds": {"mode_a": 0.5, "mode_b": 0.6},
+        "thresholds": {"exclude_disliked": 0.5, "include_liked": 0.6},
         "config": {"knn_k": 3, "gmm_components": 4},
     }
     with open(model_dir / "model.pkl", "wb") as f:
@@ -125,7 +125,7 @@ def test_model_stats_ignores_legacy_model_type(tmp_path, monkeypatch):
                 "liked_tracks_count": 10,
                 "disliked_tracks_count": 5,
                 "accuracy": 0.85,
-                "thresholds": {"mode_a": 0.5, "mode_b": 0.6},
+                "thresholds": {"exclude_disliked": 0.5, "include_liked": 0.6},
                 "embed_version": "v1",
             }
         )

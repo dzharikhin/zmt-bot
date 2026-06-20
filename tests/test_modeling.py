@@ -174,8 +174,8 @@ class TestDualOneClassModelCVThresholds:
             gmm_components_max=4,
             gmm_min_points_per_component=10,
             cv_folds=None,
-            mode_a_recall_target=0.90,
-            mode_b_recall_target=0.80,
+            exclude_disliked_recall_target=0.90,
+            include_liked_recall_target=0.80,
         )
         model_in_sample.fit(X_liked, X_disliked)
 
@@ -185,8 +185,8 @@ class TestDualOneClassModelCVThresholds:
             gmm_components_max=4,
             gmm_min_points_per_component=10,
             cv_folds=5,
-            mode_a_recall_target=0.90,
-            mode_b_recall_target=0.80,
+            exclude_disliked_recall_target=0.90,
+            include_liked_recall_target=0.80,
         )
         model_cv.fit(X_liked, X_disliked)
 
@@ -232,13 +232,13 @@ class TestDualOneClassModelCVThresholds:
             gmm_components_max=4,
             gmm_min_points_per_component=10,
             cv_folds=None,
-            mode_a_recall_target=0.85,
-            mode_b_recall_target=0.75,
+            exclude_disliked_recall_target=0.85,
+            include_liked_recall_target=0.75,
         )
         model.fit(X_liked, X_disliked)
 
-        assert model.stats["mode_a_recall_target"] == 0.85
-        assert model.stats["mode_b_recall_target"] == 0.75
+        assert model.stats["exclude_disliked_recall_target"] == 0.85
+        assert model.stats["include_liked_recall_target"] == 0.75
 
     def test_imbalance_ratio_in_stats(self, rng):
         X_liked = rng.normal(loc=0.0, scale=1.0, size=(130, 5))
@@ -307,10 +307,10 @@ class TestDualOneClassModelBasic:
         )
         model.fit(liked_data, disliked_data)
 
-        assert "mode_a" in model.thresholds
-        assert "mode_b" in model.thresholds
-        assert isinstance(model.thresholds["mode_a"], float)
-        assert isinstance(model.thresholds["mode_b"], float)
+        assert "exclude_disliked" in model.thresholds
+        assert "include_liked" in model.thresholds
+        assert isinstance(model.thresholds["exclude_disliked"], float)
+        assert isinstance(model.thresholds["include_liked"], float)
 
     def test_predict_keys(self, liked_data, disliked_data):
         model = DualOneClassModel(

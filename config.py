@@ -52,8 +52,12 @@ model_gmm_min_points_per_component = int(
     os.getenv("MODEL_GMM_MIN_POINTS_PER_COMPONENT", "40")
 )
 model_outlier_threshold = float(os.getenv("MODEL_OUTLIER_THRESHOLD", "0.05"))
-model_mode_a_dislike_recall_target = float(os.getenv("MODEL_MODE_A_RECALL", "0.90"))
-model_mode_b_like_recall_target = float(os.getenv("MODEL_MODE_B_RECALL", "0.80"))
+model_exclude_disliked_recall_target = float(
+    os.getenv("MODEL_EXCLUDE_DISLIKED_RECALL", "0.90")
+)
+model_include_liked_recall_target = float(
+    os.getenv("MODEL_INCLUDE_LIKED_RECALL", "0.80")
+)
 model_min_set_size = int(os.getenv("MODEL_MIN_SET_SIZE", "50"))
 model_cv_folds = int(os.getenv("MODEL_CV_FOLDS", "5"))
 model_max_imbalance_ratio = float(os.getenv("MODEL_MAX_IMBALANCE_RATIO", "3.0"))
