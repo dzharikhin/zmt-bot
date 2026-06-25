@@ -10,11 +10,15 @@ import time
 from datetime import datetime
 from typing import Literal, cast
 
-import telethon
 from telethon import TelegramClient
-from telethon.tl import types
 from telethon.tl.custom import Message
-from telethon.tl.types import DocumentAttributeAudio
+from telethon.tl.types import (
+    DocumentAttributeAudio,
+    MessageMediaPhoto,
+)
+from telethon.tl.types import (
+    Message as TlMessage,
+)
 
 import config
 from audio.extractor import extract_features_for_mp3
@@ -62,9 +66,9 @@ class Mp3Filter:
     def filter_message(self, message) -> bool:
         if not message:
             return False
-        if not isinstance(message, (telethon.tl.types.Message, Message)):
+        if not isinstance(message, (TlMessage, Message)):
             return False
-        if isinstance(message, types.MessageMediaPhoto):
+        if isinstance(message, MessageMediaPhoto):
             return False
         if not hasattr(message, "media") or not hasattr(message.media, "document"):
             return False

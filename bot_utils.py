@@ -1,8 +1,9 @@
+import logging
 from collections import defaultdict
 from typing import Optional
 
 from telethon import TelegramClient
-from telethon.tl import custom
+from telethon.tl.custom import Message
 from telethon.tl.functions.channels import GetChannelsRequest
 from telethon.tl.types import Channel, Chat
 from telethon.tl.types.messages import Chats
@@ -25,7 +26,7 @@ def unwrap_single_chat(chat: Chats) -> Optional[Chat]:
 
 async def get_message(
     channel: int | Chat, msg_id: int, bot_client: TelegramClient
-) -> Optional[custom.Message]:
+) -> Optional[Message]:
     msgs = await bot_client.get_messages(channel, ids=[msg_id])
     return msgs[0] if msgs and msgs[0] else None
 

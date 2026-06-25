@@ -1,8 +1,5 @@
-import multiprocessing as mp
 import pathlib
 import sys
-
-import pytest
 
 import config
 

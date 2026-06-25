@@ -4,6 +4,7 @@ import io
 import json
 import logging
 import re
+import shlex
 from argparse import ArgumentError, ArgumentParser
 from asyncio import Task
 from concurrent.futures.process import BrokenProcessPool
@@ -12,17 +13,16 @@ from types import CoroutineType
 from typing import Union, cast
 
 import persistqueue
-import telethon
 from persistqueue.serializers import json as jser
 from telethon import TelegramClient, events
-from telethon.errors import RPCError
+from telethon.errors import BotMethodInvalidError, RPCError
 from telethon.events import CallbackQuery, NewMessage
 
 import config
+from bot_model_helpers import build_model_page_response
 from bot_utils import get_channel_name, get_channel_names, get_message, is_allowed_user
 from core.logging import setup_logging
 from models import ModelType
-from bot_model_helpers import build_model_page_response
 from train import estimate, prepare_model
 
 setup_logging(
@@ -76,12 +76,15 @@ async def handle_train_queue_tasks(
             model = config.get_model(user_id, cmd["message_id"])
             await bot_client.send_message(
                 user_id,
-                f"Successfully trained model {model.model_id}: accuracy={model.accuracy:.2f} for {model.disliked_tracks_count} disliked tracks and {model.liked_tracks_count} liked tracks",
+                f"Successfully trained model {model.model_id}: "
+                f"accuracy={model.accuracy:.2f} for "
+                f"{model.disliked_tracks_count} disliked tracks and "
+                f"{model.liked_tracks_count} liked tracks",
             )
             queue.ack(cmd)
         except persistqueue.exceptions.Empty:
             await asyncio.sleep(1)
-        except telethon.errors.rpcerrorlist.BotMethodInvalidError as e:
+        except BotMethodInvalidError as e:
             await handle_non_recoverable(
                 bot_client, cmd, e, queue, user_id, "cannot train model"
             )
@@ -341,11 +344,11 @@ def _parse_args(
     arg_parser: ArgumentParser, cmd_line: str
 ) -> tuple[Namespace | None, str | None]:
     try:
-        args = arg_parser.parse_args(cmd_line.split())
+        args = arg_parser.parse_args(shlex.split(cmd_line))
         return args, None
     except ArgumentError:
         buffer = io.StringIO()
-        arg_parser.print_usage(buffer)
+        arg_parser.print_help(buffer)
         return None, buffer.getvalue()
 
 
