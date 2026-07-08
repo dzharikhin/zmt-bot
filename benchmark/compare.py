@@ -168,7 +168,7 @@ def optimize_embedding(X_liked, X_disliked, w_a, w_b, n_iterations=50):
     study.optimize(
         lambda trial: objective(trial, X_liked, X_disliked, w_a, w_b),
         n_trials=n_iterations,
-        show_progress_bar=True,
+        show_progress_bar=False,
     )
 
     best = study.best_trial
