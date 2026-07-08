@@ -311,6 +311,11 @@ class TestAssertSchemaDimConsistent:
         assert_schema_dim_consistent(None)
 
     def test_correct_schema_passes(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            audio_features,
+            "get_essentia_extractor",
+            lambda _: es.MusicExtractor(),
+        )
         val_wav = tmp_path / "dim_check.wav"
         audio_features._synthesize_wav(val_wav)
         extractor = es.MusicExtractor()
@@ -334,6 +339,11 @@ class TestAssertSchemaDimConsistent:
         assert_schema_dim_consistent(None)
 
     def test_wrong_length_raises_with_mismatch_info(self, monkeypatch):
+        monkeypatch.setattr(
+            audio_features,
+            "get_essentia_extractor",
+            lambda _: es.MusicExtractor(),
+        )
         monkeypatch.setattr(
             audio_features,
             "_DESCRIPTOR_SCHEMA",

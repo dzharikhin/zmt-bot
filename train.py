@@ -93,7 +93,8 @@ class Mp3Filter:
         return True
 
     def __repr__(self):
-        return f"Mp3Filter[min_length_seconds={self.min_length_seconds}, max_length_seconds={self.max_length_seconds}]"
+        return f"Mp3Filter[min_length_seconds={self.min_length_seconds}, "
+        f"max_length_seconds={self.max_length_seconds}]"
 
 
 FILTER = Mp3Filter(
@@ -192,7 +193,9 @@ def _build_profile(user_id: int, model_id: int) -> config.Model:
         if status == "running":
             pct = (done / total * 100) if total > 0 else 0
             logger.info(
-                f"Extraction progress: {done}/{total} ({pct:.1f}%) - ok={kwargs.get('ok', 0)}, failed={kwargs.get('failed', 0)}, skipped={kwargs.get('skipped', 0)}"
+                f"Extraction progress: {done}/{total} ({pct:.1f}%) - "
+                f"ok={kwargs.get('ok', 0)}, failed={kwargs.get('failed', 0)}, "
+                f"skipped={kwargs.get('skipped', 0)}"
             )
 
     start_extraction_job(
@@ -404,7 +407,8 @@ def _execute_estimation(
         is_recommended = model.decide(scores, model_type)
 
         logger.debug(
-            f"Scores: like={scores['like']}, dislike={scores['dislike']}, decision={is_recommended}"
+            f"Scores: like={scores['like']}, dislike={scores['dislike']}, "
+            f"decision={is_recommended}"
         )
 
         return is_recommended

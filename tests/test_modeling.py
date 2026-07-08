@@ -379,6 +379,50 @@ class TestDualOneClassModelBasic:
         with pytest.raises(ValueError, match="Unknown model_type"):
             model.decide(scores, 999)
 
+    def test_decide_include_liked_positive_on_liked(self, liked_data, disliked_data):
+        model = DualOneClassModel(
+            knn_k_min=3,
+            knn_k_max=3,
+            gmm_components_max=4,
+            gmm_min_points_per_component=10,
+            cv_folds=None,
+        )
+        model.fit(liked_data, disliked_data)
+
+        like_sample = liked_data[0].reshape(1, -1)
+        like_scores = model.predict(like_sample)
+        assert model.decide(like_scores, ModelType.INCLUDE_LIKED) is True
+
+    def test_decide_include_liked_negative_on_disliked(self, liked_data, disliked_data):
+        model = DualOneClassModel(
+            knn_k_min=3,
+            knn_k_max=3,
+            gmm_components_max=4,
+            gmm_min_points_per_component=10,
+            cv_folds=None,
+        )
+        model.fit(liked_data, disliked_data)
+
+        dislike_sample = disliked_data[0].reshape(1, -1)
+        dislike_scores = model.predict(dislike_sample)
+        assert model.decide(dislike_scores, ModelType.INCLUDE_LIKED) is False
+
+    def test_decide_exclude_disliked_positive_on_disliked(
+        self, liked_data, disliked_data
+    ):
+        model = DualOneClassModel(
+            knn_k_min=3,
+            knn_k_max=3,
+            gmm_components_max=4,
+            gmm_min_points_per_component=10,
+            cv_folds=None,
+        )
+        model.fit(liked_data, disliked_data)
+
+        dislike_sample = disliked_data[0].reshape(1, -1)
+        dislike_scores = model.predict(dislike_sample)
+        assert model.decide(dislike_scores, ModelType.EXCLUDE_DISLIKED) is True
+
 
 class TestDualOneClassModelSchemaVersion:
     def test_save_load_round_trip(self, tmp_path, liked_data, disliked_data):
@@ -457,3 +501,30 @@ class TestIsotonicCalibration:
         mean_in_dist = np.mean(in_dist_scores)
         mean_outlier = np.mean(outlier_scores)
         assert mean_in_dist > mean_outlier
+
+    def test_in_distribution_vs_far_point_both_signals(self, rng):
+        in_dist = rng.normal(loc=0.0, scale=1.0, size=(60, 5))
+        far_point = rng.normal(loc=15.0, scale=1.0, size=(1, 5))
+        model = OneClassSetModel(
+            knn_k_min=5,
+            knn_k_max=5,
+            gmm_components_max=8,
+            gmm_min_points_per_component=10,
+        )
+        model.fit(in_dist)
+
+        in_dist_result = model.score(in_dist[0].reshape(1, -1))
+        far_result = model.score(far_point)
+
+        combined_in = in_dist_result["calibrated"]
+        combined_far = far_result["calibrated"]
+
+        assert combined_in > combined_far
+
+        raw_knn_in = in_dist_result["raw_knn"]
+        raw_knn_far = far_result["raw_knn"]
+        assert raw_knn_in < raw_knn_far
+
+        raw_gmm_in = in_dist_result["raw_gmm_loglik"]
+        raw_gmm_far = far_result["raw_gmm_loglik"]
+        assert raw_gmm_in > raw_gmm_far

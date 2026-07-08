@@ -33,7 +33,7 @@ class TestObjective:
         result = objective(trial, liked_data, disliked_data, 0.5, 0.5)
         assert isinstance(result, float)
 
-    def test_weighted_recall_in_range(self, liked_data, disliked_data):
+    def test_objective_is_weighted_auc(self, liked_data, disliked_data):
         study = optuna.create_study()
         trial = study.ask()
         trial.suggest_int("knn_k_min", 3, 8)
@@ -56,12 +56,14 @@ class TestObjective:
         trial.suggest_float("outlier_threshold", 0.01, 0.10)
         objective(trial, liked_data, disliked_data, 0.5, 0.5)
         frozen = study.trials[0]
-        assert "exclude_disliked_recall" in frozen.user_attrs
-        assert "include_liked_recall" in frozen.user_attrs
-        assert isinstance(frozen.user_attrs["exclude_disliked_recall"], float)
-        assert isinstance(frozen.user_attrs["include_liked_recall"], float)
+        assert "auc_include" in frozen.user_attrs
+        assert "auc_exclude" in frozen.user_attrs
+        assert "disliked_false_accept" in frozen.user_attrs
+        assert "liked_false_reject" in frozen.user_attrs
+        assert "liked_recall" in frozen.user_attrs
+        assert "disliked_recall" in frozen.user_attrs
 
-    def test_separable_data_high_recall(self, rng):
+    def test_separable_data_high_auc(self, rng):
         X_liked = rng.normal(loc=0.0, scale=0.5, size=(100, 5))
         X_disliked = rng.normal(loc=20.0, scale=0.5, size=(100, 5))
         study = optuna.create_study()
@@ -73,7 +75,7 @@ class TestObjective:
         trial.suggest_int("gmm_min_points_per_component", 20, 80)
         trial.suggest_float("outlier_threshold", 0.01, 0.10)
         result = objective(trial, X_liked, X_disliked, 0.5, 0.5)
-        assert result > 0.3
+        assert result > 0.7
 
     def test_too_few_samples_for_cv_returns_zero(self, rng):
         X_liked = rng.normal(size=(1, 5))
@@ -93,10 +95,11 @@ class TestObjective:
 class TestOptimizeEmbedding:
     def test_returns_expected_keys(self, liked_data, disliked_data):
         result = optimize_embedding(liked_data, disliked_data, 0.5, 0.5, n_iterations=3)
+        assert "objective" in result
+        assert "objective_top5_median" in result
         assert "best_params" in result
-        assert "weighted_recall" in result
-        assert "exclude_disliked_recall" in result
-        assert "include_liked_recall" in result
+        assert "metrics_best" in result
+        assert "metrics_top5_median" in result
         assert "n_trials" in result
         assert "trial_history" in result
 
@@ -137,17 +140,34 @@ class TestOptimizeEmbedding:
         for trial_entry in result["trial_history"]:
             assert "params" in trial_entry
             assert "value" in trial_entry
-            assert "exclude_disliked_recall" in trial_entry
-            assert "include_liked_recall" in trial_entry
+            assert "auc_include" in trial_entry
+            assert "auc_exclude" in trial_entry
+            assert "disliked_false_accept" in trial_entry
+            assert "liked_false_reject" in trial_entry
+            assert "liked_recall" in trial_entry
+            assert "disliked_recall" in trial_entry
 
-    def test_weighted_recall_is_float(self, liked_data, disliked_data):
+    def test_objective_is_float(self, liked_data, disliked_data):
         result = optimize_embedding(liked_data, disliked_data, 0.5, 0.5, n_iterations=3)
-        assert isinstance(result["weighted_recall"], float)
+        assert isinstance(result["objective"], float)
 
-    def test_recalls_are_float(self, liked_data, disliked_data):
+    def test_metrics_best_has_all_keys(self, liked_data, disliked_data):
         result = optimize_embedding(liked_data, disliked_data, 0.5, 0.5, n_iterations=3)
-        assert isinstance(result["exclude_disliked_recall"], float)
-        assert isinstance(result["include_liked_recall"], float)
+        assert "auc_include" in result["metrics_best"]
+        assert "auc_exclude" in result["metrics_best"]
+        assert "disliked_false_accept" in result["metrics_best"]
+        assert "liked_false_reject" in result["metrics_best"]
+        assert "liked_recall" in result["metrics_best"]
+        assert "disliked_recall" in result["metrics_best"]
+
+    def test_metrics_top5_median_has_all_keys(self, liked_data, disliked_data):
+        result = optimize_embedding(liked_data, disliked_data, 0.5, 0.5, n_iterations=3)
+        assert "auc_include" in result["metrics_top5_median"]
+        assert "auc_exclude" in result["metrics_top5_median"]
+        assert "disliked_false_accept" in result["metrics_top5_median"]
+        assert "liked_false_reject" in result["metrics_top5_median"]
+        assert "liked_recall" in result["metrics_top5_median"]
+        assert "disliked_recall" in result["metrics_top5_median"]
 
     def test_deterministic_with_same_seed(self, liked_data, disliked_data):
         result1 = optimize_embedding(
@@ -157,4 +177,4 @@ class TestOptimizeEmbedding:
             liked_data, disliked_data, 0.5, 0.5, n_iterations=3
         )
         assert result1["best_params"] == result2["best_params"]
-        assert result1["weighted_recall"] == pytest.approx(result2["weighted_recall"])
+        assert result1["objective"] == pytest.approx(result2["objective"])

@@ -173,17 +173,27 @@ async def handle_estimate_queue_tasks(
                         await bot_client.forward_messages(user_id, message)
                 else:
                     if message.forward:
-                        reply_message = f"[{channel_name}] channel erases forward info, so provide <https://t.me> link explicitly when forwarding to estimation channel"
+                        reply_message = (
+                            f"[{channel_name}] channel erases forward info, so "
+                            f"provide <https://t.me> link explicitly when forwarding "
+                            f"to estimation channel"
+                        )
                     elif m := re.match("https://t.me/\\S+", message.message):
                         reply_message = (
                             f"[{channel_name}] Rated as not recommended: {m.group(0)}"
                         )
                     else:
-                        reply_message = f"[{channel_name}] Rated as not recommended: https://t.me/c/{message.input_chat.channel_id}/{message.id}"
+                        reply_message = (
+                            f"[{channel_name}] Rated as not recommended: "
+                            f"https://t.me/c/{message.input_chat.channel_id}/{message.id}"
+                        )
 
                     await bot_client.send_message(user_id, reply_message)
             else:
-                alert = f"Message {cmd['message_id']} from channel {cmd['chat_id']} seems to be removed"
+                alert = (
+                    f"Message {cmd['message_id']} from channel {cmd['chat_id']} "
+                    f"seems to be removed"
+                )
                 logger.info(alert)
                 await bot_client.send_message(user_id, alert)
             queue.ack(cmd)
@@ -221,14 +231,20 @@ INIT_CMD = (
         "--liked_channel_id",
         required=True,
         type=int,
-        help="channel with user-liked tracks. Data for ML. Don't forget to add the bot to channel",
+        help=(
+            "channel with user-liked tracks. Data for ML. "
+            "Don't forget to add the bot to channel"
+        ),
     ),
     parser.add_argument(
         "-d",
         "--disliked_channel_id",
         required=True,
         type=int,
-        help="channel with user-disliked tracks. Data for ML. Don't forget to add the bot to channel",
+        help=(
+            "channel with user-disliked tracks. Data for ML. "
+            "Don't forget to add the bot to channel"
+        ),
     ),
     parser,
 )[-1]
@@ -262,7 +278,11 @@ SUBSCRIBE_CMD = (
         type=ModelType.from_string,
         choices=list(ModelType),
         default=ModelType.INCLUDE_LIKED,
-        help=f"decision policy. {ModelType.INCLUDE_LIKED} - posts tracks similar to liked ones, {ModelType.EXCLUDE_DISLIKED} - posts other than disliked (default: {ModelType.INCLUDE_LIKED})",
+        help=(
+            f"decision policy. {ModelType.INCLUDE_LIKED} - posts tracks similar "
+            f"to liked ones, {ModelType.EXCLUDE_DISLIKED} - posts other than "
+            f"disliked (default: {ModelType.INCLUDE_LIKED})"
+        ),
     ),
     parser,
 )[-1]
@@ -466,7 +486,8 @@ async def main():
                 await bot_client.get_entity(args.disliked_channel_id)
             except Exception:
                 await event.respond(
-                    "❌ Error: Cannot access one or both channels. Check bot permissions."
+                    "❌ Error: Cannot access one or both channels. "
+                    "Check bot permissions."
                 )
                 return
 
@@ -521,7 +542,8 @@ async def main():
                     event.sender_id, args.estimation_channel_id, args.type
                 )
                 await event.respond(
-                    f"Updated {channel_name} to use model #{args.model_id} ({args.type})"
+                    f"Updated {channel_name} to use model #{args.model_id} "
+                    f"({args.type})"
                 )
             else:
                 subscription = config.Subscription(
@@ -532,7 +554,8 @@ async def main():
                 config.add_subscription(user_id, subscription)
 
                 await event.respond(
-                    f"Subscribed to {channel_name} with model #{args.model_id} ({args.type})"
+                    f"Subscribed to {channel_name} with model #{args.model_id} "
+                    f"({args.type})"
                 )
 
         @bot_client.on(events.NewMessage(incoming=True, pattern=UNSUBSCRIBE_CMD.epilog))
@@ -555,7 +578,8 @@ async def main():
             )
             if not subscription:
                 await event.respond(
-                    f"❌ Error: Not subscribed to channel {args.estimation_channel_id}. Hint: /subscriptions"
+                    f"❌ Error: Not subscribed to channel {args.estimation_channel_id}. "
+                    f"Hint: /subscriptions"
                 )
                 return
 
@@ -576,7 +600,7 @@ async def main():
             subscriptions = config.get_subscriptions(event.sender_id)
             if not subscriptions:
                 await event.respond(
-                    "No subscriptions yet. Add: /subscribe -e <channel> -m <model>"
+                    "No subscriptions yet. Add: " "/subscribe -e <channel> -m <model>"
                 )
                 return
 

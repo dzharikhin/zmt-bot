@@ -125,8 +125,8 @@ class OneClassSetModel:
         gmm_scores_fit = self.gmm.score_samples(X_fit)
 
         knn_sorted = np.sort(knn_scores_fit)
-        knn_targets = np.arange(1, len(knn_sorted) + 1) / len(knn_sorted)
-        self.knn_calibrator = IsotonicRegression(y_min=0.0, y_max=1.0)
+        knn_targets = np.arange(len(knn_sorted), 0, -1) / len(knn_sorted)
+        self.knn_calibrator = IsotonicRegression(y_min=0.0, y_max=1.0, increasing=False)
         self.knn_calibrator.fit(knn_sorted, knn_targets)
         self._knn_score_range = (float(knn_sorted[0]), float(knn_sorted[-1]))
 

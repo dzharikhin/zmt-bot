@@ -24,8 +24,9 @@ import wave
 from collections import defaultdict
 from pathlib import Path
 
-import essentia.standard as es
 import numpy as np
+
+import essentia.standard as es
 
 logger = logging.getLogger(__name__)
 

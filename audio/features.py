@@ -6,13 +6,13 @@ import tempfile
 import wave
 from typing import Callable
 
-import essentia.standard as es
 import librosa
 import numpy as np
 from panns_inference import AudioTagging
 
 import config
 import essentia
+import essentia.standard as es
 from audio.extractor import CombinedExtractor
 
 essentia.EssentiaLogger().warningActive = False

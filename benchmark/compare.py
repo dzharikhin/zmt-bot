@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 import optuna
 import yaml
+from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import KFold
 
 import config
@@ -23,7 +24,8 @@ logger.setLevel(logging.DEBUG)
 
 
 def objective(trial, X_liked, X_disliked, w_a, w_b):
-    """Optuna objective: weighted sum of exclude_disliked and include_liked recall via k-fold CV."""
+    """Optuna objective: weighted sum of exclude_disliked and include_liked AUC
+    via k-fold CV."""
     knn_k_min = trial.suggest_int("knn_k_min", 3, 8)
     knn_k_max = trial.suggest_int("knn_k_max", 8, 25)
     if knn_k_max < knn_k_min:
@@ -38,12 +40,20 @@ def objective(trial, X_liked, X_disliked, w_a, w_b):
 
     n_splits = min(5, len(X_liked), len(X_disliked))
     if n_splits < 2:
-        trial.set_user_attr("exclude_disliked_recall", 0.0)
-        trial.set_user_attr("include_liked_recall", 0.0)
+        trial.set_user_attr("auc_include", 0.5)
+        trial.set_user_attr("auc_exclude", 0.5)
+        trial.set_user_attr("disliked_false_accept", 0.5)
+        trial.set_user_attr("liked_false_reject", 0.5)
+        trial.set_user_attr("liked_recall", 0.5)
+        trial.set_user_attr("disliked_recall", 0.5)
         return 0.0
 
     kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
-    exclude_disliked_recalls, include_liked_recalls = [], []
+
+    s_like_on_liked = []
+    s_like_on_disliked = []
+    s_dislike_on_disliked = []
+    s_dislike_on_liked = []
 
     folds_liked = list(kf.split(X_liked))
     folds_disliked = list(kf.split(X_disliked))
@@ -67,8 +77,12 @@ def objective(trial, X_liked, X_disliked, w_a, w_b):
         X_l_tr_f, X_d_tr_f = X_l_tr[mask_l], X_d_tr[mask_d]
 
         if len(X_l_tr_f) < 2 or len(X_d_tr_f) < 2:
-            trial.set_user_attr("exclude_disliked_recall", 0.0)
-            trial.set_user_attr("include_liked_recall", 0.0)
+            trial.set_user_attr("auc_include", 0.5)
+            trial.set_user_attr("auc_exclude", 0.5)
+            trial.set_user_attr("disliked_false_accept", 0.5)
+            trial.set_user_attr("liked_false_reject", 0.5)
+            trial.set_user_attr("liked_recall", 0.5)
+            trial.set_user_attr("disliked_recall", 0.5)
             return 0.0
 
         try:
@@ -91,58 +105,59 @@ def objective(trial, X_liked, X_disliked, w_a, w_b):
                 f"gmm_min_points_per_component={gmm_min_points_per_component}, "
                 f"outlier_threshold={outlier_threshold}"
             )
-            trial.set_user_attr("exclude_disliked_recall", 0.0)
-            trial.set_user_attr("include_liked_recall", 0.0)
+            trial.set_user_attr("auc_include", 0.5)
+            trial.set_user_attr("auc_exclude", 0.5)
+            trial.set_user_attr("disliked_false_accept", 0.5)
+            trial.set_user_attr("liked_false_reject", 0.5)
+            trial.set_user_attr("liked_recall", 0.5)
+            trial.set_user_attr("disliked_recall", 0.5)
             return 0.0
 
-        try:
-            model = DualOneClassModel(
-                knn_k_min=knn_k_min,
-                knn_k_max=knn_k_max,
-                knn_k_scale=knn_k_scale,
-                gmm_components_max=gmm_components_max,
-                gmm_min_points_per_component=gmm_min_points_per_component,
-                cv_folds=None,
-                exclude_disliked_recall_target=config.model_exclude_disliked_recall_target,
-                include_liked_recall_target=config.model_include_liked_recall_target,
-            )
-            model.fit(X_l_tr_f, X_d_tr_f)
-        except ValueError as e:
-            logger.warning(
-                f"Trial failed with ValueError: {e}. "
-                f"Params: knn_k_min={knn_k_min}, knn_k_max={knn_k_max}, "
-                f"knn_k_scale={knn_k_scale}, gmm_components_max={gmm_components_max}, "
-                f"gmm_min_points_per_component={gmm_min_points_per_component}, "
-                f"outlier_threshold={outlier_threshold}"
-            )
-            trial.set_user_attr("exclude_disliked_recall", 0.0)
-            trial.set_user_attr("include_liked_recall", 0.0)
-            return 0.0
-
-        d_scores = [
-            model.dislike_model.score(x.reshape(1, -1))["calibrated"] for x in X_d_te
-        ]
-        exclude_disliked_recalls.append(
-            np.mean([s < model.thresholds["exclude_disliked"] for s in d_scores])
+        s_like_on_liked.extend(
+            [model.liked_model.score(x.reshape(1, -1))["calibrated"] for x in X_l_te]
+        )
+        s_like_on_disliked.extend(
+            [model.liked_model.score(x.reshape(1, -1))["calibrated"] for x in X_d_te]
+        )
+        s_dislike_on_disliked.extend(
+            [model.dislike_model.score(x.reshape(1, -1))["calibrated"] for x in X_d_te]
+        )
+        s_dislike_on_liked.extend(
+            [model.dislike_model.score(x.reshape(1, -1))["calibrated"] for x in X_l_te]
         )
 
-        l_scores = [
-            model.liked_model.score(x.reshape(1, -1))["calibrated"] for x in X_l_te
-        ]
-        include_liked_recalls.append(
-            np.mean([s > model.thresholds["include_liked"] for s in l_scores])
-        )
+    try:
+        y_inc = [1] * len(s_like_on_liked) + [0] * len(s_like_on_disliked)
+        auc_include = roc_auc_score(y_inc, s_like_on_liked + s_like_on_disliked)
+    except ValueError:
+        auc_include = 0.5
 
-    exclude_disliked = (
-        float(np.mean(exclude_disliked_recalls)) if exclude_disliked_recalls else 0.0
+    try:
+        y_exc = [1] * len(s_dislike_on_disliked) + [0] * len(s_dislike_on_liked)
+        auc_exclude = roc_auc_score(y_exc, s_dislike_on_disliked + s_dislike_on_liked)
+    except ValueError:
+        auc_exclude = 0.5
+
+    t_include = np.percentile(
+        s_like_on_liked, 100 * (1 - config.model_include_liked_recall_target)
     )
-    include_liked = (
-        float(np.mean(include_liked_recalls)) if include_liked_recalls else 0.0
+    liked_recall = np.mean(np.array(s_like_on_liked) > t_include)
+    disliked_false_accept = np.mean(np.array(s_like_on_disliked) > t_include)
+
+    t_exclude = np.percentile(
+        s_dislike_on_disliked, 100 * (1 - config.model_exclude_disliked_recall_target)
     )
-    trial.set_user_attr("exclude_disliked_recall", exclude_disliked)
-    trial.set_user_attr("include_liked_recall", include_liked)
-    weighted = w_a * exclude_disliked + w_b * include_liked
-    return weighted
+    disliked_recall = np.mean(np.array(s_dislike_on_disliked) >= t_exclude)
+    liked_false_reject = np.mean(np.array(s_dislike_on_liked) >= t_exclude)
+
+    trial.set_user_attr("auc_include", float(auc_include))
+    trial.set_user_attr("auc_exclude", float(auc_exclude))
+    trial.set_user_attr("disliked_false_accept", float(disliked_false_accept))
+    trial.set_user_attr("liked_false_reject", float(liked_false_reject))
+    trial.set_user_attr("liked_recall", float(liked_recall))
+    trial.set_user_attr("disliked_recall", float(disliked_recall))
+
+    return float(w_a * auc_exclude + w_b * auc_include)
 
 
 def optimize_embedding(X_liked, X_disliked, w_a, w_b, n_iterations=50):
@@ -157,7 +172,35 @@ def optimize_embedding(X_liked, X_disliked, w_a, w_b, n_iterations=50):
     )
 
     best = study.best_trial
+
+    top_n = min(5, len(study.trials))
+    top_trials = sorted(study.trials, key=lambda t: t.value, reverse=True)[:top_n]
+    median_metrics = {
+        "auc_include": float(
+            np.median([t.user_attrs.get("auc_include", 0.5) for t in top_trials])
+        ),
+        "auc_exclude": float(
+            np.median([t.user_attrs.get("auc_exclude", 0.5) for t in top_trials])
+        ),
+        "disliked_false_accept": float(
+            np.median(
+                [t.user_attrs.get("disliked_false_accept", 0.5) for t in top_trials]
+            )
+        ),
+        "liked_false_reject": float(
+            np.median([t.user_attrs.get("liked_false_reject", 0.5) for t in top_trials])
+        ),
+        "liked_recall": float(
+            np.median([t.user_attrs.get("liked_recall", 0.5) for t in top_trials])
+        ),
+        "disliked_recall": float(
+            np.median([t.user_attrs.get("disliked_recall", 0.5) for t in top_trials])
+        ),
+    }
+
     return {
+        "objective": float(best.value),
+        "objective_top5_median": float(np.median([t.value for t in top_trials])),
         "best_params": {
             "knn_k_min": int(best.params["knn_k_min"]),
             "knn_k_max": int(best.params["knn_k_max"]),
@@ -168,16 +211,28 @@ def optimize_embedding(X_liked, X_disliked, w_a, w_b, n_iterations=50):
             ),
             "outlier_threshold": float(best.params["outlier_threshold"]),
         },
-        "weighted_recall": float(best.value),
-        "exclude_disliked_recall": float(best.user_attrs["exclude_disliked_recall"]),
-        "include_liked_recall": float(best.user_attrs["include_liked_recall"]),
+        "metrics_best": {
+            "auc_include": float(best.user_attrs.get("auc_include", 0.5)),
+            "auc_exclude": float(best.user_attrs.get("auc_exclude", 0.5)),
+            "disliked_false_accept": float(
+                best.user_attrs.get("disliked_false_accept", 0.5)
+            ),
+            "liked_false_reject": float(best.user_attrs.get("liked_false_reject", 0.5)),
+            "liked_recall": float(best.user_attrs.get("liked_recall", 0.5)),
+            "disliked_recall": float(best.user_attrs.get("disliked_recall", 0.5)),
+        },
+        "metrics_top5_median": median_metrics,
         "n_trials": n_iterations,
         "trial_history": [
             {
                 "params": t.params,
                 "value": t.value,
-                "exclude_disliked_recall": t.user_attrs.get("exclude_disliked_recall"),
-                "include_liked_recall": t.user_attrs.get("include_liked_recall"),
+                "auc_include": t.user_attrs.get("auc_include", 0.5),
+                "auc_exclude": t.user_attrs.get("auc_exclude", 0.5),
+                "disliked_false_accept": t.user_attrs.get("disliked_false_accept", 0.5),
+                "liked_false_reject": t.user_attrs.get("liked_false_reject", 0.5),
+                "liked_recall": t.user_attrs.get("liked_recall", 0.5),
+                "disliked_recall": t.user_attrs.get("disliked_recall", 0.5),
             }
             for t in study.trials
         ],
@@ -200,7 +255,10 @@ def main():
         help="Weights for exclude_disliked and include_liked recall",
     )
     parser.add_argument(
-        "--output", type=str, required=True, help="Output JSON report path"
+        "--output",
+        type=str,
+        required=True,
+        help="Output JSON report path (default: report_v2.json for new metrics)",
     )
     parser.add_argument(
         "--user-id", type=int, required=True, help="Telegram user ID for DuckDB access"
@@ -371,21 +429,62 @@ def main():
             f"{len(liked_tracks)} total, Disliked: {track_counts.get('dislike', 0)} "
             f"ok / {len(disliked_tracks)} total"
         )
-        print(f"  Best weighted recall: {opt_result['weighted_recall']:.3f}")
-        print(f"  Best params: {opt_result['best_params']}")
+
+        opt = opt_result["optimization"]
+        metrics_best = opt["metrics_best"]
+
+        print(f"  Best params: {opt['best_params']}")
+
+        verdict_include = (
+            "strong"
+            if metrics_best["auc_include"] >= 0.90
+            and metrics_best["disliked_false_accept"] < 0.20
+            else (
+                "decent"
+                if metrics_best["auc_include"] >= 0.80
+                and metrics_best["disliked_false_accept"] < 0.40
+                else "weak" if metrics_best["auc_include"] >= 0.70 else "broken"
+            )
+        )
+        print(
+            f"  includeLiked:    AUC={metrics_best['auc_include']:.3f} "
+            f"disliked_false_accept={metrics_best['disliked_false_accept']:.2f} "
+            f"@ liked_recall {metrics_best['liked_recall']:.2f} [{verdict_include}]"
+        )
+
+        verdict_exclude = (
+            "strong"
+            if metrics_best["auc_exclude"] >= 0.90
+            and metrics_best["liked_false_reject"] < 0.15
+            else (
+                "decent"
+                if metrics_best["auc_exclude"] >= 0.80
+                and metrics_best["liked_false_reject"] < 0.35
+                else "weak" if metrics_best["auc_exclude"] >= 0.70 else "broken"
+            )
+        )
+        print(
+            f"  excludeDisliked: AUC={metrics_best['auc_exclude']:.3f} "
+            f"liked_false_reject={metrics_best['liked_false_reject']:.2f} @ "
+            f"disliked_recall {metrics_best['disliked_recall']:.2f} [{verdict_exclude}]"
+        )
 
         report = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "objective_weights": {"exclude_disliked": w_a, "include_liked": w_b},
+            "objective_weights": {"auc_exclude": w_a, "auc_include": w_b},
             "threshold_regime": {
-                "exclude_disliked_recall_target": config.model_exclude_disliked_recall_target,
-                "include_liked_recall_target": config.model_include_liked_recall_target,
+                "exclude_disliked_recall_target": (
+                    config.model_exclude_disliked_recall_target
+                ),
+                "include_liked_recall_target": (
+                    config.model_include_liked_recall_target
+                ),
                 "cv_folds_in_benchmark": None,
             },
             "n_iterations": args.n_iterations,
             "results": results,
             "best_variant": (
-                max(results, key=lambda r: r["optimization"]["weighted_recall"])
+                max(results, key=lambda r: r["optimization"]["objective"])
                 if results
                 else None
             ),
@@ -397,10 +496,10 @@ def main():
         logger.info(f"Report saved to {args.output}")
 
     if results:
-        bv = max(results, key=lambda r: r["optimization"]["weighted_recall"])
+        bv = max(results, key=lambda r: r["optimization"]["objective"])
         logger.info(f"Best variant: {bv['name']}")
         logger.info(f"   Segment policy: {bv['segment_policy']}")
-        logger.info(f"   Weighted recall: {bv['optimization']['weighted_recall']:.3f}")
+        logger.info(f"   Objective: {bv['optimization']['objective']:.3f}")
         logger.info(f"   Best params: {bv['optimization']['best_params']}")
         ext = bv["extraction"]
         logger.info(
