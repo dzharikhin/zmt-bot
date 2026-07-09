@@ -174,7 +174,8 @@ def optimize_embedding(X_liked, X_disliked, w_a, w_b, n_iterations=50):
     best = study.best_trial
 
     top_n = min(5, len(study.trials))
-    top_trials = sorted(study.trials, key=lambda t: t.value, reverse=True)[:top_n]
+    top_trials_no_none = [t for t in study.trials if t.value is not None]
+    top_trials = sorted(top_trials_no_none, key=lambda t: t.value, reverse=True)[:top_n]
     median_metrics = {
         "auc_include": float(
             np.median([t.user_attrs.get("auc_include", 0.5) for t in top_trials])
@@ -200,7 +201,9 @@ def optimize_embedding(X_liked, X_disliked, w_a, w_b, n_iterations=50):
 
     return {
         "objective": float(best.value),
-        "objective_top5_median": float(np.median([t.value for t in top_trials])),
+        "objective_top5_median": float(
+            np.median([t.value for t in top_trials_no_none])
+        ),
         "best_params": {
             "knn_k_min": int(best.params["knn_k_min"]),
             "knn_k_max": int(best.params["knn_k_max"]),
@@ -430,7 +433,7 @@ def main():
             f"ok / {len(disliked_tracks)} total"
         )
 
-        opt = opt_result["optimization"]
+        opt = opt_result
         metrics_best = opt["metrics_best"]
 
         print(f"  Best params: {opt['best_params']}")
