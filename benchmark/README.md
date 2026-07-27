@@ -4,12 +4,168 @@ The benchmark compares embedding variants against the dual one-class model pipel
 
 This answers the key question: **"does the includeLiked model work? does the excludeDisliked model work?"** — the report clearly distinguishes a good model from a broken one by measuring discrimination between liked and disliked tracks.
 
+**Complement:** `benchmark/model_lab.py` — Model Lab investigates preprocessing pipelines (standardization, PCA whitening, feature selection) on cached features without re-extraction. See `benchmark/model_lab.md` for the investigation plan.
+
 ## Prerequisites & Data
 
 - **Liked/disliked tracks**: `data/{user_id}/liked/*.mp3` and `data/{user_id}/disliked/*.mp3` (`config.py:313-322`). At least 10 liked AND at least 10 disliked tracks must be extracted after feature computation, otherwise the variant is skipped (`benchmark/compare.py:395`).
 - **PANNs weights**: Must exist at the path specified by `PANNS_WEIGHTS_PATH` env var or the default `data/panns_data/panns_cnn14.pth` (`config.py:69-71`).
 - **Recall targets**: Configured via environment variables: `MODEL_INCLUDE_LIKED_RECALL` (default `0.80`) and `MODEL_EXCLUDE_DISLIKED_RECALL` (default `0.90`) (`config.py:55-60`). These define the operating points for reporting.
 - **Essentia profile**: Used to compute feature cache keys via `get_embed_version()` (`core/paths.py:9-26`).
+
+## Running in a Container
+
+Benchmark tools must run in a container when operating on real data (per AGENTS.md). This section applies to both `compare.py` and `model_lab.py`.
+
+### Build the image
+
+```bash
+VER=$(poetry version --short) docker buildx bake --progress=plain tg-zmt-bot
+```
+
+The image's `ENTRYPOINT` is `python` and `CMD` is `client.py`. To run benchmark tools, override `CMD` by appending module arguments after the image name:
+
+```bash
+docker run ... tg-zmt-bot:$(poetry version --short) -m benchmark.compare ...
+docker run ... tg-zmt-bot:$(poetry version --short) -m benchmark.model_lab ...
+```
+
+### Mounts and environment
+
+- **`./data:/app/data`** — feature cache (`data/{user_id}/features/`) and PANNs weights (`data/panns_data/`). The container creates a symlink `/root/panns_data → /app/data/panns_data` at runtime.
+- **`./local_data:/app/local_data`** — training scratch space (merged parquet, job state).
+- **No Telegram env vars needed** — `API_ID`, `API_HASH`, `BOT_TOKEN`, `OWNER_USER_ID` are imported but unused by benchmark tools. Model config env vars use safe defaults (`MODEL_MIN_SET_SIZE=50`, `MODEL_EXCLUDE_DISLIKED_RECALL=0.90`, `MODEL_INCLUDE_LIKED_RECALL=0.80`).
+
+### Smoke test (seconds, no data required)
+
+Verify imports work in the image:
+
+```bash
+docker run --rm \
+  -v "./data:/app/data" \
+  -v "./local_data:/app/local_data" \
+  tg-zmt-bot:$(poetry version --short) \
+  -m benchmark.model_lab --help
+```
+
+### Running `compare.py` in a container
+
+Example (variant is re-extracted only if not cached; output on host via mount):
+
+```bash
+docker run --rm \
+  -v "./data:/app/data" \
+  -v "./local_data:/app/local_data" \
+  --cpus=4 --memory=4G \
+  tg-zmt-bot:$(poetry version --short) \
+  -m benchmark.compare \
+    --config data/benchmark/embedding_variants.yaml \
+    --objective-weights 0.5 0.5 \
+    --output data/benchmark/report_v2.json \
+    --user-id 123456789 \
+    --n-iterations 50
+```
+
+### Running `model_lab.py` in a container
+
+First, verify features are cached on the host:
+
+```bash
+ls ./data/<user_id>/features/<embed_version>/<segment_policy>/like/*.parquet
+```
+
+Find the `embed_version` from a prior `compare.py` run:
+
+```bash
+jq -r '.results[0].embedding' data/benchmark/report_v2.json
+```
+
+**Phase A only** (diagnose mode, seconds):
+
+```bash
+docker run --rm \
+  -v "./data:/app/data" \
+  -v "./local_data:/app/local_data" \
+  tg-zmt-bot:$(poetry version --short) \
+  -m benchmark.model_lab \
+    --user-id <id> \
+    --embed-version "essentia-2.1b6.dev1438+profile-9d999a32d40d3078+panns-0dc499e40e9761ef+schema-69ce5104481d70bb" \
+    --segment-policies "full" "topk_energy:W=10,K=3|agg=mean" \
+    --output /app/data/benchmark/model_lab.json \
+    --diagnose-only
+```
+
+**Full sweep** (~30 min for 22 cells × 50 trials):
+
+```bash
+docker run --rm \
+  -v "./data:/app/data" \
+  -v "./local_data:/app/local_data" \
+  --cpus=4 --memory=4G \
+  tg-zmt-bot:$(poetry version --short) \
+  -m benchmark.model_lab \
+    --user-id <id> \
+    --embed-version "..." \
+    --segment-policies "full" "topk_energy:W=10,K=3|agg=mean" \
+    --output /app/data/benchmark/model_lab.json \
+    --n-iterations 50
+```
+
+Bump `--cpus` and `--memory` from the bot's defaults (`3 / 2G`) — Optuna parallelizes across folds and PCA SVD is memory-hungry.
+
+### Reading results on host
+
+Output files are written to the mounted volume, so they appear directly on the host. No `docker cp` needed:
+
+```bash
+# Best cell summary
+jq '.best_cell.name, .best_cell.optimization.objective' data/benchmark/model_lab.json
+
+# Quick scan: compare top5_median AUC across cells
+jq '.results[] | {name, inc: .optimization.metrics_top5_median.auc_include, exc: .optimization.metrics_top5_median.auc_exclude}' data/benchmark/model_lab.json | jq -s 'sort_by(-.inc)'
+
+# Phase A diagnostics for a segment_policy
+jq '.diagnostics.full' data/benchmark/model_lab.json
+```
+
+### Detached mode for long sweeps
+
+For very long sweeps, run detached and follow logs:
+
+```bash
+docker run -d --name model_lab \
+  -v "./data:/app/data" \
+  -v "./local_data:/app/local_data" \
+  --cpus=4 --memory=4G \
+  tg-zmt-bot:$(poetry version --short) \
+  -m benchmark.model_lab \
+    --user-id <id> --embed-version "..." \
+    --segment-policies "full" \
+    --output /app/data/benchmark/model_lab.json \
+    --n-iterations 50
+
+docker logs -f model_lab
+```
+
+### Resume behavior
+
+Both tools skip variants (`compare.py`) or cells (`model_lab.py`) whose names already exist in the output JSON. Re-running the same command picks up where it left off — cells already present are skipped, new cells run.
+
+### Env var overrides
+
+Override model config defaults to explore different threshold regimes:
+
+```bash
+docker run ... \
+  -e MODEL_EXCLUDE_DISLIKED_RECALL=0.85 \
+  -e MODEL_INCLUDE_LIKED_RECALL=0.75 \
+  tg-zmt-bot:$(poetry version --short) \
+  -m benchmark.model_lab ...
+```
+
+Note the env var names have no `_TARGET` suffix (`MODEL_EXCLUDE_DISLIKED_RECALL` vs the Python `config.model_exclude_disliked_recall_target`).
+
+---
 
 ## Configuration
 
@@ -348,6 +504,9 @@ Features are cached per `embed_version` (`core/paths.py:9-26`). When running mul
 ## Files
 
 - `benchmark/compare.py` — Optuna benchmark tool and CLI.
+- `benchmark/model_lab.py` — Model Lab: preprocessing sweep tool (Phase A + B investigation).
+- `benchmark/model_lab.md` — Feature representation investigation plan.
+- `benchmark/ab.md` — Phase A + B implementation details.
 - `benchmark_fix.md` — Detailed design document for metrics and implementation (reference).
 - `audio/segments.py` — Segment extraction policies and canonical string generation.
 - `core/paths.py` — `get_embed_version()` and feature cache key computation.

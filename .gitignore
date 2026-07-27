@@ -3,3 +3,4 @@
 *.iml
 **/snippets
 /data
+.opencode
