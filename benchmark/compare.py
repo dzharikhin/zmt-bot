@@ -16,6 +16,7 @@ from audio.segments import SegmentSpec
 from core.modeling import DualOneClassModel
 from core.outliers import detect_outliers
 from core.paths import get_embed_version
+from core.preprocessing import NoOpPreprocessor, StandardizeSelectPreprocessor
 from core.storage import FeatureStore
 from core.writer import start_extraction_job
 
@@ -23,7 +24,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 
-def objective(trial, X_liked, X_disliked, w_a, w_b):
+def objective(trial, X_liked, X_disliked, w_a, w_b, make_preprocessor=None):
     """Optuna objective: weighted sum of exclude_disliked and include_liked AUC
     via k-fold CV."""
     knn_k_min = trial.suggest_int("knn_k_min", 3, 8)
@@ -84,6 +85,18 @@ def objective(trial, X_liked, X_disliked, w_a, w_b):
             trial.set_user_attr("liked_recall", 0.5)
             trial.set_user_attr("disliked_recall", 0.5)
             return 0.0
+
+        prep = make_preprocessor() if make_preprocessor else NoOpPreprocessor()
+        X_combined_tr = np.concatenate([X_l_tr_f, X_d_tr_f])
+        y_combined_tr = np.concatenate(
+            [np.ones(len(X_l_tr_f)), np.zeros(len(X_d_tr_f))]
+        )
+        prep.fit(X_combined_tr, y_combined_tr)
+
+        X_l_tr_f = prep.transform(X_l_tr_f)
+        X_d_tr_f = prep.transform(X_d_tr_f)
+        X_l_te = prep.transform(X_l_te)
+        X_d_te = prep.transform(X_d_te)
 
         try:
             model = DualOneClassModel(
@@ -160,13 +173,17 @@ def objective(trial, X_liked, X_disliked, w_a, w_b):
     return float(w_a * auc_exclude + w_b * auc_include)
 
 
-def optimize_embedding(X_liked, X_disliked, w_a, w_b, n_iterations=50):
+def optimize_embedding(
+    X_liked, X_disliked, w_a, w_b, n_iterations=50, make_preprocessor=None
+):
     study = optuna.create_study(
         direction="maximize",
         sampler=optuna.samplers.TPESampler(seed=42),
     )
     study.optimize(
-        lambda trial: objective(trial, X_liked, X_disliked, w_a, w_b),
+        lambda trial: objective(
+            trial, X_liked, X_disliked, w_a, w_b, make_preprocessor
+        ),
         n_trials=n_iterations,
         show_progress_bar=False,
     )
@@ -284,8 +301,25 @@ def main():
         default=None,
         help="Regex to filter variant names (partial match)",
     )
+    parser.add_argument(
+        "--preprocessor",
+        type=str,
+        default="standardize+select_64",
+        help="Preprocessor to use (e.g., standardize+select_64, none)",
+    )
 
     args = parser.parse_args()
+
+    def make_preprocessor_factory(preprocessor_str: str):
+        if preprocessor_str == "standardize+select_64":
+            n = int(preprocessor_str.split("_")[-1])
+            return lambda: StandardizeSelectPreprocessor(n_features=n)
+        elif preprocessor_str == "none":
+            return lambda: NoOpPreprocessor()
+        else:
+            raise ValueError(f"Unknown preprocessor: {preprocessor_str}")
+
+    make_preprocessor = make_preprocessor_factory(args.preprocessor)
 
     with open(args.config) as f:
         config_data = yaml.safe_load(f)
@@ -408,6 +442,7 @@ def main():
             w_a,
             w_b,
             n_iterations=args.n_iterations,
+            make_preprocessor=make_preprocessor,
         )
 
         results.append(

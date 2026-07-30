@@ -27,6 +27,7 @@ from bot_utils import get_chat, get_message, obtain_latest_message_id
 from core.modeling import DualOneClassModel
 from core.outliers import detect_outliers
 from core.paths import get_embed_version
+from core.preprocessing import NoOpPreprocessor, StandardizeSelectPreprocessor
 from core.storage import FeatureStore
 from core.writer import start_extraction_job
 from models import ModelType
@@ -280,6 +281,11 @@ def _build_profile(user_id: int, model_id: int) -> config.Model:
         )
 
     logger.info("Fitting DualOneClassModel")
+    preprocessor = (
+        StandardizeSelectPreprocessor(n_features=config.model_select_n_features)
+        if config.model_preprocessor == "standardize_select"
+        else NoOpPreprocessor()
+    )
     model = DualOneClassModel(
         knn_k_min=config.model_knn_k_min,
         knn_k_max=config.model_knn_k_max,
@@ -289,6 +295,7 @@ def _build_profile(user_id: int, model_id: int) -> config.Model:
         cv_folds=config.model_cv_folds,
         exclude_disliked_recall_target=config.model_exclude_disliked_recall_target,
         include_liked_recall_target=config.model_include_liked_recall_target,
+        preprocessor=preprocessor,
     )
     model.fit(X_liked, X_disliked)
     model.embed_version = embed_version

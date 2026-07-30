@@ -15,6 +15,7 @@ import config
 from audio.features import _DESCRIPTOR_SCHEMA
 from core.modeling import DualOneClassModel
 from core.outliers import detect_outliers
+from core.preprocessing import NoOpPreprocessor, StandardizeSelectPreprocessor
 from core.storage import FeatureStore
 
 logger = logging.getLogger(__name__)
@@ -34,14 +35,6 @@ def build_dim_names(panns_dim: int) -> list[str]:
 def get_essentia_dim() -> int:
     """Compute Essentia block dimension from _DESCRIPTOR_SCHEMA."""
     return sum(length for _, length, _ in _DESCRIPTOR_SCHEMA)
-
-
-class NoOpPreprocessor:
-    def fit(self, X: np.ndarray, y: np.ndarray) -> None:
-        pass
-
-    def transform(self, X: np.ndarray) -> np.ndarray:
-        return X
 
 
 class StandardizePreprocessor:
@@ -93,31 +86,6 @@ class StandardizePCAPreprocessor:
         # variance. This prevents high-variance PCs from re-dominating Euclidean
         # distance after standardize.
         return (Xs @ self.components_.T) / np.sqrt(self.explained_var_)
-
-
-class StandardizeSelectPreprocessor:
-    def __init__(self, n_features: int):
-        self.n_features = n_features
-
-    def fit(self, X: np.ndarray, y: np.ndarray) -> None:
-        # y is 0 for disliked, 1 for liked
-        self.mean_ = X.mean(axis=0)
-        self.std_ = np.where(X.std(axis=0) < 1e-9, 1.0, X.std(axis=0))
-        Xs = (X - self.mean_) / self.std_
-        Xl = Xs[y == 1]
-        Xd = Xs[y == 0]
-        pooled_std = (
-            np.sqrt(
-                (Xl.var(axis=0) * len(Xl) + Xd.var(axis=0) * len(Xd))
-                / (len(Xl) + len(Xd))
-            )
-            + 1e-9
-        )
-        scores = np.abs(Xl.mean(axis=0) - Xd.mean(axis=0)) / pooled_std
-        self.selected_ = np.argsort(scores)[::-1][: self.n_features]
-
-    def transform(self, X: np.ndarray) -> np.ndarray:
-        return ((X - self.mean_) / self.std_)[:, self.selected_]
 
 
 PREPROCESSOR_CONFIGS = [

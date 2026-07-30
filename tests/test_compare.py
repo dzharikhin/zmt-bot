@@ -3,6 +3,7 @@ import optuna
 import pytest
 
 from benchmark.compare import objective, optimize_embedding
+from core.preprocessing import StandardizeSelectPreprocessor
 
 
 @pytest.fixture
@@ -178,3 +179,21 @@ class TestOptimizeEmbedding:
         )
         assert result1["best_params"] == result2["best_params"]
         assert result1["objective"] == pytest.approx(result2["objective"])
+
+    def test_objective_with_preprocessor(self, liked_data, disliked_data):
+        def make_preprocessor():
+            return StandardizeSelectPreprocessor(n_features=5)
+
+        study = optuna.create_study()
+        trial = study.ask()
+        trial.suggest_int("knn_k_min", 3, 8)
+        trial.suggest_int("knn_k_max", 8, 25)
+        trial.suggest_float("knn_k_scale", 0.3, 1.0)
+        trial.suggest_int("gmm_components_max", 8, 32)
+        trial.suggest_int("gmm_min_points_per_component", 20, 80)
+        trial.suggest_float("outlier_threshold", 0.01, 0.10)
+        result = objective(
+            trial, liked_data, disliked_data, 0.5, 0.5, make_preprocessor
+        )
+        assert isinstance(result, float)
+        assert 0.0 <= result <= 1.0

@@ -9,11 +9,12 @@ from sklearn.mixture import GaussianMixture
 from sklearn.model_selection import KFold
 from sklearn.neighbors import NearestNeighbors
 
+from core.preprocessing import NoOpPreprocessor, Preprocessor
 from models import ModelType
 
 logger = logging.getLogger(__name__)
 
-_MODEL_SCHEMA_VERSION = 4
+_MODEL_SCHEMA_VERSION = 5
 
 
 class ModelLoadError(Exception):
@@ -216,6 +217,7 @@ class DualOneClassModel:
         cv_folds: int | None = None,
         exclude_disliked_recall_target: float = 0.90,
         include_liked_recall_target: float = 0.80,
+        preprocessor: Preprocessor | None = None,
     ):
         self.knn_k_min = knn_k_min
         self.knn_k_max = knn_k_max
@@ -225,6 +227,7 @@ class DualOneClassModel:
         self.cv_folds = cv_folds
         self.exclude_disliked_recall_target = exclude_disliked_recall_target
         self.include_liked_recall_target = include_liked_recall_target
+        self.preprocessor = preprocessor or NoOpPreprocessor()
 
         self.liked_model = OneClassSetModel(
             knn_k_min=knn_k_min,
@@ -247,12 +250,19 @@ class DualOneClassModel:
 
     def fit(self, X_liked: np.ndarray, X_disliked: np.ndarray):
         """Fit both models and compute thresholds"""
-        self.liked_model.fit(X_liked)
-        self.dislike_model.fit(X_disliked)
-        self._compute_thresholds(X_liked, X_disliked)
+        X_combined = np.concatenate([X_liked, X_disliked])
+        y_combined = np.concatenate([np.ones(len(X_liked)), np.zeros(len(X_disliked))])
+        self.preprocessor.fit(X_combined, y_combined)
 
-        n_liked = len(X_liked)
-        n_disliked = len(X_disliked)
+        X_liked_prep = self.preprocessor.transform(X_liked)
+        X_disliked_prep = self.preprocessor.transform(X_disliked)
+
+        self.liked_model.fit(X_liked_prep)
+        self.dislike_model.fit(X_disliked_prep)
+        self._compute_thresholds(X_liked_prep, X_disliked_prep)
+
+        n_liked = len(X_liked_prep)
+        n_disliked = len(X_disliked_prep)
         n_min = max(1, min(n_liked, n_disliked))
         imbalance_ratio = round(max(n_liked, n_disliked) / n_min, 2)
 
@@ -339,9 +349,10 @@ class DualOneClassModel:
 
     def predict(self, X: np.ndarray) -> dict:
         """Score a track against both models"""
+        X_prep = self.preprocessor.transform(X)
         return {
-            "like": self.liked_model.score(X),
-            "dislike": self.dislike_model.score(X),
+            "like": self.liked_model.score(X_prep),
+            "dislike": self.dislike_model.score(X_prep),
             "thresholds_at_build": self.thresholds,
         }
 
@@ -377,6 +388,10 @@ class DualOneClassModel:
                 "cv_folds": self.cv_folds,
                 "exclude_disliked_recall_target": self.exclude_disliked_recall_target,
                 "include_liked_recall_target": self.include_liked_recall_target,
+                "preprocessor": {
+                    "type": type(self.preprocessor).__name__,
+                    "n_features": getattr(self.preprocessor, "n_features", None),
+                },
             },
         }
 

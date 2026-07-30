@@ -745,15 +745,16 @@ def _ffmpeg_crop_to_tempwav(
 ) -> pathlib.Path:
     tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
     tmp.close()
+    duration = end_s - start_s
     cmd = [
         "ffmpeg",
         "-y",
-        "-i",
-        str(audio_path),
         "-ss",
         str(start_s),
-        "-to",
-        str(end_s),
+        "-i",
+        str(audio_path),
+        "-t",
+        str(duration),
         "-ac",
         "1",
         "-ar",

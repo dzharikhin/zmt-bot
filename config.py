@@ -61,6 +61,8 @@ model_include_liked_recall_target = float(
 model_min_set_size = int(os.getenv("MODEL_MIN_SET_SIZE", "50"))
 model_cv_folds = int(os.getenv("MODEL_CV_FOLDS", "5"))
 model_max_imbalance_ratio = float(os.getenv("MODEL_MAX_IMBALANCE_RATIO", "3.0"))
+model_preprocessor = os.getenv("MODEL_PREPROCESSOR", "standardize_select")
+model_select_n_features = int(os.getenv("MODEL_SELECT_N_FEATURES", "64"))
 
 model_knn_k = model_knn_k_max
 model_gmm_components = model_gmm_components_max

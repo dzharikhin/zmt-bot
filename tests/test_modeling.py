@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from core.modeling import DualOneClassModel, ModelLoadError, OneClassSetModel
+from core.preprocessing import StandardizeSelectPreprocessor
 from models import ModelType
 
 
@@ -477,6 +478,33 @@ class TestDualOneClassModelSchemaVersion:
 
         with pytest.raises(ModelLoadError, match="Incompatible model format"):
             DualOneClassModel.load(bad_path)
+
+    def test_save_load_with_preprocessor(self, tmp_path, liked_data, disliked_data):
+        prep = StandardizeSelectPreprocessor(n_features=5)
+        model = DualOneClassModel(
+            knn_k_min=3,
+            knn_k_max=3,
+            gmm_components_max=4,
+            gmm_min_points_per_component=10,
+            cv_folds=None,
+            preprocessor=prep,
+        )
+        model.fit(liked_data, disliked_data)
+
+        sample = liked_data[0].reshape(1, -1)
+        original_scores = model.predict(sample)
+
+        model.save(tmp_path / "dual")
+        loaded = DualOneClassModel.load(tmp_path / "dual")
+
+        loaded_scores = loaded.predict(sample)
+
+        assert original_scores["like"]["calibrated"] == pytest.approx(
+            loaded_scores["like"]["calibrated"]
+        )
+        assert original_scores["dislike"]["calibrated"] == pytest.approx(
+            loaded_scores["dislike"]["calibrated"]
+        )
 
 
 class TestIsotonicCalibration:
