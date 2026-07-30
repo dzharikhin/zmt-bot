@@ -41,7 +41,7 @@ estimation_post_way = os.getenv("ESTIMATION_POST_WAY", "reply")
 
 max_training_workers = int(os.getenv("MAX_TRAINING_WORKERS", "2"))
 max_estimation_workers = int(os.getenv("MAX_ESTIMATION_WORKERS", "2"))
-min_track_length_seconds = int(os.getenv("MIN_TRACK_LENGTH_SECONDS", "60"))
+min_track_length_seconds = int(os.getenv("MIN_TRACK_LENGTH_SECONDS", "90"))
 max_track_length_seconds = int(os.getenv("MAX_TRACK_LENGTH_SECONDS", "480"))
 
 model_knn_k_min = int(os.getenv("MODEL_KNN_K_MIN", "5"))
