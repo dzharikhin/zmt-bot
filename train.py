@@ -199,15 +199,18 @@ def _build_profile(user_id: int, model_id: int) -> config.Model:
                 f"skipped={kwargs.get('skipped', 0)}"
             )
 
-    start_extraction_job(
-        user_id=user_id,
-        tracks=all_tracks,
-        embed_version=embed_version,
-        segment_policy=segment_policy,
-        job_id=job_id,
-        progress_callback=progress_callback,
-        profile_path=bundled_profile,
-    )
+    try:
+        start_extraction_job(
+            user_id=user_id,
+            tracks=all_tracks,
+            embed_version=embed_version,
+            segment_policy=segment_policy,
+            job_id=job_id,
+            progress_callback=progress_callback,
+            profile_path=bundled_profile,
+        )
+    except Exception as e:
+        raise TrainUnrecoverable(f"Feature extraction failed: {e}") from e
 
     logger.info("Loading features from parquet cache")
     store = FeatureStore(user_id, embed_version, segment_policy)

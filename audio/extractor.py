@@ -29,23 +29,29 @@ class CombinedExtractor:
 
         essentia_vectors = []
         panns_vectors = []
+        use_panns = self.panns_model is not None
 
         for start, end in segments:
             if spec.type == "full":
                 essentia_vec = self.essentia_extract_fn(
                     self.essentia_extractor, audio_path
                 )
-                panns_vec = self.panns_model.extract(audio_path)
+                if use_panns:
+                    panns_vec = self.panns_model.extract(audio_path)
             else:
                 essentia_vec = self.essentia_extract_segment_fn(
                     self.essentia_extractor, audio_path, start, end
                 )
-                panns_vec = self.panns_model.extract_segment(audio_path, start, end)
+                if use_panns:
+                    panns_vec = self.panns_model.extract_segment(audio_path, start, end)
 
             essentia_vectors.append(essentia_vec)
-            panns_vectors.append(panns_vec)
+            if use_panns:
+                panns_vectors.append(panns_vec)
 
         essentia_agg = aggregate(essentia_vectors, spec.aggregation)
+        if not use_panns:
+            return essentia_agg
         panns_agg = aggregate(panns_vectors, spec.aggregation)
         return np.concatenate([essentia_agg, panns_agg])
 

@@ -259,6 +259,14 @@ def optimize_embedding(
     }
 
 
+def _best_result(results):
+    """Best non-failed result by objective, or None if no valid results."""
+    valid = [r for r in results if not r.get("failed") and "optimization" in r]
+    if not valid:
+        return None
+    return max(valid, key=lambda r: r["optimization"]["objective"])
+
+
 def main():
     parser = argparse.ArgumentParser(description="Compare embedding variants")
     parser.add_argument(
@@ -292,7 +300,7 @@ def main():
     parser.add_argument(
         "--n-workers",
         type=int,
-        default=4,
+        default=2,
         help="Extraction worker processes per variant",
     )
     parser.add_argument(
@@ -360,7 +368,8 @@ def main():
         if not profile_path.is_absolute():
             profile_path = config.data_path / "benchmark" / essentia_profile
 
-        panns_weights_path = Path(embedding_var["panns_weights"])
+        use_panns = embedding_var.get("panns", True)
+        panns_weights_path = Path(embedding_var["panns_weights"]) if use_panns else None
 
         sp_dict = embedding_var["segment_policy"]
         segment_spec = SegmentSpec(
@@ -370,7 +379,9 @@ def main():
             aggregation=embedding_var.get("aggregation", "mean"),
         )
 
-        variant_embed_version = get_embed_version(profile_path, panns_weights_path)
+        variant_embed_version = get_embed_version(
+            profile_path, panns_weights_path, use_panns=use_panns
+        )
         variant_segment_policy = segment_spec.canonical()
 
         job_id = (
@@ -382,130 +393,137 @@ def main():
         logger.info(
             f"Job {job_id}: Starting feature extraction for {len(all_tracks)} tracks"
         )
-        extraction_result = start_extraction_job(
-            user_id=user_id,
-            tracks=all_tracks,
-            embed_version=variant_embed_version,
-            segment_policy=variant_segment_policy,
-            job_id=job_id,
-            n_workers=args.n_workers,
-            panns_weights_path=panns_weights_path,
-            profile_path=profile_path,
-            segment_spec=segment_spec,
-        )
-        extraction_time_s = time.monotonic() - t0
-        logger.info(
-            f"Job {job_id}: Extraction completed in {extraction_time_s:.1f}s "
-            f"({extraction_result.ok} succeeded, {extraction_result.failed} failed, "
-            f"{extraction_result.skipped} cached)"
-        )
-
-        store = FeatureStore(user_id, variant_embed_version, variant_segment_policy)
-        track_counts = store.count_tracks()
-        logger.info(
-            f"Job {job_id}: Feature counts — liked: {track_counts.get('like', 0)} ok / "
-            f"{len(liked_tracks)} total, disliked: {track_counts.get('dislike', 0)} "
-            f"ok / {len(disliked_tracks)} total"
-        )
-        with store.training_view("like") as liked_pq:
-            X_liked = FeatureStore.load_vectors(liked_pq)
-        with store.training_view("dislike") as disliked_pq:
-            X_disliked = FeatureStore.load_vectors(disliked_pq)
-
-        liked_ok = track_counts.get("like", 0)
-        disliked_ok = track_counts.get("dislike", 0)
-
-        extraction_stats = {
-            "time_s": round(extraction_time_s, 3),
-            "liked": {
-                "total": len(liked_tracks),
-                "ok": liked_ok,
-            },
-            "disliked": {
-                "total": len(disliked_tracks),
-                "ok": disliked_ok,
-            },
-            "cached": extraction_result.skipped,
-            "newly_extracted": extraction_result.ok,
-        }
-
-        if liked_ok < 10 or disliked_ok < 10:
-            logger.warning(
-                f"Skipping — insufficient data ({liked_ok} liked, {disliked_ok} "
-                f"disliked)"
+        try:
+            extraction_result = start_extraction_job(
+                user_id=user_id,
+                tracks=all_tracks,
+                embed_version=variant_embed_version,
+                segment_policy=variant_segment_policy,
+                job_id=job_id,
+                n_workers=args.n_workers,
+                panns_weights_path=panns_weights_path,
+                profile_path=profile_path,
+                segment_spec=segment_spec,
+                use_panns=use_panns,
             )
-            continue
+            extraction_time_s = time.monotonic() - t0
+            logger.info(
+                f"Job {job_id}: Extraction completed in {extraction_time_s:.1f}s "
+                f"(ok={extraction_result.ok}, fail={extraction_result.failed}, "
+                f"cached={extraction_result.skipped})"
+            )
 
-        opt_result = optimize_embedding(
-            X_liked,
-            X_disliked,
-            w_a,
-            w_b,
-            n_iterations=args.n_iterations,
-            make_preprocessor=make_preprocessor,
-        )
+            store = FeatureStore(user_id, variant_embed_version, variant_segment_policy)
+            track_counts = store.count_tracks()
+            logger.info(
+                f"Job {job_id}: Feature counts — "
+                f"liked: {track_counts.get('like', 0)}/{len(liked_tracks)}, "
+                f"disliked: {track_counts.get('dislike', 0)}/{len(disliked_tracks)}"
+            )
+            with store.training_view("like") as liked_pq:
+                X_liked = FeatureStore.load_vectors(liked_pq)
+            with store.training_view("dislike") as disliked_pq:
+                X_disliked = FeatureStore.load_vectors(disliked_pq)
 
-        results.append(
-            {
-                "name": name,
-                "embedding": variant_embed_version,
-                "segment_policy": variant_segment_policy,
-                "config": embedding_var,
-                "feature_dim": X_liked.shape[1],
-                "extraction": extraction_stats,
-                "optimization": opt_result,
+            liked_ok = track_counts.get("like", 0)
+            disliked_ok = track_counts.get("dislike", 0)
+
+            extraction_stats = {
+                "time_s": round(extraction_time_s, 3),
+                "liked": {"total": len(liked_tracks), "ok": liked_ok},
+                "disliked": {"total": len(disliked_tracks), "ok": disliked_ok},
+                "cached": extraction_result.skipped,
+                "newly_extracted": extraction_result.ok,
             }
-        )
 
-        print(
-            f"  Extraction: {extraction_time_s:.1f}s "
-            f"({extraction_result.ok} new, {extraction_result.skipped} cached, "
-            f"{extraction_result.failed} failed)"
-        )
-        logger.info(
-            f"Feature counts — Liked: {track_counts.get('like', 0)} ok / "
-            f"{len(liked_tracks)} total, Disliked: {track_counts.get('dislike', 0)} "
-            f"ok / {len(disliked_tracks)} total"
-        )
+            if liked_ok < 10 or disliked_ok < 10:
+                logger.warning(
+                    f"Skipping — insufficient data ({liked_ok} liked, {disliked_ok} "
+                    f"disliked)"
+                )
+                results.append(
+                    {
+                        "name": name,
+                        "embedding": variant_embed_version,
+                        "segment_policy": variant_segment_policy,
+                        "failed": True,
+                        "error": "insufficient data",
+                        "extraction": extraction_stats,
+                    }
+                )
+            else:
+                opt_result = optimize_embedding(
+                    X_liked,
+                    X_disliked,
+                    w_a,
+                    w_b,
+                    n_iterations=args.n_iterations,
+                    make_preprocessor=make_preprocessor,
+                )
+                results.append(
+                    {
+                        "name": name,
+                        "embedding": variant_embed_version,
+                        "segment_policy": variant_segment_policy,
+                        "config": embedding_var,
+                        "feature_dim": X_liked.shape[1],
+                        "extraction": extraction_stats,
+                        "optimization": opt_result,
+                    }
+                )
 
-        opt = opt_result
-        metrics_best = opt["metrics_best"]
+                print(
+                    f"  Extraction: {extraction_time_s:.1f}s "
+                    f"({extraction_result.ok} new, {extraction_result.skipped} cached, "
+                    f"{extraction_result.failed} failed)"
+                )
+                logger.info(
+                    f"Feature counts — "
+                    f"Liked: {track_counts.get('like', 0)}/{len(liked_tracks)}, "
+                    f"Disliked: {track_counts.get('dislike', 0)}/{len(disliked_tracks)}"
+                )
 
-        print(f"  Best params: {opt['best_params']}")
+                opt = opt_result
+                metrics_best = opt["metrics_best"]
 
-        verdict_include = (
-            "strong"
-            if metrics_best["auc_include"] >= 0.90
-            and metrics_best["disliked_false_accept"] < 0.20
-            else (
-                "decent"
-                if metrics_best["auc_include"] >= 0.80
-                and metrics_best["disliked_false_accept"] < 0.40
-                else "weak" if metrics_best["auc_include"] >= 0.70 else "broken"
-            )
-        )
-        print(
-            f"  includeLiked:    AUC={metrics_best['auc_include']:.3f} "
-            f"disliked_false_accept={metrics_best['disliked_false_accept']:.2f} "
-            f"@ liked_recall {metrics_best['liked_recall']:.2f} [{verdict_include}]"
-        )
+                print(f"  Best params: {opt['best_params']}")
 
-        verdict_exclude = (
-            "strong"
-            if metrics_best["auc_exclude"] >= 0.90
-            and metrics_best["liked_false_reject"] < 0.15
-            else (
-                "decent"
-                if metrics_best["auc_exclude"] >= 0.80
-                and metrics_best["liked_false_reject"] < 0.35
-                else "weak" if metrics_best["auc_exclude"] >= 0.70 else "broken"
-            )
-        )
-        print(
-            f"  excludeDisliked: AUC={metrics_best['auc_exclude']:.3f} "
-            f"liked_false_reject={metrics_best['liked_false_reject']:.2f} @ "
-            f"disliked_recall {metrics_best['disliked_recall']:.2f} [{verdict_exclude}]"
-        )
+                verdict_include = (
+                    "strong"
+                    if metrics_best["auc_include"] >= 0.90
+                    and metrics_best["disliked_false_accept"] < 0.20
+                    else (
+                        "decent"
+                        if metrics_best["auc_include"] >= 0.80
+                        and metrics_best["disliked_false_accept"] < 0.40
+                        else "weak" if metrics_best["auc_include"] >= 0.70 else "broken"
+                    )
+                )
+                print(
+                    f"  includeLiked: AUC={metrics_best['auc_include']:.3f}, "
+                    f"false_accept={metrics_best['disliked_false_accept']:.2f}, "
+                    f"recall={metrics_best['liked_recall']:.2f} [{verdict_include}]"
+                )
+
+                verdict_exclude = (
+                    "strong"
+                    if metrics_best["auc_exclude"] >= 0.90
+                    and metrics_best["liked_false_reject"] < 0.15
+                    else (
+                        "decent"
+                        if metrics_best["auc_exclude"] >= 0.80
+                        and metrics_best["liked_false_reject"] < 0.35
+                        else "weak" if metrics_best["auc_exclude"] >= 0.70 else "broken"
+                    )
+                )
+                print(
+                    f"  excludeDisliked: AUC={metrics_best['auc_exclude']:.3f}, "
+                    f"false_reject={metrics_best['liked_false_reject']:.2f}, "
+                    f"recall={metrics_best['disliked_recall']:.2f} [{verdict_exclude}]"
+                )
+        except Exception as e:
+            logger.error(f"Variant {name} failed: {e}", exc_info=True)
+            results.append({"name": name, "failed": True, "error": str(e)})
 
         report = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -521,11 +539,7 @@ def main():
             },
             "n_iterations": args.n_iterations,
             "results": results,
-            "best_variant": (
-                max(results, key=lambda r: r["optimization"]["objective"])
-                if results
-                else None
-            ),
+            "best_variant": _best_result(results),
         }
 
         with open(args.output, "w") as f:
@@ -533,8 +547,8 @@ def main():
 
         logger.info(f"Report saved to {args.output}")
 
-    if results:
-        bv = max(results, key=lambda r: r["optimization"]["objective"])
+    bv = _best_result(results)
+    if bv is not None:
         logger.info(f"Best variant: {bv['name']}")
         logger.info(f"   Segment policy: {bv['segment_policy']}")
         logger.info(f"   Objective: {bv['optimization']['objective']:.3f}")

@@ -9,14 +9,15 @@ from audio.features import schema_fingerprint
 def get_embed_version(
     profile_path: Path | None = None,
     panns_weights_path: Path | None = None,
+    use_panns: bool = True,
 ) -> str:
     if profile_path is None:
         profile_path = config.data_path / "essentia_extractor_profile.yaml"
-    if panns_weights_path is None:
+    if use_panns and panns_weights_path is None:
         panns_weights_path = config.panns_weights_path
     essentia_version = pkg_version("essentia")
     profile_hash = compute_file_hash(profile_path)[:16]
-    panns_hash = compute_file_hash(panns_weights_path)[:16]
+    panns_hash = compute_file_hash(panns_weights_path)[:16] if use_panns else "none"
     schema_hash = schema_fingerprint()
     return (
         f"essentia-{essentia_version}"

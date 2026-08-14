@@ -1,4 +1,5 @@
 import logging
+import queue
 from dataclasses import dataclass
 from multiprocessing import get_context
 from pathlib import Path
@@ -13,6 +14,9 @@ from core.paths import compute_file_hash
 from core.storage import FeatureStore, JobStore
 
 logger = logging.getLogger(__name__)
+
+_WORKER_FATAL = object()
+_POLL_TIMEOUT_S = 15.0
 
 
 @dataclass
@@ -32,43 +36,80 @@ def _worker_loop(
     result_queue,
     profile_path: Optional[Path],
     segment_spec: Optional[SegmentSpec],
+    use_panns: bool = True,
 ):
+    """Per-process extraction loop.
+
+    A fatal failure during setup (e.g. ``prepare_extractor`` raising) is caught
+    and a ``_WORKER_FATAL`` sentinel is queued so the coordinator never blocks
+    waiting for results this worker will never produce. Hard kills (OOM/SIGKILL,
+    native segfaults) cannot run Python and are detected by the coordinator's
+    liveness check instead.
+    """
     setup_logging(
         level=10,
         format="%(asctime)s.%(msecs)03d %(levelname)s %(funcName)s: %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    logger.info(f"Worker {worker_id}: Starting with {len(tasks)} tasks")
-    extractor = prepare_extractor(
-        panns_weights_path=panns_weights_path, profile_path=profile_path
-    )
-    store = FeatureStore(user_id, embed_version, segment_policy)
+    try:
+        logger.info(f"Worker {worker_id}: Starting with {len(tasks)} tasks")
+        extractor = prepare_extractor(
+            panns_weights_path=panns_weights_path,
+            profile_path=profile_path,
+            use_panns=use_panns,
+        )
+        store = FeatureStore(user_id, embed_version, segment_policy)
 
-    for idx, (track_path, file_hash, set_name, metadata) in enumerate(tasks):
-        try:
-            vector = extractor(track_path, segment_spec=segment_spec)
-            store.insert_track(
-                file_hash=file_hash,
-                vector=vector.tolist(),
-                source_path=str(track_path),
-                set_name=set_name,
-                duration_s=metadata.get("duration_s", 0.0),
-                bytes_=metadata.get("bytes_"),
-                mtime=metadata.get("mtime"),
-                sample_rate=metadata.get("sample_rate", 16000),
-            )
-            logger.info(f"Worker {worker_id}: OK {track_path.name}")
-            result_queue.put((file_hash, True, None))
-            if (idx + 1) % 10 == 0:
-                logger.info(
-                    f"Worker {worker_id}: Completed {idx + 1}/{len(tasks)} tracks"
+        for idx, (track_path, file_hash, set_name, metadata) in enumerate(tasks):
+            try:
+                vector = extractor(track_path, segment_spec=segment_spec)
+                store.insert_track(
+                    file_hash=file_hash,
+                    vector=vector.tolist(),
+                    source_path=str(track_path),
+                    set_name=set_name,
+                    duration_s=metadata.get("duration_s", 0.0),
+                    bytes_=metadata.get("bytes_"),
+                    mtime=metadata.get("mtime"),
+                    sample_rate=metadata.get("sample_rate", 16000),
                 )
-        except Exception as e:
-            logger.error(f"Worker {worker_id}: FAILED {track_path.name}: {e}")
-            result_queue.put((file_hash, False, str(e)))
+                logger.info(f"Worker {worker_id}: OK {track_path.name}")
+                result_queue.put((file_hash, True, None))
+                if (idx + 1) % 10 == 0:
+                    logger.info(
+                        f"Worker {worker_id}: Completed {idx + 1}/{len(tasks)} tracks"
+                    )
+            except Exception as e:
+                logger.error(f"Worker {worker_id}: FAILED {track_path.name}: {e}")
+                result_queue.put((file_hash, False, str(e)))
 
-    logger.info(f"Worker {worker_id}: Finished, processed {len(tasks)} tracks")
+        logger.info(f"Worker {worker_id}: Finished, processed {len(tasks)} tracks")
+    except Exception as e:
+        logger.error(f"Worker {worker_id}: FATAL: {e}", exc_info=True)
+        result_queue.put((_WORKER_FATAL, worker_id, str(e)))
+
+
+def _describe_worker_failure(workers, received, expected, fatal):
+    parts = [f"completed {received}/{expected} extractions"]
+    if fatal:
+        parts.append(f"fatal startup error: {fatal}")
+    oom = False
+    exit_details = []
+    for w in workers:
+        ec = w.exitcode
+        if ec is not None:
+            exit_details.append(f"pid {w.pid} exitcode={ec}")
+            if ec == -9:
+                oom = True
+    if exit_details:
+        parts.append("worker exits: " + "; ".join(exit_details))
+    if oom:
+        parts.append(
+            "A worker was terminated by SIGKILL (exitcode -9), typically an OOM "
+            "kill. Retry with a lower --n-workers or raise the container memory."
+        )
+    return "; ".join(parts)
 
 
 def start_extraction_job(
@@ -77,10 +118,11 @@ def start_extraction_job(
     embed_version: str,
     segment_policy: str,
     job_id: str,
-    n_workers: int = 4,
+    n_workers: int = 2,
     panns_weights_path: Optional[Path] = None,
     profile_path: Optional[Path] = None,
     segment_spec: Optional[SegmentSpec] = None,
+    use_panns: bool = True,
     progress_callback=None,
 ) -> ExtractionResult:
     if panns_weights_path is None:
@@ -155,6 +197,7 @@ def start_extraction_job(
                 result_queue,
                 profile_path,
                 segment_spec,
+                use_panns,
             ),
             daemon=True,
         )
@@ -166,53 +209,100 @@ def start_extraction_job(
     failed = 0
     expected = len(to_extract)
     last_progress = 0
+    received = 0
+    fatal = None
 
     logger.info(f"Job {job_id}: Processing {expected} tracks with {n_workers} workers")
 
     job_store = JobStore(user_id)
     job_mgr = JobManager(job_store)
 
-    for _ in range(expected):
-        file_hash, success, error_msg = result_queue.get()
-        if success:
-            ok += 1
-            logger.info(f"Job {job_id}: {file_hash} — OK")
-        else:
-            failed += 1
-            logger.error(f"Job {job_id}: {file_hash} — FAILED: {error_msg}")
+    try:
+        while received < expected:
+            try:
+                item = result_queue.get(timeout=_POLL_TIMEOUT_S)
+            except queue.Empty:
+                if not any(w.is_alive() for w in workers):
+                    logger.error(
+                        f"Job {job_id}: all workers exited after "
+                        f"{received}/{expected} results"
+                    )
+                    break
+                continue
 
-        current_done = ok + failed + skipped
-        if current_done - last_progress >= 10 or current_done == total:
-            job_mgr.update_progress(
-                job_id, progress_done=current_done, progress_total=total
-            )
+            if item[0] is _WORKER_FATAL:
+                _, wid, err = item
+                logger.error(f"Job {job_id}: Worker {wid} fatal: {err}")
+                if fatal is None:
+                    fatal = err
+                continue
+
+            file_hash, success, error_msg = item
+            received += 1
+            if success:
+                ok += 1
+                logger.info(f"Job {job_id}: {file_hash} — OK")
+            else:
+                failed += 1
+                logger.error(f"Job {job_id}: {file_hash} — FAILED: {error_msg}")
+
+            current_done = ok + failed + skipped
+            if current_done - last_progress >= 10 or current_done == total:
+                job_mgr.update_progress(
+                    job_id, progress_done=current_done, progress_total=total
+                )
+                if progress_callback:
+                    progress_callback(
+                        job_id,
+                        current_done,
+                        total,
+                        "running",
+                        ok=ok,
+                        failed=failed,
+                        skipped=skipped,
+                    )
+                last_progress = current_done
+
+        shortfall = expected - received
+        if shortfall > 0 or fatal is not None:
+            detail = _describe_worker_failure(workers, received, expected, fatal)
+            job_mgr.fail_job(job_id, detail)
             if progress_callback:
                 progress_callback(
                     job_id,
-                    current_done,
+                    received + skipped,
                     total,
-                    "running",
+                    "failed",
                     ok=ok,
                     failed=failed,
                     skipped=skipped,
                 )
-            last_progress = current_done
+            logger.error(f"Job {job_id}: FAILED - {detail}")
+            raise RuntimeError(f"Extraction job {job_id} failed: {detail}")
 
-    logger.info(f"Job {job_id}: All workers finished - ok={ok}, failed={failed}")
+        logger.info(f"Job {job_id}: All workers finished - ok={ok}, failed={failed}")
+        job_mgr.complete_job(job_id)
+        if progress_callback:
+            progress_callback(
+                job_id,
+                total,
+                total,
+                "complete",
+                ok=ok,
+                failed=failed,
+                skipped=skipped,
+            )
 
-    for w in workers:
-        w.join(timeout=30)
-
-    job_mgr.complete_job(job_id)
-    job_store.close()
-    if progress_callback:
-        progress_callback(
-            job_id, total, total, "complete", ok=ok, failed=failed, skipped=skipped
+        logger.info(
+            f"Job {job_id}: Completed - total={total}, ok={ok}, failed={failed}, "
+            f"skipped={skipped}"
         )
-
-    logger.info(
-        f"Job {job_id}: Completed - total={total}, ok={ok}, failed={failed}, "
-        f"skipped={skipped}"
-    )
+    finally:
+        for w in workers:
+            if w.is_alive():
+                w.terminate()
+        for w in workers:
+            w.join(timeout=10)
+        job_store.close()
 
     return ExtractionResult(ok=ok, failed=failed, skipped=skipped)

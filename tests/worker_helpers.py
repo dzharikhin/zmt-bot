@@ -4,6 +4,8 @@ to be picklable for spawn context multiprocessing.
 """
 
 import multiprocessing as mp
+import queue
+import time
 
 
 def _worker_times_two(q, value):
@@ -21,7 +23,6 @@ def _worker_error(q, task_id):
 def _worker_partitioned(q, tasks):
     for task in tasks:
         try:
-            result = task * 2
             q.put((task, True, None))
         except Exception as e:
             q.put((task, False, str(e)))
@@ -197,3 +198,56 @@ def _worker_path_check(q, parent_data_path_str, parent_local_data_path_str):
         "arg_path_survives": parent_data_path_str == str(config.data_path),
     }
     q.put(result)
+
+
+def _worker_dies_after_one(q, tasks):
+    """Put ONE result then hard-exit, mirroring an OOM/SIGKILL mid-slice.
+
+    The worker's remaining tasks never queue results -- exactly the precondition
+    that deadlocks the old blocking ``result_queue.get()`` loop.
+    """
+    import os
+
+    q.put((tasks[0], True, None))
+    time.sleep(0.3)  # let the queue feeder flush before the hard exit
+    os._exit(1)
+
+
+def run_test_worker_death_no_hang():
+    """A liveness-aware consumer must terminate (not hang) when a worker dies
+    without queueing all its results, and must detect the shortfall."""
+    spawn = mp.get_context("spawn")
+    q = mp.Queue()
+    tasks = [0, 1, 2, 3, 4, 5]
+    n_workers = 2
+    partitions = [tasks[i::n_workers] for i in range(n_workers)]
+
+    procs = []
+    for i in range(n_workers):
+        p = spawn.Process(target=_worker_dies_after_one, args=(q, partitions[i]))
+        p.start()
+        procs.append(p)
+
+    expected = len(tasks)
+    received = 0
+    deadline = time.time() + 20
+    while received < expected and time.time() < deadline:
+        try:
+            q.get(timeout=1.0)
+            received += 1
+        except queue.Empty:
+            if not any(p.is_alive() for p in procs):
+                break
+            continue
+
+    for p in procs:
+        if p.is_alive():
+            p.terminate()
+        p.join(timeout=5)
+
+    assert received < expected, (
+        f"consumer should detect shortfall, not block to full count "
+        f"(got {received}/{expected})"
+    )
+    assert time.time() < deadline, "consumer must terminate within deadline, not hang"
+    return True

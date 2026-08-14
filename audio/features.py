@@ -768,11 +768,12 @@ def _ffmpeg_crop_to_tempwav(
 def prepare_extractor(
     profile_path: pathlib.Path | None = None,
     panns_weights_path: pathlib.Path | None = None,
+    use_panns: bool = True,
 ) -> CombinedExtractor:
-    if panns_weights_path is None:
+    if use_panns and panns_weights_path is None:
         panns_weights_path = config.panns_weights_path
     essentia_extractor = get_essentia_extractor(profile_path)
-    panns_model = PANNsCNN14(panns_weights_path)
+    panns_model = PANNsCNN14(panns_weights_path) if use_panns else None
     return CombinedExtractor(
         essentia_extractor=essentia_extractor,
         panns_model=panns_model,

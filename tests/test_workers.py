@@ -85,6 +85,15 @@ class TestWorkerPattern:
         assert result is True
 
 
+class TestWorkerLiveness:
+    def test_consumer_breaks_when_worker_dies(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("config.local_data_path", tmp_path / "local_data")
+
+        result = worker_helpers.run_test_worker_death_no_hang()
+
+        assert result is True
+
+
 class TestPathResolution:
     def test_config_paths_are_absolute(self, tmp_path, monkeypatch):
         monkeypatch.setattr("config.local_data_path", tmp_path / "local_data")
