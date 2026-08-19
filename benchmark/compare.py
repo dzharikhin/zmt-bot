@@ -319,8 +319,8 @@ def main():
     args = parser.parse_args()
 
     def make_preprocessor_factory(preprocessor_str: str):
-        if preprocessor_str == "standardize+select_64":
-            n = int(preprocessor_str.split("_")[-1])
+        if preprocessor_str.startswith("standardize+select_"):
+            n = int(preprocessor_str.rsplit("_", 1)[-1])
             return lambda: StandardizeSelectPreprocessor(n_features=n)
         elif preprocessor_str == "none":
             return lambda: NoOpPreprocessor()
