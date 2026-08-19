@@ -255,11 +255,16 @@ def get_subscribed_user_ids(channel_id: int) -> list[int]:
 class Model:
     model_id: int
     pickle_file_path: pathlib.Path
-    accuracy: float
     liked_tracks_count: int
     disliked_tracks_count: int
+    disliked_false_accept: Optional[float] = None
+    liked_false_reject: Optional[float] = None
+    metrics_source: Optional[str] = None
     thresholds: Optional[dict] = None
     embed_version: Optional[str] = None
+
+
+_MODEL_FIELDS = {f.name for f in dataclasses.fields(Model)}
 
 
 def get_models(user_id: int) -> list[Model]:
@@ -281,6 +286,7 @@ def get_model(user_id: int, model_id: int) -> Optional[Model]:
         return None
     model_stats = json.loads(model_path.joinpath("stats.json").read_text())
     model_stats.pop("model_type", None)
+    model_stats = {k: v for k, v in model_stats.items() if k in _MODEL_FIELDS}
     return Model(
         model_id=int(model_path.stem),
         pickle_file_path=model_path.joinpath("model.pkl"),

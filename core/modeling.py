@@ -247,6 +247,7 @@ class DualOneClassModel:
         self.embed_version = None
         self.segment_policy = None
         self.stats = {}
+        self.operating_metrics = {}
 
     def fit(self, X_liked: np.ndarray, X_disliked: np.ndarray):
         """Fit both models and compute thresholds"""
@@ -279,21 +280,36 @@ class DualOneClassModel:
             ),
             "exclude_disliked_recall_target": self.exclude_disliked_recall_target,
             "include_liked_recall_target": self.include_liked_recall_target,
+            **self.operating_metrics,
         }
         return self
 
-    def _cv_scores(self, X: np.ndarray) -> np.ndarray:
+    def _cv_scores(
+        self, X: np.ndarray, X_other: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
         """Out-of-fold calibrated scores via k-fold CV
 
         Each fold trains a fresh OneClassSetModel (same hyperparams) and scores
         the held-out partition. The concatenated held-out scores approximate
         the distribution a new point would face at inference time.
+
+        Each fold model also scores one partition of X_other (fold structure
+        mirrored from benchmark/compare.py), yielding out-of-fold cross-set
+        scores for operating-point error rates.
+
+        Returns:
+            (oof_scores_self, oof_scores_other)
         """
         n_splits = min(self.cv_folds, len(X))
         kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
         oof_scores = np.empty(len(X), dtype=np.float64)
 
-        for train_idx, test_idx in kf.split(X):
+        n_splits_other = min(n_splits, len(X_other))
+        kf_other = KFold(n_splits=n_splits_other, shuffle=True, random_state=42)
+        other_chunks = [test_idx for _, test_idx in kf_other.split(X_other)]
+        oof_other_scores = np.empty(len(X_other), dtype=np.float64)
+
+        for fold_idx, (train_idx, test_idx) in enumerate(kf.split(X)):
             X_train, X_test = X[train_idx], X[test_idx]
             fold_model = OneClassSetModel(
                 knn_k_min=self.knn_k_min,
@@ -307,8 +323,15 @@ class DualOneClassModel:
                 oof_scores[idx] = fold_model.score(X_test[i].reshape(1, -1))[
                     "calibrated"
                 ]
+            if fold_idx < len(other_chunks):
+                other_idx = other_chunks[fold_idx]
+                X_other_chunk = X_other[other_idx]
+                for i, idx in enumerate(other_idx):
+                    oof_other_scores[idx] = fold_model.score(
+                        X_other_chunk[i].reshape(1, -1)
+                    )["calibrated"]
 
-        return oof_scores
+        return oof_scores, oof_other_scores
 
     def _compute_thresholds(self, X_liked: np.ndarray, X_disliked: np.ndarray):
         """Determine thresholds for exclude_disliked and include_liked
@@ -317,13 +340,18 @@ class DualOneClassModel:
         include_liked: Accept definite likes (recall_target on likes)
 
         When cv_folds >= 2, thresholds are derived from out-of-fold scores
-        for honest recall guarantees. Otherwise in-sample scores are used.
+        for honest recall guarantees, and out-of-fold cross-set error rates
+        (disliked_false_accept at the include threshold, liked_false_reject
+        at the exclude threshold) are recorded in operating_metrics using the
+        same estimator as benchmark/compare.py. Otherwise in-sample scores
+        are used and metrics_source reflects the fallback.
         """
         use_cv = self.cv_folds is not None and self.cv_folds >= 2
 
         if use_cv:
-            dislike_scores = self._cv_scores(X_disliked)
-            like_scores = self._cv_scores(X_liked)
+            dislike_scores, dislike_on_liked = self._cv_scores(X_disliked, X_liked)
+            like_scores, like_on_disliked = self._cv_scores(X_liked, X_disliked)
+            metrics_source = "cross_validated"
         else:
             dislike_scores = np.array(
                 [
@@ -337,6 +365,19 @@ class DualOneClassModel:
                     for x in X_liked
                 ]
             )
+            dislike_on_liked = np.array(
+                [
+                    self.dislike_model.score(x.reshape(1, -1))["calibrated"]
+                    for x in X_liked
+                ]
+            )
+            like_on_disliked = np.array(
+                [
+                    self.liked_model.score(x.reshape(1, -1))["calibrated"]
+                    for x in X_disliked
+                ]
+            )
+            metrics_source = "in_sample"
 
         self.thresholds["exclude_disliked"] = float(
             np.percentile(
@@ -346,6 +387,16 @@ class DualOneClassModel:
         self.thresholds["include_liked"] = float(
             np.percentile(like_scores, 100 * (1 - self.include_liked_recall_target))
         )
+
+        self.operating_metrics = {
+            "disliked_false_accept": float(
+                np.mean(like_on_disliked > self.thresholds["include_liked"])
+            ),
+            "liked_false_reject": float(
+                np.mean(dislike_on_liked >= self.thresholds["exclude_disliked"])
+            ),
+            "metrics_source": metrics_source,
+        }
 
     def predict(self, X: np.ndarray) -> dict:
         """Score a track against both models"""

@@ -87,7 +87,9 @@ def main():
 
     logger.info(
         f"Training complete: model_id={model.model_id}, "
-        f"accuracy={model.accuracy:.2f}, "
+        f"disliked_false_accept={model.disliked_false_accept:.2f}, "
+        f"liked_false_reject={model.liked_false_reject:.2f}, "
+        f"metrics_source={model.metrics_source}, "
         f"liked={model.liked_tracks_count}, disliked={model.disliked_tracks_count}, "
         f"thresholds={model.thresholds}, embed_version={model.embed_version}"
     )

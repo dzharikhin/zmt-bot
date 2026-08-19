@@ -310,7 +310,6 @@ def _build_profile(user_id: int, model_id: int) -> config.Model:
         **model.stats,
         "liked_tracks_count": n_liked,
         "disliked_tracks_count": n_disliked,
-        "accuracy": 0.0,
         "thresholds": model.thresholds,
         "embed_version": embed_version,
         "outliers_removed_liked": outliers_removed_liked,

@@ -74,10 +74,17 @@ async def handle_train_queue_tasks(
                 cmd.get("limit", 1000),
             )
             model = config.get_model(user_id, cmd["message_id"])
+            metrics_summary = (
+                f"disliked_false_accept={model.disliked_false_accept:.2f}, "
+                f"liked_false_reject={model.liked_false_reject:.2f}"
+                if model.disliked_false_accept is not None
+                and model.liked_false_reject is not None
+                else "metrics unavailable"
+            )
             await bot_client.send_message(
                 user_id,
                 f"Successfully trained model {model.model_id}: "
-                f"accuracy={model.accuracy:.2f} for "
+                f"{metrics_summary} for "
                 f"{model.disliked_tracks_count} disliked tracks and "
                 f"{model.liked_tracks_count} liked tracks",
             )
@@ -420,7 +427,7 @@ async def check_queue_handlers(
             if (
                 not estimate_queue_task
                 or estimate_queue_task.cancelled()
-                or train_queue_task.done()
+                or estimate_queue_task.done()
             ):
                 current_user_tasks["handle_estimate_queue_tasks"] = asyncio.create_task(
                     handle_estimate_queue_tasks(user_id, bot_client)
@@ -583,8 +590,10 @@ async def main():
                 )
                 return
 
+            channel_name = await get_channel_name(
+                args.estimation_channel_id, bot_client
+            )
             config.remove_subscription(event.sender_id, args.estimation_channel_id)
-            channel_name = get_channel_name(args.estimation_channel_id, bot_client)
             await event.respond(f"Unsubscribed from {channel_name}")
 
         @bot_client.on(

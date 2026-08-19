@@ -1,6 +1,8 @@
 import json
 import pickle
 
+import pytest
+
 import config
 from core.modeling import DualOneClassModel
 from models import ModelType
@@ -136,3 +138,77 @@ def test_model_stats_ignores_legacy_model_type(tmp_path, monkeypatch):
     assert model_obj.model_id == 42
     assert model_obj.liked_tracks_count == 10
     assert not hasattr(model_obj, "model_type")
+
+
+def test_model_stats_with_real_train_shape(tmp_path, monkeypatch):
+    """Regression: stats.json as written by train.py:_build_profile contains
+    many keys beyond the Model dataclass fields (liked_n, imbalance_ratio,
+    recall targets, outliers_removed_*, ...). get_model must filter instead
+    of crashing with TypeError."""
+    monkeypatch.setattr(config, "data_path", tmp_path)
+
+    model_dir = tmp_path / "1" / "models" / "7"
+    model_dir.mkdir(parents=True)
+    (model_dir / "model.pkl").write_bytes(b"")
+
+    stats = {
+        "liked_n": 1376,
+        "disliked_n": 603,
+        "imbalance_ratio": 2.28,
+        "liked_knn_k_used": 19,
+        "liked_gmm_components_used": 17,
+        "disliked_knn_k_used": 15,
+        "disliked_gmm_components_used": 7,
+        "cv_folds_used": 5,
+        "exclude_disliked_recall_target": 0.9,
+        "include_liked_recall_target": 0.8,
+        "disliked_false_accept": 0.16417910447761194,
+        "liked_false_reject": 0.6809593023255814,
+        "metrics_source": "cross_validated",
+        "liked_tracks_count": 1376,
+        "disliked_tracks_count": 603,
+        "thresholds": {"exclude_disliked": 0.55, "include_liked": 0.65},
+        "embed_version": "essentia-2.1b6.dev1438+profile-9d999a32d40d3078",
+        "outliers_removed_liked": 12,
+        "outliers_removed_disliked": 5,
+    }
+    (model_dir / "stats.json").write_text(json.dumps(stats))
+
+    model_obj = config.get_model(1, 7)
+    assert model_obj is not None
+    assert model_obj.model_id == 7
+    assert model_obj.liked_tracks_count == 1376
+    assert model_obj.disliked_tracks_count == 603
+    assert model_obj.disliked_false_accept == pytest.approx(0.16417910447761194)
+    assert model_obj.liked_false_reject == pytest.approx(0.6809593023255814)
+    assert model_obj.metrics_source == "cross_validated"
+    assert model_obj.thresholds == {"exclude_disliked": 0.55, "include_liked": 0.65}
+    assert model_obj.embed_version == "essentia-2.1b6.dev1438+profile-9d999a32d40d3078"
+    assert not hasattr(model_obj, "liked_n")
+    assert not hasattr(model_obj, "outliers_removed_liked")
+
+
+def test_model_stats_legacy_accuracy_ignored(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "data_path", tmp_path)
+
+    model_dir = tmp_path / "1" / "models" / "9"
+    model_dir.mkdir(parents=True)
+    (model_dir / "model.pkl").write_bytes(b"")
+
+    (model_dir / "stats.json").write_text(
+        json.dumps(
+            {
+                "liked_tracks_count": 10,
+                "disliked_tracks_count": 5,
+                "accuracy": 0.85,
+            }
+        )
+    )
+
+    model_obj = config.get_model(1, 9)
+    assert model_obj is not None
+    assert model_obj.liked_tracks_count == 10
+    assert not hasattr(model_obj, "accuracy")
+    assert model_obj.disliked_false_accept is None
+    assert model_obj.liked_false_reject is None
+    assert model_obj.metrics_source is None

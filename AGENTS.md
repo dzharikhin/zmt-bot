@@ -23,6 +23,7 @@
 ## Key conventions
 - **snake case for bot commands** using argparse
 - **Two one-class models** per user (liked + disliked), NOT a binary classifier
+- **Audio data only** — processing uses raw audio exclusively; no artist, genre, or other metadata
 - **Process pools** use `multiprocessing.get_context("spawn")` via lazy accessors `get_training_executor()`/`get_estimation_executor()` in config.py
 - **PyTorch CPU-only** via explicit `pytorch_cpu` source in pyproject.toml
 - **PANNs CNN14 assets** user-provided under `data/panns_data/`: weights `panns_cnn14.pth` and labels `class_labels_indices.csv`; container symlinks `/root/panns_data` → `/app/data/panns_data`

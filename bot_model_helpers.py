@@ -47,7 +47,7 @@ async def build_model_page_response(
         )
         previous_offset = offset_stack[-2] if len(offset_stack) >= 2 else None
     else:
-        raise f"Unknown action type {action_type}"
+        raise ValueError(f"Unknown action type {action_type}")
     logger.debug(
         f"returning for model request {action=}: "
         f"{offset_stack=},{previous_offset=},{next_offset=}"
@@ -83,9 +83,15 @@ async def format_model_response(
     for model in items:
         subs = subscription_names.get(model.model_id, [])
         subs_str = ",".join(subs) if subs else ""
+        metrics_summary = (
+            f"fa={model.disliked_false_accept:.2f},fr={model.liked_false_reject:.2f}"
+            if model.disliked_false_accept is not None
+            and model.liked_false_reject is not None
+            else "n/a"
+        )
         line = (
             f"* [{subs_str}] model `{model.model_id}`: "
-            f"{model.accuracy:.2f}(track stats: "
+            f"{metrics_summary}(track stats: "
             f"{model.disliked_tracks_count}disliked / {model.liked_tracks_count}liked)"
         )
         models_lines.append(line)

@@ -507,6 +507,98 @@ class TestDualOneClassModelSchemaVersion:
         )
 
 
+class TestOperatingMetrics:
+    def test_separated_clusters_zero_cross_error(self, rng):
+        X_liked = rng.normal(loc=0.0, scale=0.5, size=(150, 5))
+        X_disliked = rng.normal(loc=20.0, scale=0.5, size=(150, 5))
+
+        model = DualOneClassModel(
+            knn_k_min=3,
+            knn_k_max=5,
+            gmm_components_max=4,
+            gmm_min_points_per_component=10,
+            cv_folds=5,
+        )
+        model.fit(X_liked, X_disliked)
+
+        assert model.operating_metrics["metrics_source"] == "cross_validated"
+        assert model.operating_metrics["disliked_false_accept"] == pytest.approx(0.0)
+        assert model.operating_metrics["liked_false_reject"] == pytest.approx(0.0)
+
+    def test_identical_clusters_high_cross_error(self, rng):
+        X_liked = rng.normal(loc=0.0, scale=1.0, size=(150, 5))
+        X_disliked = rng.normal(loc=0.0, scale=1.0, size=(150, 5))
+
+        model = DualOneClassModel(
+            knn_k_min=3,
+            knn_k_max=5,
+            gmm_components_max=4,
+            gmm_min_points_per_component=10,
+            cv_folds=5,
+        )
+        model.fit(X_liked, X_disliked)
+
+        assert model.operating_metrics["disliked_false_accept"] > 0.4
+        assert model.operating_metrics["liked_false_reject"] > 0.4
+
+    def test_in_sample_fallback_sets_metrics_source(self, rng):
+        X_liked = rng.normal(loc=0.0, scale=1.0, size=(60, 5))
+        X_disliked = rng.normal(loc=5.0, scale=1.0, size=(60, 5))
+
+        model = DualOneClassModel(
+            knn_k_min=3,
+            knn_k_max=5,
+            gmm_components_max=4,
+            gmm_min_points_per_component=10,
+            cv_folds=None,
+        )
+        model.fit(X_liked, X_disliked)
+
+        assert model.operating_metrics["metrics_source"] == "in_sample"
+        assert model.operating_metrics["disliked_false_accept"] == pytest.approx(0.0)
+        assert model.operating_metrics["liked_false_reject"] == pytest.approx(0.0)
+
+    def test_operating_metrics_in_stats(self, rng):
+        X_liked = rng.normal(loc=0.0, scale=1.0, size=(60, 5))
+        X_disliked = rng.normal(loc=5.0, scale=1.0, size=(60, 5))
+
+        model = DualOneClassModel(
+            knn_k_min=3,
+            knn_k_max=5,
+            gmm_components_max=4,
+            gmm_min_points_per_component=10,
+            cv_folds=5,
+        )
+        model.fit(X_liked, X_disliked)
+
+        for key in ("disliked_false_accept", "liked_false_reject", "metrics_source"):
+            assert model.stats[key] == model.operating_metrics[key]
+
+    def test_false_accept_grows_with_overlap(self, rng):
+        X_liked = rng.normal(loc=0.0, scale=1.0, size=(150, 5))
+        X_disliked_far = rng.normal(loc=8.0, scale=1.0, size=(150, 5))
+        X_disliked_near = rng.normal(loc=2.0, scale=1.0, size=(150, 5))
+
+        def fit_with(X_disliked):
+            model = DualOneClassModel(
+                knn_k_min=3,
+                knn_k_max=5,
+                gmm_components_max=4,
+                gmm_min_points_per_component=10,
+                cv_folds=5,
+            )
+            model.fit(X_liked, X_disliked)
+            return model
+
+        far = fit_with(X_disliked_far)
+        near = fit_with(X_disliked_near)
+
+        assert (
+            near.operating_metrics["disliked_false_accept"]
+            > far.operating_metrics["disliked_false_accept"]
+        )
+
+
 class TestIsotonicCalibration:
     def test_in_distribution_higher_than_outliers(self, rng):
         in_dist = rng.normal(loc=0.0, scale=1.0, size=(80, 5))
