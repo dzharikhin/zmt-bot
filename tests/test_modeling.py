@@ -599,6 +599,93 @@ class TestOperatingMetrics:
         )
 
 
+class TestPerModelParams:
+    def test_liked_override_reaches_liked_model_only(self, rng):
+        X_liked = rng.normal(loc=0.0, scale=1.0, size=(130, 5))
+        X_disliked = rng.normal(loc=5.0, scale=1.0, size=(60, 5))
+
+        model = DualOneClassModel(
+            knn_k_min=5,
+            knn_k_max=15,
+            knn_k_scale=0.5,
+            gmm_components_max=16,
+            gmm_min_points_per_component=40,
+            cv_folds=None,
+            liked_params={"knn_k_max": 8},
+        )
+        model.fit(X_liked, X_disliked)
+
+        assert model.liked_model.knn_k_max == 8
+        assert model.dislike_model.knn_k_max == 15
+        assert model.liked_params["knn_k_max"] == 8
+        assert model.disliked_params["knn_k_max"] == 15
+
+    def test_no_overrides_equals_shared(self, rng):
+        X_liked = rng.normal(loc=0.0, scale=1.0, size=(60, 5))
+        X_disliked = rng.normal(loc=5.0, scale=1.0, size=(60, 5))
+
+        model = DualOneClassModel(
+            knn_k_min=3,
+            knn_k_max=5,
+            gmm_components_max=4,
+            gmm_min_points_per_component=10,
+            cv_folds=None,
+        )
+        model.fit(X_liked, X_disliked)
+
+        assert model.liked_params == model.disliked_params
+        assert model.liked_params["knn_k_min"] == 3
+
+    def test_unknown_param_raises(self):
+        with pytest.raises(ValueError, match="Unknown per-model params"):
+            DualOneClassModel(liked_params={"not_a_param": 1})
+
+    def test_unknown_disliked_param_raises(self):
+        with pytest.raises(ValueError, match="Unknown per-model params"):
+            DualOneClassModel(disliked_params={"knn_k_tiny": 1})
+
+    def test_cv_fold_models_use_owning_set_params(self, rng):
+        X_liked = rng.normal(loc=0.0, scale=1.0, size=(130, 5))
+        X_disliked = rng.normal(loc=5.0, scale=1.0, size=(130, 5))
+
+        model = DualOneClassModel(
+            knn_k_min=3,
+            knn_k_max=5,
+            gmm_components_max=6,
+            gmm_min_points_per_component=10,
+            cv_folds=5,
+            liked_params={"gmm_components_max": 2, "gmm_min_points_per_component": 65},
+            disliked_params={"gmm_components_max": 10},
+        )
+        model.fit(X_liked, X_disliked)
+
+        # full-data fit (n=130): liked 130//65=2 -> floor 2; disliked 130//10=13
+        # capped at gmm_components_max=10
+        assert model.stats["liked_gmm_components_used"] == 2
+        assert model.stats["disliked_gmm_components_used"] == 10
+
+    def test_save_records_per_model_params(self, tmp_path, rng):
+        X_liked = rng.normal(loc=0.0, scale=1.0, size=(60, 5))
+        X_disliked = rng.normal(loc=5.0, scale=1.0, size=(60, 5))
+
+        model = DualOneClassModel(
+            knn_k_min=3,
+            knn_k_max=5,
+            gmm_components_max=4,
+            gmm_min_points_per_component=10,
+            cv_folds=None,
+            liked_params={"knn_k_max": 8},
+            disliked_params={"knn_k_scale": 0.9},
+        )
+        model.fit(X_liked, X_disliked)
+        model.save(tmp_path / "dual")
+
+        loaded = DualOneClassModel.load(tmp_path / "dual")
+        assert loaded.liked_params["knn_k_max"] == 8
+        assert loaded.disliked_params["knn_k_scale"] == 0.9
+        assert loaded.liked_params["knn_k_min"] == 3
+
+
 class TestIsotonicCalibration:
     def test_in_distribution_higher_than_outliers(self, rng):
         in_dist = rng.normal(loc=0.0, scale=1.0, size=(80, 5))

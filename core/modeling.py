@@ -16,6 +16,28 @@ logger = logging.getLogger(__name__)
 
 _MODEL_SCHEMA_VERSION = 5
 
+_SHARED_MODEL_PARAMS = (
+    "knn_k_min",
+    "knn_k_max",
+    "knn_k_scale",
+    "gmm_components_max",
+    "gmm_min_points_per_component",
+)
+
+
+def _resolve_model_params(shared: dict, override: dict | None) -> dict:
+    """Merge a per-model override dict over the shared hyperparameters"""
+    params = dict(shared)
+    if override:
+        unknown = set(override) - set(_SHARED_MODEL_PARAMS)
+        if unknown:
+            raise ValueError(
+                f"Unknown per-model params: {sorted(unknown)} "
+                f"(allowed: {_SHARED_MODEL_PARAMS})"
+            )
+        params.update(override)
+    return params
+
 
 class ModelLoadError(Exception):
     """Raised when model loading fails (incompatible format, corrupt file, etc.)."""
@@ -218,6 +240,8 @@ class DualOneClassModel:
         exclude_disliked_recall_target: float = 0.90,
         include_liked_recall_target: float = 0.80,
         preprocessor: Preprocessor | None = None,
+        liked_params: dict | None = None,
+        disliked_params: dict | None = None,
     ):
         self.knn_k_min = knn_k_min
         self.knn_k_max = knn_k_max
@@ -229,20 +253,18 @@ class DualOneClassModel:
         self.include_liked_recall_target = include_liked_recall_target
         self.preprocessor = preprocessor or NoOpPreprocessor()
 
-        self.liked_model = OneClassSetModel(
-            knn_k_min=knn_k_min,
-            knn_k_max=knn_k_max,
-            knn_k_scale=knn_k_scale,
-            gmm_components_max=gmm_components_max,
-            gmm_min_points_per_component=gmm_min_points_per_component,
-        )
-        self.dislike_model = OneClassSetModel(
-            knn_k_min=knn_k_min,
-            knn_k_max=knn_k_max,
-            knn_k_scale=knn_k_scale,
-            gmm_components_max=gmm_components_max,
-            gmm_min_points_per_component=gmm_min_points_per_component,
-        )
+        shared = {
+            "knn_k_min": knn_k_min,
+            "knn_k_max": knn_k_max,
+            "knn_k_scale": knn_k_scale,
+            "gmm_components_max": gmm_components_max,
+            "gmm_min_points_per_component": gmm_min_points_per_component,
+        }
+        self.liked_params = _resolve_model_params(shared, liked_params)
+        self.disliked_params = _resolve_model_params(shared, disliked_params)
+
+        self.liked_model = OneClassSetModel(**self.liked_params)
+        self.dislike_model = OneClassSetModel(**self.disliked_params)
         self.thresholds = {"exclude_disliked": 0.55, "include_liked": 0.65}
         self.embed_version = None
         self.segment_policy = None
@@ -285,13 +307,14 @@ class DualOneClassModel:
         return self
 
     def _cv_scores(
-        self, X: np.ndarray, X_other: np.ndarray
+        self, X: np.ndarray, X_other: np.ndarray, params: dict
     ) -> tuple[np.ndarray, np.ndarray]:
         """Out-of-fold calibrated scores via k-fold CV
 
-        Each fold trains a fresh OneClassSetModel (same hyperparams) and scores
-        the held-out partition. The concatenated held-out scores approximate
-        the distribution a new point would face at inference time.
+        Each fold trains a fresh OneClassSetModel (using `params`, the owning
+        set's resolved hyperparameters) and scores the held-out partition. The
+        concatenated held-out scores approximate the distribution a new point
+        would face at inference time.
 
         Each fold model also scores one partition of X_other (fold structure
         mirrored from benchmark/compare.py), yielding out-of-fold cross-set
@@ -305,19 +328,13 @@ class DualOneClassModel:
         oof_scores = np.empty(len(X), dtype=np.float64)
 
         n_splits_other = min(n_splits, len(X_other))
-        kf_other = KFold(n_splits=n_splits_other, shuffle=True, random_state=42)
+        kf_other = KFold(n_splits_other, shuffle=True, random_state=42)
         other_chunks = [test_idx for _, test_idx in kf_other.split(X_other)]
         oof_other_scores = np.empty(len(X_other), dtype=np.float64)
 
         for fold_idx, (train_idx, test_idx) in enumerate(kf.split(X)):
             X_train, X_test = X[train_idx], X[test_idx]
-            fold_model = OneClassSetModel(
-                knn_k_min=self.knn_k_min,
-                knn_k_max=self.knn_k_max,
-                knn_k_scale=self.knn_k_scale,
-                gmm_components_max=self.gmm_components_max,
-                gmm_min_points_per_component=self.gmm_min_points_per_component,
-            )
+            fold_model = OneClassSetModel(**params)
             fold_model.fit(X_train)
             for i, idx in enumerate(test_idx):
                 oof_scores[idx] = fold_model.score(X_test[i].reshape(1, -1))[
@@ -349,8 +366,12 @@ class DualOneClassModel:
         use_cv = self.cv_folds is not None and self.cv_folds >= 2
 
         if use_cv:
-            dislike_scores, dislike_on_liked = self._cv_scores(X_disliked, X_liked)
-            like_scores, like_on_disliked = self._cv_scores(X_liked, X_disliked)
+            dislike_scores, dislike_on_liked = self._cv_scores(
+                X_disliked, X_liked, self.disliked_params
+            )
+            like_scores, like_on_disliked = self._cv_scores(
+                X_liked, X_disliked, self.liked_params
+            )
             metrics_source = "cross_validated"
         else:
             dislike_scores = np.array(
@@ -436,6 +457,8 @@ class DualOneClassModel:
                 "knn_k_scale": self.knn_k_scale,
                 "gmm_components_max": self.gmm_components_max,
                 "gmm_min_points_per_component": self.gmm_min_points_per_component,
+                "liked_params": self.liked_params,
+                "disliked_params": self.disliked_params,
                 "cv_folds": self.cv_folds,
                 "exclude_disliked_recall_target": self.exclude_disliked_recall_target,
                 "include_liked_recall_target": self.include_liked_recall_target,
