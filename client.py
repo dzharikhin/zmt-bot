@@ -23,7 +23,7 @@ from bot_model_helpers import build_model_page_response
 from bot_utils import get_channel_name, get_channel_names, get_message, is_allowed_user
 from core.logging import setup_logging
 from models import ModelType
-from train import estimate, prepare_model
+from train import FILTER, estimate, prepare_model
 
 setup_logging(
     level=logging.WARN,
@@ -284,11 +284,11 @@ SUBSCRIBE_CMD = (
         required=False,
         type=ModelType.from_string,
         choices=list(ModelType),
-        default=ModelType.INCLUDE_LIKED,
+        default=ModelType.EXCLUDE_DISLIKED,
         help=(
             f"decision policy. {ModelType.INCLUDE_LIKED} - posts tracks similar "
             f"to liked ones, {ModelType.EXCLUDE_DISLIKED} - posts other than "
-            f"disliked (default: {ModelType.INCLUDE_LIKED})"
+            f"disliked (default: {ModelType.EXCLUDE_DISLIKED})"
         ),
     ),
     parser,
@@ -585,8 +585,8 @@ async def main():
             )
             if not subscription:
                 await event.respond(
-                    f"❌ Error: Not subscribed to channel {args.estimation_channel_id}. "
-                    f"Hint: /subscriptions"
+                    f"❌ Error: Not subscribed to channel "
+                    f"{args.estimation_channel_id}. Hint: /subscriptions"
                 )
                 return
 
@@ -620,12 +620,15 @@ async def main():
                     sub.estimate_from_channel_id, bot_client
                 )
                 buffer.write(
-                    f"{idx}. {channel_name}({sub.estimate_from_channel_id}) - Model #{sub.model_id} ({sub.model_type})\n"
+                    f"{idx}. {channel_name}({sub.estimate_from_channel_id}) "
+                    f"- Model #{sub.model_id} ({sub.model_type})\n"
                 )
 
             await event.respond(buffer.getvalue())
 
         def filter_subscribed_with_mp3(event: NewMessage.Event):
+            if not FILTER.filter_message(event.message):
+                return False
             return config.get_subscribed_user_ids(event.chat_id)
 
         @bot_client.on(events.NewMessage(func=filter_subscribed_with_mp3))
