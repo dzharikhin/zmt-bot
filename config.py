@@ -115,6 +115,13 @@ def get_training_executor() -> ProcessPoolExecutor:
     return _training_executor
 
 
+def reset_training_executor() -> None:
+    global _training_executor
+    if _training_executor is not None:
+        _training_executor.shutdown(wait=False, cancel_futures=True)
+    _training_executor = None
+
+
 def get_estimation_executor() -> ProcessPoolExecutor:
     global _estimation_executor
     if _estimation_executor is None:
@@ -124,6 +131,13 @@ def get_estimation_executor() -> ProcessPoolExecutor:
             initializer=_setup_worker_logging,
         )
     return _estimation_executor
+
+
+def reset_estimation_executor() -> None:
+    global _estimation_executor
+    if _estimation_executor is not None:
+        _estimation_executor.shutdown(wait=False, cancel_futures=True)
+    _estimation_executor = None
 
 
 def get_existing_users() -> list[int]:
@@ -274,9 +288,11 @@ def get_models(user_id: int) -> list[Model]:
     if not models_path.exists():
         return []
     return [
-        get_model(user_id, int(model_path.stem))
+        model
         for model_path in models_path.iterdir()
-        if model_path.is_dir() and model_path.joinpath("model.pkl").exists()
+        if model_path.is_dir()
+        and model_path.joinpath("model.pkl").exists()
+        and (model := get_model(user_id, int(model_path.stem))) is not None
     ]
 
 
@@ -284,9 +300,12 @@ def get_model(user_id: int, model_id: int) -> Optional[Model]:
     model_path = (
         data_path.joinpath(str(user_id)).joinpath("models").joinpath(str(model_id))
     )
-    if not model_path.exists():
+    if not model_path.joinpath("model.pkl").exists():
         return None
-    model_stats = json.loads(model_path.joinpath("stats.json").read_text())
+    stats_path = model_path.joinpath("stats.json")
+    if not stats_path.exists():
+        return None
+    model_stats = json.loads(stats_path.read_text())
     model_stats.pop("model_type", None)
     model_stats = {k: v for k, v in model_stats.items() if k in _MODEL_FIELDS}
     return Model(

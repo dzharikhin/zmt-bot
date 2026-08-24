@@ -212,3 +212,89 @@ def test_model_stats_legacy_accuracy_ignored(tmp_path, monkeypatch):
     assert model_obj.disliked_false_accept is None
     assert model_obj.liked_false_reject is None
     assert model_obj.metrics_source is None
+
+
+def test_get_model_none_when_model_pickle_missing(tmp_path, monkeypatch):
+    """Regression: a model dir from the legacy {id}.pickle layout (stats.json
+    present, model.pkl absent) must be reported as nonexistent instead of
+    passing validation and exploding later at estimation time."""
+    monkeypatch.setattr(config, "data_path", tmp_path)
+
+    model_dir = tmp_path / "1" / "models" / "6177"
+    model_dir.mkdir(parents=True)
+    (model_dir / "6177.pickle").write_bytes(b"legacy layout")
+    (model_dir / "stats.json").write_text(
+        json.dumps({"liked_tracks_count": 10, "disliked_tracks_count": 5})
+    )
+
+    assert config.get_model(1, 6177) is None
+
+
+def test_get_model_none_when_model_dir_missing(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "data_path", tmp_path)
+
+    assert config.get_model(1, 12345) is None
+
+
+def test_get_model_none_when_stats_missing(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "data_path", tmp_path)
+
+    model_dir = tmp_path / "1" / "models" / "42"
+    model_dir.mkdir(parents=True)
+    (model_dir / "model.pkl").write_bytes(b"")
+
+    assert config.get_model(1, 42) is None
+
+
+def test_get_models_skips_models_without_stats(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "data_path", tmp_path)
+
+    models_dir = tmp_path / "1" / "models"
+    broken = models_dir / "7"
+    broken.mkdir(parents=True)
+    (broken / "model.pkl").write_bytes(b"")
+
+    valid = models_dir / "8"
+    valid.mkdir()
+    (valid / "model.pkl").write_bytes(b"")
+    (valid / "stats.json").write_text(
+        json.dumps({"liked_tracks_count": 3, "disliked_tracks_count": 4})
+    )
+
+    models = config.get_models(1)
+    assert [model.model_id for model in models] == [8]
+
+
+def test_reset_training_executor_clears_global(monkeypatch):
+    shutdowns = []
+
+    class FakeExecutor:
+        def shutdown(self, **kwargs):
+            shutdowns.append(kwargs)
+
+    monkeypatch.setattr(config, "_training_executor", FakeExecutor())
+    config.reset_training_executor()
+    assert config._training_executor is None
+    assert len(shutdowns) == 1
+
+
+def test_reset_estimation_executor_clears_global(monkeypatch):
+    shutdowns = []
+
+    class FakeExecutor:
+        def shutdown(self, **kwargs):
+            shutdowns.append(kwargs)
+
+    monkeypatch.setattr(config, "_estimation_executor", FakeExecutor())
+    config.reset_estimation_executor()
+    assert config._estimation_executor is None
+    assert len(shutdowns) == 1
+
+
+def test_reset_executors_tolerate_none(monkeypatch):
+    monkeypatch.setattr(config, "_training_executor", None)
+    monkeypatch.setattr(config, "_estimation_executor", None)
+    config.reset_training_executor()
+    config.reset_estimation_executor()
+    assert config._training_executor is None
+    assert config._estimation_executor is None

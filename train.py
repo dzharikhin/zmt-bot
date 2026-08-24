@@ -386,9 +386,11 @@ def _execute_estimation(
     try:
         model_store = config.get_model_store_path(user_id, model_id)
 
-        if not model_store.model_workdir.exists():
+        model_pickle = model_store.model_workdir / model_store.model_pickle_name
+        if not model_pickle.exists():
             raise EstimationUnrecoverable(
-                f"Model {model_id} not found for user {user_id}"
+                f"Model {model_id} not found for user {user_id}. "
+                f"Please retrain with /train"
             )
 
         model = DualOneClassModel.load(model_store.model_workdir)

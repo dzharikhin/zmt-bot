@@ -33,6 +33,8 @@ setup_logging(
 logger = logging.getLogger(__file__)
 logger.setLevel(logging.DEBUG)
 
+TRANSIENT_ERRORS = (RPCError, ConnectionError, TimeoutError, BrokenProcessPool)
+
 
 async def send_train_queue_task(
     event,
@@ -48,6 +50,29 @@ async def send_train_queue_task(
             "latest_message_links": latest_message_links,
         }
     )
+
+
+async def wait_for_connectivity(
+    bot_client: TelegramClient,
+    poll_interval: float = 5.0,
+    settle_interval: float = 5.0,
+    floor_interval: float = 2.0,
+):
+    """Block until the bot client is connected again.
+
+    Requires the client to be built with connection_retries=None so Telethon
+    never abandons reconnection. After a real disconnect, wait for
+    reconnection and let the fresh connection settle; otherwise a short floor
+    sleep still prevents a hot retry loop.
+    """
+    waited = False
+    while not bot_client.is_connected():
+        waited = True
+        await asyncio.sleep(poll_interval)
+    if waited:
+        await asyncio.sleep(settle_interval)
+    else:
+        await asyncio.sleep(floor_interval)
 
 
 async def handle_train_queue_tasks(
@@ -95,12 +120,15 @@ async def handle_train_queue_tasks(
             await handle_non_recoverable(
                 bot_client, cmd, e, queue, user_id, "cannot train model"
             )
-        except (RPCError, BrokenProcessPool) as e:
+        except TRANSIENT_ERRORS as e:
+            if isinstance(e, BrokenProcessPool):
+                config.reset_training_executor()
             cmd_id = queue.nack(cmd)
-            logger.info(
-                f"{cmd_id}: {cmd} - failed with {type(e)}, going to retry",
+            logger.warning(
+                f"{cmd_id}: {cmd} - failed with {type(e).__name__}, " f"going to retry",
                 exc_info=e,
             )
+            await wait_for_connectivity(bot_client)
         except Exception as e:
             await handle_non_recoverable(
                 bot_client, cmd, e, queue, user_id, "cannot train model"
@@ -113,7 +141,14 @@ async def handle_non_recoverable(bot_client, cmd, e, queue, user_id, prefix):
         f"{prefix} for user {user_id}. {cmd_id}: {cmd} - marked as failed",
         exc_info=e,
     )
-    await bot_client.send_message(user_id, f"Failed to execute {cmd}: {e}")
+    try:
+        await bot_client.send_message(user_id, f"Failed to execute {cmd}: {e}")
+    except Exception as notify_error:
+        logger.error(
+            f"Failed to notify user {user_id} about failed cmd "
+            f"{cmd_id}: {cmd} - {e}",
+            exc_info=notify_error,
+        )
 
 
 async def send_estimate_queue_task_with_channel(
@@ -206,12 +241,19 @@ async def handle_estimate_queue_tasks(
             queue.ack(cmd)
         except persistqueue.exceptions.Empty:
             await asyncio.sleep(1)
-        except RPCError as e:
+        except BotMethodInvalidError as e:
+            await handle_non_recoverable(
+                bot_client, cmd, e, queue, user_id, "cannot estimate track"
+            )
+        except TRANSIENT_ERRORS as e:
+            if isinstance(e, BrokenProcessPool):
+                config.reset_estimation_executor()
             cmd_id = queue.nack(cmd)
-            logger.info(
-                f"{cmd_id}: {cmd} - failed with {type(e)}, going to retry",
+            logger.warning(
+                f"{cmd_id}: {cmd} - failed with {type(e).__name__}, " f"going to retry",
                 exc_info=e,
             )
+            await wait_for_connectivity(bot_client)
         except Exception as e:
             await handle_non_recoverable(
                 bot_client, cmd, e, queue, user_id, "cannot estimate track"
@@ -439,7 +481,12 @@ async def main():
     bot_client = await cast(
         Union[CoroutineType, TelegramClient],
         TelegramClient(
-            config.local_data_path.joinpath("bot"), config.api_id, config.api_hash
+            config.local_data_path.joinpath("bot"),
+            config.api_id,
+            config.api_hash,
+            connection_retries=None,
+            retry_delay=10,
+            catch_up=True,
         ).start(bot_token=config.bot_token),
     )
     tasks = {}
