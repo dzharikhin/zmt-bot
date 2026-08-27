@@ -240,6 +240,8 @@ class DualOneClassModel:
         exclude_disliked_recall_target: float = 0.90,
         include_liked_recall_target: float = 0.80,
         preprocessor: Preprocessor | None = None,
+        liked_preprocessor: Preprocessor | None = None,
+        disliked_preprocessor: Preprocessor | None = None,
         liked_params: dict | None = None,
         disliked_params: dict | None = None,
     ):
@@ -252,6 +254,8 @@ class DualOneClassModel:
         self.exclude_disliked_recall_target = exclude_disliked_recall_target
         self.include_liked_recall_target = include_liked_recall_target
         self.preprocessor = preprocessor or NoOpPreprocessor()
+        self.liked_preprocessor = liked_preprocessor
+        self.disliked_preprocessor = disliked_preprocessor
 
         shared = {
             "knn_k_min": knn_k_min,
@@ -271,21 +275,48 @@ class DualOneClassModel:
         self.stats = {}
         self.operating_metrics = {}
 
+    def _prep_like(self) -> Preprocessor:
+        """Preprocessor for the liked model's space (old-pickle safe)"""
+        return getattr(self, "liked_preprocessor", None) or self.preprocessor
+
+    def _prep_dislike(self) -> Preprocessor:
+        """Preprocessor for the disliked model's space (old-pickle safe)"""
+        return getattr(self, "disliked_preprocessor", None) or self.preprocessor
+
     def fit(self, X_liked: np.ndarray, X_disliked: np.ndarray):
-        """Fit both models and compute thresholds"""
+        """Fit both models and compute thresholds
+
+        Per-model preprocessors (liked_preprocessor / disliked_preprocessor),
+        when provided, are each fitted on the combined labeled data and define
+        that model's own feature space; the shared preprocessor is used for
+        any side without an override.
+        """
         X_combined = np.concatenate([X_liked, X_disliked])
         y_combined = np.concatenate([np.ones(len(X_liked)), np.zeros(len(X_disliked))])
-        self.preprocessor.fit(X_combined, y_combined)
 
-        X_liked_prep = self.preprocessor.transform(X_liked)
-        X_disliked_prep = self.preprocessor.transform(X_disliked)
+        prep_like = self._prep_like()
+        prep_dislike = self._prep_dislike()
+        if prep_like is self.preprocessor or prep_dislike is self.preprocessor:
+            self.preprocessor.fit(X_combined, y_combined)
+        if self.liked_preprocessor is not None:
+            self.liked_preprocessor.fit(X_combined, y_combined)
+        if self.disliked_preprocessor is not None:
+            self.disliked_preprocessor.fit(X_combined, y_combined)
 
-        self.liked_model.fit(X_liked_prep)
-        self.dislike_model.fit(X_disliked_prep)
-        self._compute_thresholds(X_liked_prep, X_disliked_prep)
+        # each training set in its own model's space, and cross-set views
+        X_liked_like = prep_like.transform(X_liked)
+        X_liked_dislike = prep_dislike.transform(X_liked)
+        X_disliked_dislike = prep_dislike.transform(X_disliked)
+        X_disliked_like = prep_like.transform(X_disliked)
 
-        n_liked = len(X_liked_prep)
-        n_disliked = len(X_disliked_prep)
+        self.liked_model.fit(X_liked_like)
+        self.dislike_model.fit(X_disliked_dislike)
+        self._compute_thresholds(
+            X_liked_like, X_liked_dislike, X_disliked_dislike, X_disliked_like
+        )
+
+        n_liked = len(X_liked_like)
+        n_disliked = len(X_disliked_dislike)
         n_min = max(1, min(n_liked, n_disliked))
         imbalance_ratio = round(max(n_liked, n_disliked) / n_min, 2)
 
@@ -302,6 +333,8 @@ class DualOneClassModel:
             ),
             "exclude_disliked_recall_target": self.exclude_disliked_recall_target,
             "include_liked_recall_target": self.include_liked_recall_target,
+            "liked_preprocessor": type(prep_like).__name__,
+            "disliked_preprocessor": type(prep_dislike).__name__,
             **self.operating_metrics,
         }
         return self
@@ -350,11 +383,20 @@ class DualOneClassModel:
 
         return oof_scores, oof_other_scores
 
-    def _compute_thresholds(self, X_liked: np.ndarray, X_disliked: np.ndarray):
+    def _compute_thresholds(
+        self,
+        X_liked_like: np.ndarray,
+        X_liked_dislike: np.ndarray,
+        X_disliked_dislike: np.ndarray,
+        X_disliked_like: np.ndarray,
+    ):
         """Determine thresholds for exclude_disliked and include_liked
 
         exclude_disliked: Reject definite dislikes (recall_target on dislikes)
         include_liked: Accept definite likes (recall_target on likes)
+
+        Each matrix is already transformed into the space of its suffix
+        (like-model space or dislike-model space).
 
         When cv_folds >= 2, thresholds are derived from out-of-fold scores
         for honest recall guarantees, and out-of-fold cross-set error rates
@@ -367,35 +409,35 @@ class DualOneClassModel:
 
         if use_cv:
             dislike_scores, dislike_on_liked = self._cv_scores(
-                X_disliked, X_liked, self.disliked_params
+                X_disliked_dislike, X_liked_dislike, self.disliked_params
             )
             like_scores, like_on_disliked = self._cv_scores(
-                X_liked, X_disliked, self.liked_params
+                X_liked_like, X_disliked_like, self.liked_params
             )
             metrics_source = "cross_validated"
         else:
             dislike_scores = np.array(
                 [
                     self.dislike_model.score(x.reshape(1, -1))["calibrated"]
-                    for x in X_disliked
+                    for x in X_disliked_dislike
                 ]
             )
             like_scores = np.array(
                 [
                     self.liked_model.score(x.reshape(1, -1))["calibrated"]
-                    for x in X_liked
+                    for x in X_liked_like
                 ]
             )
             dislike_on_liked = np.array(
                 [
                     self.dislike_model.score(x.reshape(1, -1))["calibrated"]
-                    for x in X_liked
+                    for x in X_liked_dislike
                 ]
             )
             like_on_disliked = np.array(
                 [
                     self.liked_model.score(x.reshape(1, -1))["calibrated"]
-                    for x in X_disliked
+                    for x in X_disliked_like
                 ]
             )
             metrics_source = "in_sample"
@@ -420,11 +462,10 @@ class DualOneClassModel:
         }
 
     def predict(self, X: np.ndarray) -> dict:
-        """Score a track against both models"""
-        X_prep = self.preprocessor.transform(X)
+        """Score a track against both models (each in its own space)"""
         return {
-            "like": self.liked_model.score(X_prep),
-            "dislike": self.dislike_model.score(X_prep),
+            "like": self.liked_model.score(self._prep_like().transform(X)),
+            "dislike": self.dislike_model.score(self._prep_dislike().transform(X)),
             "thresholds_at_build": self.thresholds,
         }
 
@@ -465,6 +506,14 @@ class DualOneClassModel:
                 "preprocessor": {
                     "type": type(self.preprocessor).__name__,
                     "n_features": getattr(self.preprocessor, "n_features", None),
+                },
+                "liked_preprocessor": {
+                    "type": type(self._prep_like()).__name__,
+                    "n_features": getattr(self._prep_like(), "n_features", None),
+                },
+                "disliked_preprocessor": {
+                    "type": type(self._prep_dislike()).__name__,
+                    "n_features": getattr(self._prep_dislike(), "n_features", None),
                 },
             },
         }

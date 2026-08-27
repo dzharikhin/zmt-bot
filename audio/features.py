@@ -602,6 +602,24 @@ def schema_fingerprint() -> str:
     return hashlib.sha256(repr(_DESCRIPTOR_SCHEMA).encode()).hexdigest()[:16]
 
 
+def descriptor_family_layout() -> list[tuple[str, int, int]]:
+    """Merge adjacent same-family descriptors into (family, start, end) slices.
+
+    The returned layout covers the essentia part of the vector only (panns is
+    appended after and must be added by the caller).
+    """
+    layout: list[tuple[str, int, int]] = []
+    offset = 0
+    for name, length, _ in _DESCRIPTOR_SCHEMA:
+        family = name.split(".")[0]
+        if layout and layout[-1][0] == family:
+            layout[-1] = (family, layout[-1][1], offset + length)
+        else:
+            layout.append((family, offset, offset + length))
+        offset += length
+    return layout
+
+
 def _synthesize_wav(
     path: pathlib.Path, duration_s: float = 3.0, sr: int = 44100
 ) -> None:

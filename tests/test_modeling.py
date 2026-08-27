@@ -735,3 +735,122 @@ class TestIsotonicCalibration:
         raw_gmm_in = in_dist_result["raw_gmm_loglik"]
         raw_gmm_far = far_result["raw_gmm_loglik"]
         assert raw_gmm_in > raw_gmm_far
+
+
+class TestDualOneClassModelPerModelPreprocessors:
+    @pytest.fixture
+    def wide_data(self, rng):
+        liked = rng.normal(loc=0.0, scale=1.0, size=(80, 30))
+        disliked = rng.normal(loc=4.0, scale=1.0, size=(80, 30))
+        return liked, disliked
+
+    def test_per_model_fit_predict(self, wide_data):
+        liked, disliked = wide_data
+        model = DualOneClassModel(
+            knn_k_min=3,
+            knn_k_max=5,
+            gmm_components_max=4,
+            gmm_min_points_per_component=10,
+            cv_folds=None,
+            liked_preprocessor=StandardizeSelectPreprocessor(n_features=4),
+            disliked_preprocessor=StandardizeSelectPreprocessor(n_features=6),
+        )
+        model.fit(liked, disliked)
+        assert model.liked_model.X_fit.shape[1] == 4
+        assert model.dislike_model.X_fit.shape[1] == 6
+        result = model.predict(liked[0].reshape(1, -1))
+        assert result["like"]["calibrated"] is not None
+        assert result["dislike"]["calibrated"] is not None
+        assert "liked_preprocessor" in model.stats
+        assert "disliked_preprocessor" in model.stats
+
+    def test_shared_preprocessor_untouched_when_both_overridden(self, wide_data):
+        liked, disliked = wide_data
+        shared = StandardizeSelectPreprocessor(n_features=5)
+        model = DualOneClassModel(
+            knn_k_min=3,
+            knn_k_max=5,
+            gmm_components_max=4,
+            gmm_min_points_per_component=10,
+            cv_folds=None,
+            preprocessor=shared,
+            liked_preprocessor=StandardizeSelectPreprocessor(n_features=4),
+            disliked_preprocessor=StandardizeSelectPreprocessor(n_features=4),
+        )
+        model.fit(liked, disliked)
+        assert not hasattr(shared, "selected_")
+
+    def test_single_side_override_uses_shared_for_other(self, wide_data):
+        liked, disliked = wide_data
+        shared = StandardizeSelectPreprocessor(n_features=5)
+        model = DualOneClassModel(
+            knn_k_min=3,
+            knn_k_max=5,
+            gmm_components_max=4,
+            gmm_min_points_per_component=10,
+            cv_folds=None,
+            preprocessor=shared,
+            liked_preprocessor=StandardizeSelectPreprocessor(n_features=4),
+        )
+        model.fit(liked, disliked)
+        assert hasattr(shared, "selected_")
+        assert model.liked_model.X_fit.shape[1] == 4
+        assert model.dislike_model.X_fit.shape[1] == 5
+
+    def test_no_override_backward_compatible(self, wide_data):
+        liked, disliked = wide_data
+        shared = StandardizeSelectPreprocessor(n_features=5)
+        model = DualOneClassModel(
+            knn_k_min=3,
+            knn_k_max=5,
+            gmm_components_max=4,
+            gmm_min_points_per_component=10,
+            cv_folds=None,
+            preprocessor=shared,
+        )
+        model.fit(liked, disliked)
+        assert model.liked_model.X_fit.shape[1] == 5
+        assert model.dislike_model.X_fit.shape[1] == 5
+
+    def test_old_pickle_without_per_model_attrs(self, wide_data):
+        liked, disliked = wide_data
+        shared = StandardizeSelectPreprocessor(n_features=5)
+        model = DualOneClassModel(
+            knn_k_min=3,
+            knn_k_max=5,
+            gmm_components_max=4,
+            gmm_min_points_per_component=10,
+            cv_folds=None,
+            preprocessor=shared,
+        )
+        model.fit(liked, disliked)
+        # simulate a model pickled before per-model preprocessors existed
+        del model.liked_preprocessor
+        del model.disliked_preprocessor
+        result = model.predict(liked[0].reshape(1, -1))
+        assert result["like"]["calibrated"] is not None
+        assert result["dislike"]["calibrated"] is not None
+
+    def test_save_load_round_trip_per_model(self, tmp_path, wide_data):
+        liked, disliked = wide_data
+        model = DualOneClassModel(
+            knn_k_min=3,
+            knn_k_max=5,
+            gmm_components_max=4,
+            gmm_min_points_per_component=10,
+            cv_folds=None,
+            liked_preprocessor=StandardizeSelectPreprocessor(n_features=4),
+            disliked_preprocessor=StandardizeSelectPreprocessor(n_features=6),
+        )
+        model.fit(liked, disliked)
+        model.save(tmp_path / "dual")
+        loaded = DualOneClassModel.load(tmp_path / "dual")
+        sample = liked[0].reshape(1, -1)
+        np.testing.assert_allclose(
+            model.predict(sample)["like"]["calibrated"],
+            loaded.predict(sample)["like"]["calibrated"],
+        )
+        np.testing.assert_allclose(
+            model.predict(sample)["dislike"]["calibrated"],
+            loaded.predict(sample)["dislike"]["calibrated"],
+        )

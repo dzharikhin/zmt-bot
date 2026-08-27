@@ -417,9 +417,32 @@ This guards against a single lucky trial dominating the reported values.
 
 Features are cached per `embed_version` (`core/paths.py:9-26`). When running multiple variants with identical profile, PANNs weights, and schema fingerprint, the cached features are reused across variants, making the benchmark more efficient.
 
+---
+
+## Gates Study (`gates_study.py`)
+
+Isolates data-cleaning and preprocessing levers on a **fixed** feature set (loads parquet shards directly from a features dir; no extraction): outlier method × budget × selection variant. Multi-objective Optuna (NSGA-II) minimizing `(lfr@0.80, dfa@0.775)` from 5-fold OOF calibrated scores averaged over 3 seeds; per-model kNN/GMM params pinned at shipped values.
+
+```bash
+./benchmark/run_gates_study.sh [FEATURES_DIR] [N_ITERATIONS]
+# defaults: features dir "features", 60 iterations, output data/benchmark/gates_study.json
+```
+
+Search space:
+
+| Dimension | Values |
+|-----------|--------|
+| `outlier_method` | `prod_fused` (shipped kNN+IF rank fusion, raw space) / `knn` / `iforest` / `std_fused` (fusion on standardized space) / `lof_std` |
+| `outlier_budget` | float 0.02–0.12 (prod_fused removes less than nominal: fusion behaves as a consensus rule) |
+| `selection` | `welch64` (shipped) / `ridge_select64` (\|logistic coef\| top-64) / `fused_welch_ridge64` (rank fusion) / `quota64` (family quota: 16 lowlevel, 12 tonal, 12 rhythm, 24 panns, Welch within family) / `pls_project64` (PLS projection) |
+
+Output JSON: `baseline` (shipped config metrics + verdict), `pareto_front` (params + metrics + verdict per front trial), `trial_history` (for plateau checks). Verdict labels vs owner guideline: `stretch` (lfr@0.8 ≤ 0.12 and dfa@0.775 ≤ 0.08), `guideline` (≤ 0.20 both), `fail`.
+
 ## Files
 
 - `benchmark/compare.py` — Optuna benchmark tool and CLI.
+- `benchmark/dfa_gate_study.py` — include-gate operating-point study (mechanism A/B + liked-side search).
+- `benchmark/gates_study.py` — Gates study (outlier × selection, NSGA-II).
 - `benchmark/preprocessor.md` — Preprocessor implementation plan (executed).
 - `benchmark/segment_sweep.yaml` — Segment policy sweep configuration for benchmark.
 - `benchmark/README.md` — This file.

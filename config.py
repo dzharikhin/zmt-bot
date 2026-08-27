@@ -51,9 +51,7 @@ model_gmm_components_max = int(os.getenv("MODEL_GMM_COMPONENTS_MAX", "28"))
 model_gmm_min_points_per_component = int(
     os.getenv("MODEL_GMM_MIN_POINTS_PER_COMPONENT", "80")
 )
-model_outlier_threshold = float(
-    os.getenv("MODEL_OUTLIER_THRESHOLD", "0.08721065119224632")
-)
+model_outlier_threshold = float(os.getenv("MODEL_OUTLIER_THRESHOLD", "0.07"))
 model_exclude_disliked_recall_target = float(
     os.getenv("MODEL_EXCLUDE_DISLIKED_RECALL", "0.90")
 )
@@ -65,6 +63,8 @@ model_cv_folds = int(os.getenv("MODEL_CV_FOLDS", "5"))
 model_max_imbalance_ratio = float(os.getenv("MODEL_MAX_IMBALANCE_RATIO", "3.0"))
 model_preprocessor = os.getenv("MODEL_PREPROCESSOR", "standardize_select")
 model_select_n_features = int(os.getenv("MODEL_SELECT_N_FEATURES", "64"))
+model_like_preprocessor = os.getenv("MODEL_LIKE_PREPROCESSOR", "quota64")
+model_dislike_preprocessor = os.getenv("MODEL_DISLIKE_PREPROCESSOR", "ridge_select64")
 
 model_knn_k = model_knn_k_max
 model_gmm_components = model_gmm_components_max

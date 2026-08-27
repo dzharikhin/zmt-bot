@@ -22,12 +22,17 @@ from telethon.tl.types import (
 
 import config
 from audio.extractor import extract_features_for_mp3
-from audio.features import prepare_extractor
+from audio.features import descriptor_family_layout, prepare_extractor
 from bot_utils import get_chat, get_message, obtain_latest_message_id
 from core.modeling import DualOneClassModel
 from core.outliers import detect_outliers
 from core.paths import get_embed_version
-from core.preprocessing import NoOpPreprocessor, StandardizeSelectPreprocessor
+from core.preprocessing import (
+    NoOpPreprocessor,
+    QuotaSelectPreprocessor,
+    RidgeSelectPreprocessor,
+    StandardizeSelectPreprocessor,
+)
 from core.storage import FeatureStore
 from core.writer import start_extraction_job
 from models import ModelType
@@ -36,6 +41,31 @@ logger = logging.getLogger(__file__)
 logger.setLevel(logging.DEBUG)
 
 atexit_handler_registered = False
+
+PANNS_FAMILY_QUOTA = {"lowlevel": 16, "tonal": 12, "rhythm": 12, "panns": 24}
+
+
+def build_preprocessor(name: str, n_dims: int | None = None):
+    """Construct a preprocessor by name from the model config registry"""
+    if name in ("", "none", "noop"):
+        return NoOpPreprocessor()
+    if name == "standardize_select":
+        return StandardizeSelectPreprocessor(n_features=config.model_select_n_features)
+    if name.startswith("welch"):
+        nf = int(name.removeprefix("welch")) if name != "welch" else 64
+        return StandardizeSelectPreprocessor(n_features=nf)
+    if name.startswith("ridge_select"):
+        nf = int(name.removeprefix("ridge_select")) if name != "ridge_select" else 64
+        return RidgeSelectPreprocessor(n_features=nf)
+    if name.startswith("quota"):
+        nf = int(name.removeprefix("quota")) if name != "quota" else 64
+        layout = descriptor_family_layout()
+        essentia_dims = sum(end - start for _, start, end in layout)
+        families = layout + [("panns", essentia_dims, -1)]
+        return QuotaSelectPreprocessor(
+            n_features=nf, families=families, family_quota=PANNS_FAMILY_QUOTA
+        )
+    raise ValueError(f"Unknown preprocessor name: {name}")
 
 
 def _log_error_on_exit():
@@ -284,7 +314,8 @@ def _build_profile(user_id: int, model_id: int) -> config.Model:
         )
 
     logger.info("Fitting DualOneClassModel")
-    preprocessor = (
+    n_dims = X_liked.shape[1]
+    shared_preprocessor = (
         StandardizeSelectPreprocessor(n_features=config.model_select_n_features)
         if config.model_preprocessor == "standardize_select"
         else NoOpPreprocessor()
@@ -298,7 +329,13 @@ def _build_profile(user_id: int, model_id: int) -> config.Model:
         cv_folds=config.model_cv_folds,
         exclude_disliked_recall_target=config.model_exclude_disliked_recall_target,
         include_liked_recall_target=config.model_include_liked_recall_target,
-        preprocessor=preprocessor,
+        preprocessor=shared_preprocessor,
+        liked_preprocessor=build_preprocessor(
+            config.model_like_preprocessor, n_dims=n_dims
+        ),
+        disliked_preprocessor=build_preprocessor(
+            config.model_dislike_preprocessor, n_dims=n_dims
+        ),
     )
     model.fit(X_liked, X_disliked)
     model.embed_version = embed_version
