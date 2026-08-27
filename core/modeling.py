@@ -400,10 +400,15 @@ class DualOneClassModel:
 
         When cv_folds >= 2, thresholds are derived from out-of-fold scores
         for honest recall guarantees, and out-of-fold cross-set error rates
-        (disliked_false_accept at the include threshold, liked_false_reject
-        at the exclude threshold) are recorded in operating_metrics using the
-        same estimator as benchmark/compare.py. Otherwise in-sample scores
-        are used and metrics_source reflects the fallback.
+        are recorded in operating_metrics using the same estimator as
+        benchmark/compare.py. Otherwise in-sample scores are used and
+        metrics_source reflects the fallback.
+
+        Per-block per-class confusion rates are recorded:
+        include_liked (positive = accepted as liked): tp/fn over liked
+        tracks, fp/tn over disliked tracks; exclude_disliked (positive =
+        excluded as disliked): tp/fn over disliked tracks, fp/tn over liked
+        tracks. tp + fn = 1 and tn + fp = 1 within each block.
         """
         use_cv = self.cv_folds is not None and self.cv_folds >= 2
 
@@ -451,14 +456,25 @@ class DualOneClassModel:
             np.percentile(like_scores, 100 * (1 - self.include_liked_recall_target))
         )
 
+        include_tp = float(np.mean(like_scores > self.thresholds["include_liked"]))
+        include_fp = float(np.mean(like_on_disliked > self.thresholds["include_liked"]))
+        exclude_tp = float(
+            np.mean(dislike_scores >= self.thresholds["exclude_disliked"])
+        )
+        exclude_fp = float(
+            np.mean(dislike_on_liked >= self.thresholds["exclude_disliked"])
+        )
+
         self.operating_metrics = {
-            "disliked_false_accept": float(
-                np.mean(like_on_disliked > self.thresholds["include_liked"])
-            ),
-            "liked_false_reject": float(
-                np.mean(dislike_on_liked >= self.thresholds["exclude_disliked"])
-            ),
             "metrics_source": metrics_source,
+            "include_liked_tp": include_tp,
+            "include_liked_fn": 1.0 - include_tp,
+            "include_liked_fp": include_fp,
+            "include_liked_tn": 1.0 - include_fp,
+            "exclude_disliked_tp": exclude_tp,
+            "exclude_disliked_fn": 1.0 - exclude_tp,
+            "exclude_disliked_fp": exclude_fp,
+            "exclude_disliked_tn": 1.0 - exclude_fp,
         }
 
     def predict(self, X: np.ndarray) -> dict:

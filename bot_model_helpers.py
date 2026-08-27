@@ -84,9 +84,9 @@ async def format_model_response(
         subs = subscription_names.get(model.model_id, [])
         subs_str = ",".join(subs) if subs else ""
         metrics_summary = (
-            f"fa={model.disliked_false_accept:.2f},fr={model.liked_false_reject:.2f}"
-            if model.disliked_false_accept is not None
-            and model.liked_false_reject is not None
+            f"fa={model.include_liked_fp:.2f},fr={model.exclude_disliked_fp:.2f}"
+            if model.include_liked_fp is not None
+            and model.exclude_disliked_fp is not None
             else "n/a"
         )
         line = (

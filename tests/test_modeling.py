@@ -522,8 +522,8 @@ class TestOperatingMetrics:
         model.fit(X_liked, X_disliked)
 
         assert model.operating_metrics["metrics_source"] == "cross_validated"
-        assert model.operating_metrics["disliked_false_accept"] == pytest.approx(0.0)
-        assert model.operating_metrics["liked_false_reject"] == pytest.approx(0.0)
+        assert model.operating_metrics["include_liked_fp"] == pytest.approx(0.0)
+        assert model.operating_metrics["exclude_disliked_fp"] == pytest.approx(0.0)
 
     def test_identical_clusters_high_cross_error(self, rng):
         X_liked = rng.normal(loc=0.0, scale=1.0, size=(150, 5))
@@ -538,8 +538,8 @@ class TestOperatingMetrics:
         )
         model.fit(X_liked, X_disliked)
 
-        assert model.operating_metrics["disliked_false_accept"] > 0.4
-        assert model.operating_metrics["liked_false_reject"] > 0.4
+        assert model.operating_metrics["include_liked_fp"] > 0.4
+        assert model.operating_metrics["exclude_disliked_fp"] > 0.4
 
     def test_in_sample_fallback_sets_metrics_source(self, rng):
         X_liked = rng.normal(loc=0.0, scale=1.0, size=(60, 5))
@@ -555,8 +555,8 @@ class TestOperatingMetrics:
         model.fit(X_liked, X_disliked)
 
         assert model.operating_metrics["metrics_source"] == "in_sample"
-        assert model.operating_metrics["disliked_false_accept"] == pytest.approx(0.0)
-        assert model.operating_metrics["liked_false_reject"] == pytest.approx(0.0)
+        assert model.operating_metrics["include_liked_fp"] == pytest.approx(0.0)
+        assert model.operating_metrics["exclude_disliked_fp"] == pytest.approx(0.0)
 
     def test_operating_metrics_in_stats(self, rng):
         X_liked = rng.normal(loc=0.0, scale=1.0, size=(60, 5))
@@ -571,8 +571,37 @@ class TestOperatingMetrics:
         )
         model.fit(X_liked, X_disliked)
 
-        for key in ("disliked_false_accept", "liked_false_reject", "metrics_source"):
+        for key in model.operating_metrics:
             assert model.stats[key] == model.operating_metrics[key]
+
+    def test_per_block_confusion_rates(self, rng):
+        X_liked = rng.normal(loc=0.0, scale=1.0, size=(60, 5))
+        X_disliked = rng.normal(loc=5.0, scale=1.0, size=(60, 5))
+
+        model = DualOneClassModel(
+            knn_k_min=3,
+            knn_k_max=5,
+            gmm_components_max=4,
+            gmm_min_points_per_component=10,
+            cv_folds=5,
+        )
+        model.fit(X_liked, X_disliked)
+
+        metrics = model.operating_metrics
+        for block in ("include_liked", "exclude_disliked"):
+            tp = metrics[f"{block}_tp"]
+            tn = metrics[f"{block}_tn"]
+            fp = metrics[f"{block}_fp"]
+            fn = metrics[f"{block}_fn"]
+            assert tp + fn == pytest.approx(1.0)
+            assert tn + fp == pytest.approx(1.0)
+
+        assert metrics["include_liked_tp"] == pytest.approx(0.80, abs=0.03)
+        assert metrics["exclude_disliked_tp"] == pytest.approx(0.90, abs=0.03)
+
+        for key in metrics:
+            if key != "metrics_source":
+                assert model.stats[key] == metrics[key]
 
     def test_false_accept_grows_with_overlap(self, rng):
         X_liked = rng.normal(loc=0.0, scale=1.0, size=(150, 5))
@@ -594,8 +623,8 @@ class TestOperatingMetrics:
         near = fit_with(X_disliked_near)
 
         assert (
-            near.operating_metrics["disliked_false_accept"]
-            > far.operating_metrics["disliked_false_accept"]
+            near.operating_metrics["include_liked_fp"]
+            > far.operating_metrics["include_liked_fp"]
         )
 
 

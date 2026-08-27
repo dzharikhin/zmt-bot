@@ -227,6 +227,59 @@ def test_train_queue_marks_non_transient_failure(monkeypatch, tmp_path):
     assert "Failed to execute" in bot.messages[0][1]
 
 
+def test_train_queue_sends_success_notification(monkeypatch, tmp_path):
+    cmd = {
+        "message_id": 7178,
+        "forced": False,
+        "limit": None,
+        "latest_message_links": [],
+    }
+    queue = FakeQueue(cmd)
+    patch_train_queue(monkeypatch, tmp_path, queue)
+    bot = FakeBot()
+
+    async def fake_prepare_model(*args, **kwargs):
+        return None
+
+    fake_model = client.config.Model(
+        model_id=7178,
+        pickle_file_path=tmp_path / "model.pkl",
+        liked_tracks_count=1376,
+        disliked_tracks_count=603,
+        metrics_source="cross_validated",
+        outliers_removed_liked=12,
+        outliers_removed_disliked=5,
+        include_liked_tp=0.8,
+        include_liked_tn=0.85,
+        include_liked_fp=0.15,
+        include_liked_fn=0.2,
+        exclude_disliked_tp=0.9,
+        exclude_disliked_tn=0.32,
+        exclude_disliked_fp=0.68,
+        exclude_disliked_fn=0.1,
+    )
+
+    monkeypatch.setattr(client, "prepare_model", fake_prepare_model)
+    monkeypatch.setattr(
+        client.config, "get_model", lambda user_id, model_id: fake_model
+    )
+
+    run_handler_for(
+        client.handle_train_queue_tasks(42, bot),
+        seconds=0.2,
+    )
+
+    assert queue.calls["ack"] == 1
+    assert queue.calls["ack_failed"] == 0
+    assert len(bot.messages) == 1
+    text = bot.messages[0][1]
+    assert text.startswith("Successfully trained model 7178: cross_validated")
+    assert "liked tracks: 1376 (outliers removed: 12)" in text
+    assert "disliked tracks: 603 (outliers removed: 5)" in text
+    assert "include_liked: tp=0.80 tn=0.85 fp=0.15 fn=0.20" in text
+    assert "exclude_disliked: tp=0.90 tn=0.32 fp=0.68 fn=0.10" in text
+
+
 def test_estimate_queue_retries_connection_error(monkeypatch, tmp_path):
     cmd = {
         "chat_id": -1002439736204,

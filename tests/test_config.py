@@ -162,8 +162,6 @@ def test_model_stats_with_real_train_shape(tmp_path, monkeypatch):
         "cv_folds_used": 5,
         "exclude_disliked_recall_target": 0.9,
         "include_liked_recall_target": 0.8,
-        "disliked_false_accept": 0.16417910447761194,
-        "liked_false_reject": 0.6809593023255814,
         "metrics_source": "cross_validated",
         "liked_tracks_count": 1376,
         "disliked_tracks_count": 603,
@@ -171,6 +169,14 @@ def test_model_stats_with_real_train_shape(tmp_path, monkeypatch):
         "embed_version": "essentia-2.1b6.dev1438+profile-9d999a32d40d3078",
         "outliers_removed_liked": 12,
         "outliers_removed_disliked": 5,
+        "include_liked_tp": 0.8,
+        "include_liked_tn": 0.85,
+        "include_liked_fp": 0.15,
+        "include_liked_fn": 0.2,
+        "exclude_disliked_tp": 0.9,
+        "exclude_disliked_tn": 0.32,
+        "exclude_disliked_fp": 0.68,
+        "exclude_disliked_fn": 0.1,
     }
     (model_dir / "stats.json").write_text(json.dumps(stats))
 
@@ -179,13 +185,20 @@ def test_model_stats_with_real_train_shape(tmp_path, monkeypatch):
     assert model_obj.model_id == 7
     assert model_obj.liked_tracks_count == 1376
     assert model_obj.disliked_tracks_count == 603
-    assert model_obj.disliked_false_accept == pytest.approx(0.16417910447761194)
-    assert model_obj.liked_false_reject == pytest.approx(0.6809593023255814)
     assert model_obj.metrics_source == "cross_validated"
     assert model_obj.thresholds == {"exclude_disliked": 0.55, "include_liked": 0.65}
     assert model_obj.embed_version == "essentia-2.1b6.dev1438+profile-9d999a32d40d3078"
+    assert model_obj.outliers_removed_liked == 12
+    assert model_obj.outliers_removed_disliked == 5
+    assert model_obj.include_liked_tp == pytest.approx(0.8)
+    assert model_obj.include_liked_tn == pytest.approx(0.85)
+    assert model_obj.include_liked_fp == pytest.approx(0.15)
+    assert model_obj.include_liked_fn == pytest.approx(0.2)
+    assert model_obj.exclude_disliked_tp == pytest.approx(0.9)
+    assert model_obj.exclude_disliked_tn == pytest.approx(0.32)
+    assert model_obj.exclude_disliked_fp == pytest.approx(0.68)
+    assert model_obj.exclude_disliked_fn == pytest.approx(0.1)
     assert not hasattr(model_obj, "liked_n")
-    assert not hasattr(model_obj, "outliers_removed_liked")
 
 
 def test_model_stats_legacy_accuracy_ignored(tmp_path, monkeypatch):
@@ -209,8 +222,8 @@ def test_model_stats_legacy_accuracy_ignored(tmp_path, monkeypatch):
     assert model_obj is not None
     assert model_obj.liked_tracks_count == 10
     assert not hasattr(model_obj, "accuracy")
-    assert model_obj.disliked_false_accept is None
-    assert model_obj.liked_false_reject is None
+    assert model_obj.include_liked_fp is None
+    assert model_obj.exclude_disliked_fp is None
     assert model_obj.metrics_source is None
 
 

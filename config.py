@@ -273,11 +273,19 @@ class Model:
     pickle_file_path: pathlib.Path
     liked_tracks_count: int
     disliked_tracks_count: int
-    disliked_false_accept: Optional[float] = None
-    liked_false_reject: Optional[float] = None
     metrics_source: Optional[str] = None
     thresholds: Optional[dict] = None
     embed_version: Optional[str] = None
+    outliers_removed_liked: Optional[int] = None
+    outliers_removed_disliked: Optional[int] = None
+    include_liked_tp: Optional[float] = None
+    include_liked_tn: Optional[float] = None
+    include_liked_fp: Optional[float] = None
+    include_liked_fn: Optional[float] = None
+    exclude_disliked_tp: Optional[float] = None
+    exclude_disliked_tn: Optional[float] = None
+    exclude_disliked_fp: Optional[float] = None
+    exclude_disliked_fn: Optional[float] = None
 
 
 _MODEL_FIELDS = {f.name for f in dataclasses.fields(Model)}

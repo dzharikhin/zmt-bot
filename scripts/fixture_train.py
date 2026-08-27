@@ -77,7 +77,8 @@ def main():
         sys.exit(1)
 
     logger.info(
-        f"Found {liked_count} liked, {disliked_count} disliked tracks for user {args.user_id}"
+        f"Found {liked_count} liked, {disliked_count} disliked tracks "
+        f"for user {args.user_id}"
     )
     logger.info(
         f"Calling _build_profile(user_id={args.user_id}, " f"model_id={args.model_id})"
@@ -87,8 +88,8 @@ def main():
 
     logger.info(
         f"Training complete: model_id={model.model_id}, "
-        f"disliked_false_accept={model.disliked_false_accept:.2f}, "
-        f"liked_false_reject={model.liked_false_reject:.2f}, "
+        f"include_liked_fp={model.include_liked_fp:.2f}, "
+        f"exclude_disliked_fp={model.exclude_disliked_fp:.2f}, "
         f"metrics_source={model.metrics_source}, "
         f"liked={model.liked_tracks_count}, disliked={model.disliked_tracks_count}, "
         f"thresholds={model.thresholds}, embed_version={model.embed_version}"

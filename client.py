@@ -75,6 +75,25 @@ async def wait_for_connectivity(
         await asyncio.sleep(floor_interval)
 
 
+def _train_success_message(model: config.Model) -> str:
+    return (
+        f"Successfully trained model {model.model_id}: "
+        f"{model.metrics_source}\n"
+        f"liked tracks: {model.liked_tracks_count} "
+        f"(outliers removed: {model.outliers_removed_liked}), "
+        f"disliked tracks: {model.disliked_tracks_count} "
+        f"(outliers removed: {model.outliers_removed_disliked})\n"
+        f"include_liked: tp={model.include_liked_tp:.2f} "
+        f"tn={model.include_liked_tn:.2f} "
+        f"fp={model.include_liked_fp:.2f} "
+        f"fn={model.include_liked_fn:.2f}\n"
+        f"exclude_disliked: tp={model.exclude_disliked_tp:.2f} "
+        f"tn={model.exclude_disliked_tn:.2f} "
+        f"fp={model.exclude_disliked_fp:.2f} "
+        f"fn={model.exclude_disliked_fn:.2f}"
+    )
+
+
 async def handle_train_queue_tasks(
     user_id: int,
     bot_client: TelegramClient,
@@ -99,19 +118,9 @@ async def handle_train_queue_tasks(
                 cmd.get("limit", 1000),
             )
             model = config.get_model(user_id, cmd["message_id"])
-            metrics_summary = (
-                f"disliked_false_accept={model.disliked_false_accept:.2f}, "
-                f"liked_false_reject={model.liked_false_reject:.2f}"
-                if model.disliked_false_accept is not None
-                and model.liked_false_reject is not None
-                else "metrics unavailable"
-            )
             await bot_client.send_message(
                 user_id,
-                f"Successfully trained model {model.model_id}: "
-                f"{metrics_summary} for "
-                f"{model.disliked_tracks_count} disliked tracks and "
-                f"{model.liked_tracks_count} liked tracks",
+                _train_success_message(model),
             )
             queue.ack(cmd)
         except persistqueue.exceptions.Empty:
