@@ -13,6 +13,15 @@ so this study isolates data-cleaning and preprocessing levers:
 
 Baseline row = shipped config (prod_fused @ 0.08721065119224632 + welch64).
 Guideline (owner): lfr@0.80 <= 0.20 AND dfa@0.775 <= 0.20; stretch ~0.12/0.08.
+
+Extra tooling for the Phase 5 feature ablation:
+  --slice-arms FEATURES_DIR  write column-sliced copies (baseline 4368 /
+                             +key-scale 4380 / full essentia block, panns
+                             tail kept) of an extracted features dir and exit
+  --essentia-dims K          run the study on a sliced arm dir (builds the
+                             quota family layout for the arm's essentia width)
+  --extra-cells              also evaluate the pinned parity cells (prod
+                             baseline + ship candidate) with full metric dicts
 """
 
 import argparse
@@ -64,8 +73,28 @@ STRETCH_LFR = 0.12
 STRETCH_DFA = 0.08
 
 ESSENTIA_DIMS = sum(_len for _, _len, _ in _DESCRIPTOR_SCHEMA)
-FAMILY_QUOTA = {"lowlevel": 16, "tonal": 12, "rhythm": 12, "panns": 24}
-FAMILY_LAYOUT = descriptor_family_layout() + [("panns", ESSENTIA_DIMS, -1)]
+FAMILY_QUOTA = {
+    "lowlevel": 16,
+    "tonal": 12,
+    "rhythm": 12,
+    "panns": 24,
+    "frames": 12,
+}
+BASELINE_ARM_ENTRY = "tonal.chords_key"
+KEYSCALE_ARM_ENTRY = "frames.pitch"
+
+
+def family_layout(essentia_dims: int | None = None) -> list[tuple[str, int, int]]:
+    """Family slices for a vector whose essentia block is the first
+    essentia_dims dims (panns tail last). None means the full schema."""
+    total = ESSENTIA_DIMS if essentia_dims is None else essentia_dims
+    layout = []
+    for name, start, end in descriptor_family_layout():
+        if start >= total:
+            continue
+        layout.append((name, start, min(end, total)))
+    layout.append(("panns", total, -1))
+    return layout
 
 
 def _knn_ranks(X: np.ndarray, k: int) -> np.ndarray:
@@ -159,25 +188,29 @@ class PlsProjectPreprocessor:
         return self.pls_.transform(self.scaler_.transform(X))
 
 
-def _quota(n_features: int) -> QuotaSelectPreprocessor:
+def _quota(
+    n_features: int, essentia_dims: int | None = None
+) -> QuotaSelectPreprocessor:
     return QuotaSelectPreprocessor(
-        n_features=n_features, families=FAMILY_LAYOUT, family_quota=FAMILY_QUOTA
+        n_features=n_features,
+        families=family_layout(essentia_dims),
+        family_quota=FAMILY_QUOTA,
     )
 
 
 SELECTION_VARIANTS = {
-    "welch64": lambda: StandardizeSelectPreprocessor(n_features=64),
-    "welch32": lambda: StandardizeSelectPreprocessor(n_features=32),
-    "ridge_select32": lambda: RidgeSelectPreprocessor(n_features=32),
-    "ridge_select64": RidgeSelectPreprocessor,
-    "ridge_select128": lambda: RidgeSelectPreprocessor(n_features=128),
-    "ridge64_c001": lambda: RidgeSelectPreprocessor(n_features=64, C=0.001),
-    "ridge64_c01": lambda: RidgeSelectPreprocessor(n_features=64, C=0.1),
-    "fused_welch_ridge64": FusedWelchRidgePreprocessor,
-    "quota32": lambda: _quota(32),
-    "quota64": lambda: _quota(64),
-    "quota128": lambda: _quota(128),
-    "pls_project64": PlsProjectPreprocessor,
+    "welch64": lambda d=None: StandardizeSelectPreprocessor(n_features=64),
+    "welch32": lambda d=None: StandardizeSelectPreprocessor(n_features=32),
+    "ridge_select32": lambda d=None: RidgeSelectPreprocessor(n_features=32),
+    "ridge_select64": lambda d=None: RidgeSelectPreprocessor(n_features=64),
+    "ridge_select128": lambda d=None: RidgeSelectPreprocessor(n_features=128),
+    "ridge64_c001": lambda d=None: RidgeSelectPreprocessor(n_features=64, C=0.001),
+    "ridge64_c01": lambda d=None: RidgeSelectPreprocessor(n_features=64, C=0.1),
+    "fused_welch_ridge64": lambda d=None: FusedWelchRidgePreprocessor(),
+    "quota32": lambda d=None: _quota(32, d),
+    "quota64": lambda d=None: _quota(64, d),
+    "quota128": lambda d=None: _quota(128, d),
+    "pls_project64": lambda d=None: PlsProjectPreprocessor(),
 }
 
 # Per-model selections: "per:LIKE/DISLIKE" — each one-class model gets its own
@@ -219,11 +252,11 @@ def _parse_selection(selection: str) -> tuple[str, str]:
     return selection, selection
 
 
-def make_preprocessor(name: str):
+def make_preprocessor(name: str, essentia_dims: int | None = None):
     factory = SELECTION_VARIANTS.get(name)
     if factory is None:
         raise ValueError(f"Unknown selection variant: {name}")
-    return factory()
+    return factory(essentia_dims)
 
 
 def load_features(features_dir: str) -> tuple[np.ndarray, np.ndarray]:
@@ -245,6 +278,7 @@ def run_cv(
     selection: str,
     model_params: dict | None = None,
     seeds: tuple[int, ...] = (42, 43, 44),
+    essentia_dims: int | None = None,
 ) -> dict | None:
     """5-fold OOF x seeds; returns mean metrics or None for a degenerate trial"""
     params = dict(model_params or SHIPPED_MODEL_PARAMS)
@@ -274,8 +308,8 @@ def run_cv(
                 return None
 
             like_sel, dis_sel = _parse_selection(selection)
-            prep_like = make_preprocessor(like_sel)
-            prep_dis = make_preprocessor(dis_sel)
+            prep_like = make_preprocessor(like_sel, essentia_dims)
+            prep_dis = make_preprocessor(dis_sel, essentia_dims)
             X_combined_tr = np.concatenate([X_l_tr_f, X_d_tr_f])
             y_combined_tr = np.concatenate(
                 [np.ones(len(X_l_tr_f)), np.zeros(len(X_d_tr_f))]
@@ -357,18 +391,23 @@ def compute_metrics(scores: dict) -> dict:
     return metrics
 
 
-def verdict(metrics: dict) -> str:
-    if metrics["lfr_at_0.8"] <= STRETCH_LFR and metrics["dfa_at_0.775"] <= STRETCH_DFA:
+def _verdict(lfr: float, dfa: float) -> str:
+    if lfr <= STRETCH_LFR and dfa <= STRETCH_DFA:
         return "stretch"
-    if (
-        metrics["lfr_at_0.8"] <= GUIDELINE_LFR_CAP
-        and metrics["dfa_at_0.775"] <= GUIDELINE_DFA_CAP
-    ):
+    if lfr <= GUIDELINE_LFR_CAP and dfa <= GUIDELINE_DFA_CAP:
         return "guideline"
     return "fail"
 
 
-def objective(trial, X_liked, X_disliked, focus: str = "full"):
+def verdict(metrics: dict) -> str:
+    return _verdict(metrics["lfr_at_0.8"], metrics["dfa_at_0.775"])
+
+
+def verdict_at_0_9(metrics: dict) -> str:
+    return _verdict(metrics["lfr_at_0.9"], metrics["dfa_at_0.775"])
+
+
+def objective(trial, X_liked, X_disliked, focus: str = "full", essentia_dims=None):
     if focus == "per_model":
         outlier_method = trial.suggest_categorical(
             "outlier_method", list(FOCUS_OUTLIER_METHODS)
@@ -390,6 +429,7 @@ def objective(trial, X_liked, X_disliked, focus: str = "full"):
         outlier_method=outlier_method,
         outlier_budget=outlier_budget,
         selection=selection,
+        essentia_dims=essentia_dims,
     )
     if metrics is None:
         trial.set_user_attr("failed", True)
@@ -398,6 +438,96 @@ def objective(trial, X_liked, X_disliked, focus: str = "full"):
         trial.set_user_attr(key, value)
     trial.set_user_attr("verdict", verdict(metrics))
     return [metrics["lfr_at_0.8"], metrics["dfa_at_0.775"]]
+
+
+EXTRA_CELLS = (
+    {
+        "name": "prod_baseline",
+        "outlier_method": "prod_fused",
+        "outlier_budget": SHIPPED_OUTLIER_BUDGET,
+        "selection": "welch64",
+    },
+    {
+        "name": "ship_candidate",
+        "outlier_method": "prod_fused",
+        "outlier_budget": 0.07,
+        "selection": "per:quota64/ridge_select64",
+    },
+)
+
+
+def _schema_offset(entry_name: str) -> int:
+    offset = 0
+    for name, length, _ in _DESCRIPTOR_SCHEMA:
+        if name == entry_name:
+            return offset
+        offset += length
+    raise KeyError(f"schema entry not found: {entry_name}")
+
+
+def ablation_arm_dims() -> dict[str, int]:
+    return {
+        "baseline": _schema_offset(BASELINE_ARM_ENTRY),
+        "keyscale": _schema_offset(KEYSCALE_ARM_ENTRY),
+        "full": ESSENTIA_DIMS,
+    }
+
+
+def _feature_width(features_dir: Path) -> int:
+    row = duckdb.sql(
+        f"SELECT len(vector) FROM read_parquet('{features_dir}/*/*.parquet') LIMIT 1"
+    ).fetchone()
+    if row is None:
+        raise RuntimeError(f"No parquet shards under {features_dir}")
+    return int(row[0])
+
+
+def write_ablation_arms(features_dir: str | Path) -> dict[str, str]:
+    """Column-slice a full-width features dir into the 3 ablation arms.
+
+    Each arm keeps the first essentia_dims essentia columns plus the tail
+    after the full essentia block (panns). Output dirs are named
+    {src}_arm{essentia_dims} beside the source dir; run gates_study on them
+    with --essentia-dims {essentia_dims}.
+    """
+    src = Path(features_dir)
+    width = _feature_width(src)
+    if width < ESSENTIA_DIMS:
+        raise ValueError(
+            f"features under {src} are {width} wide, expected >= {ESSENTIA_DIMS}"
+        )
+    set_names = sorted(
+        row[0]
+        for row in duckdb.sql(
+            f"SELECT DISTINCT set_name FROM read_parquet('{src}/*/*.parquet')"
+        ).fetchall()
+    )
+    if not set_names:
+        raise RuntimeError(f"No shards under {src}")
+    arms = {}
+    for arm, essentia_dims in ablation_arm_dims().items():
+        out_dir = src.parent / f"{src.name}_arm{essentia_dims}"
+        for set_name in set_names:
+            out_set = out_dir / set_name
+            out_set.mkdir(parents=True, exist_ok=True)
+            duckdb.sql(f"""
+                COPY (
+                    SELECT * REPLACE (
+                        list_slice(vector, 1, {essentia_dims})
+                        || list_slice(vector, {ESSENTIA_DIMS + 1}, len(vector))
+                        AS vector
+                    )
+                    FROM read_parquet('{src}/{set_name}/*.parquet')
+                )
+                TO '{out_set}/data.parquet'
+                (FORMAT PARQUET, COMPRESSION ZSTD)
+                """)
+        arms[arm] = str(out_dir)
+        logger.info(
+            f"Wrote ablation arm {arm} ({essentia_dims} essentia dims + "
+            f"{width - ESSENTIA_DIMS} tail dims) to {out_dir}"
+        )
+    return arms
 
 
 def main():
@@ -411,10 +541,37 @@ def main():
         help="full: whole space; per_model: focused per-model selection grid",
     )
     parser.add_argument("--output", default="data/benchmark/gates_study.json")
+    parser.add_argument(
+        "--extra-cells",
+        action="store_true",
+        help="also evaluate the pinned parity cells (prod baseline + ship "
+        "candidate) with full metric dicts",
+    )
+    parser.add_argument(
+        "--essentia-dims",
+        type=int,
+        default=None,
+        help="essentia block width of the features dir (for column-sliced "
+        "ablation arms); default: full schema width",
+    )
+    parser.add_argument(
+        "--slice-arms",
+        default=None,
+        metavar="FEATURES_DIR",
+        help="write column-sliced 3-arm ablation copies of FEATURES_DIR and exit",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
     optuna.logging.set_verbosity(optuna.logging.WARNING)
+
+    if args.slice_arms:
+        arms = write_ablation_arms(args.slice_arms)
+        for arm, out_dir in arms.items():
+            print(f"{arm}: {out_dir}")
+        return
+
+    essentia_dims = args.essentia_dims
 
     X_liked, X_disliked = load_features(args.features_dir)
     logger.info(
@@ -428,6 +585,7 @@ def main():
         outlier_method="prod_fused",
         outlier_budget=SHIPPED_OUTLIER_BUDGET,
         selection="welch64",
+        essentia_dims=essentia_dims,
     )
     logger.info(f"Baseline metrics ({time.time() - start:.0f}s): {baseline}")
 
@@ -436,7 +594,9 @@ def main():
         sampler=optuna.samplers.NSGAIISampler(seed=42),
     )
     study.optimize(
-        lambda t: objective(t, X_liked, X_disliked, focus=args.focus),
+        lambda t: objective(
+            t, X_liked, X_disliked, focus=args.focus, essentia_dims=essentia_dims
+        ),
         n_trials=args.n_iterations,
     )
 
@@ -457,6 +617,7 @@ def main():
     ]
     for row in front:
         row["verdict"] = verdict(row["metrics"])
+        row["verdict_at_0.9"] = verdict_at_0_9(row["metrics"])
 
     history = [
         {
@@ -465,9 +626,42 @@ def main():
             "values": t.values,
             "lfr_at_0.8": t.user_attrs.get("lfr_at_0.8"),
             "dfa_at_0.775": t.user_attrs.get("dfa_at_0.775"),
+            "metrics": {
+                k: v for k, v in t.user_attrs.items() if k not in ("failed", "verdict")
+            },
+            "verdict": t.user_attrs.get("verdict"),
+            "verdict_at_0.9": (
+                verdict_at_0_9(t.user_attrs) if "lfr_at_0.9" in t.user_attrs else None
+            ),
         }
         for t in study.trials
     ]
+
+    extra_cells = None
+    if args.extra_cells:
+        extra_cells = []
+        for cell in EXTRA_CELLS:
+            cell_start = time.time()
+            metrics = run_cv(
+                X_liked,
+                X_disliked,
+                outlier_method=cell["outlier_method"],
+                outlier_budget=cell["outlier_budget"],
+                selection=cell["selection"],
+                essentia_dims=essentia_dims,
+            )
+            logger.info(
+                f"Extra cell {cell['name']} ({time.time() - cell_start:.0f}s): "
+                f"{metrics}"
+            )
+            extra_cells.append(
+                {
+                    **cell,
+                    "metrics": metrics,
+                    "verdict": verdict(metrics),
+                    "verdict_at_0.9": verdict_at_0_9(metrics),
+                }
+            )
 
     passing = [row for row in front if row["verdict"] != "fail"]
     summary = (
@@ -481,10 +675,13 @@ def main():
         "features_dir": args.features_dir,
         "focus": args.focus,
         "n_iterations": args.n_iterations,
+        "essentia_dims": essentia_dims,
         "objectives": ["lfr_at_0.8", "dfa_at_0.775"],
         "guideline": {"lfr_cap": GUIDELINE_LFR_CAP, "dfa_cap": GUIDELINE_DFA_CAP},
         "baseline": baseline,
         "baseline_verdict": verdict(baseline),
+        "baseline_verdict_at_0.9": verdict_at_0_9(baseline),
+        "extra_cells": extra_cells,
         "pareto_front": front,
         "summary": summary,
         "trial_history": history,

@@ -428,15 +428,25 @@ Isolates data-cleaning and preprocessing levers on a **fixed** feature set (load
 # defaults: features dir "features", 60 iterations, output data/benchmark/gates_study.json
 ```
 
+Extra CLI flags:
+
+- `--extra-cells` — also evaluate the pinned parity cells: `prod_baseline` (welch64 + prod_fused @ shipped budget) and `ship_candidate` (per:quota64/ridge_select64 + prod_fused @ 0.07) with full metric dicts (all recall points) and verdicts at BOTH anchors (0.8 guideline and 0.9 prod operating point).
+- `--essentia-dims K` — essentia block width of the features dir (default 4404 = current schema). Used when running on a column-sliced arm so quota family layout adapts to the narrower essentia block.
+- `--slice-arms FEATURES_DIR` — write the 3-arm ablation copies `{src}_arm{4368,4380,4404}` (baseline / +keyscale / +frames; duckdb column slices, panns tail preserved) beside the source dir and exit. One extraction then serves all three arms:
+  ```bash
+  ./benchmark/run_gates_study.sh {src}_arm4404 60          # or python -m benchmark.gates_study ...
+  python -m benchmark.gates_study --features-dir {src}_arm4380 --essentia-dims 4380 ...
+  ```
+
 Search space:
 
 | Dimension | Values |
 |-----------|--------|
 | `outlier_method` | `prod_fused` (shipped kNN+IF rank fusion, raw space) / `knn` / `iforest` / `std_fused` (fusion on standardized space) / `lof_std` |
 | `outlier_budget` | float 0.02–0.12 (prod_fused removes less than nominal: fusion behaves as a consensus rule) |
-| `selection` | `welch64` (shipped) / `ridge_select64` (\|logistic coef\| top-64) / `fused_welch_ridge64` (rank fusion) / `quota64` (family quota: 16 lowlevel, 12 tonal, 12 rhythm, 24 panns, Welch within family) / `pls_project64` (PLS projection) |
+| `selection` | `welch64` (shipped) / `ridge_select64` (\|logistic coef\| top-64) / `fused_welch_ridge64` (rank fusion) / `quota64` (family quota: 16 lowlevel, 12 tonal, 12 rhythm, 24 panns, 12 frames — quotas scale with n_features; Welch within family) / `pls_project64` (PLS projection) |
 
-Output JSON: `baseline` (shipped config metrics + verdict), `pareto_front` (params + metrics + verdict per front trial), `trial_history` (for plateau checks). Verdict labels vs owner guideline: `stretch` (lfr@0.8 ≤ 0.12 and dfa@0.775 ≤ 0.08), `guideline` (≤ 0.20 both), `fail`.
+Output JSON: `essentia_dims`, `baseline` (shipped config metrics + verdict at 0.8 and 0.9), `pareto_front` (params + full metric dicts + verdicts), `trial_history` (full metrics per trial, for plateau checks), `extra_cells` (when `--extra-cells`). Verdict labels vs owner guideline: `stretch` (lfr@0.8 ≤ 0.12 and dfa@0.775 ≤ 0.08), `guideline` (≤ 0.20 both), `fail`.
 
 ## Files
 

@@ -1,14 +1,21 @@
+import logging
+
 import numpy as np
 import pytest
 import soundfile as sf
 
 from audio import features as audio_features
 from audio.features import (
+    _ALIAS_KEYS,
     _essentia_pool_to_vector,
+    _summarize_key_cyclic,
     _summarize_matrix_rowstats,
+    _summarize_scale_binary,
     _summarize_stats4,
     assert_schema_dim_consistent,
+    extract_essentia_features,
     extract_essentia_features_segment,
+    extract_frame_features,
     schema_fingerprint,
 )
 
@@ -18,6 +25,26 @@ try:
     ESSENTIA_AVAILABLE = True
 except ImportError:
     ESSENTIA_AVAILABLE = False
+
+KEY_SCALE_SCHEMA_ENTRIES = (
+    ("tonal.chords_key", 2, "key_cyclic"),
+    ("tonal.chords_scale", 1, "scale_binary"),
+    ("tonal.key_edma.key", 2, "key_cyclic"),
+    ("tonal.key_edma.scale", 1, "scale_binary"),
+    ("tonal.key_krumhansl.key", 2, "key_cyclic"),
+    ("tonal.key_krumhansl.scale", 1, "scale_binary"),
+    ("tonal.key_temperley.key", 2, "key_cyclic"),
+    ("tonal.key_temperley.scale", 1, "scale_binary"),
+)
+
+FRAME_SCHEMA_ENTRIES = (
+    ("frames.pitch", 4, "stats4"),
+    ("frames.pitch_instantaneous_confidence", 4, "stats4"),
+    ("frames.inharmonicity", 4, "stats4"),
+    ("frames.tristimulus", 4, "stats4"),
+    ("frames.oddtoevenharmonicenergyratio", 4, "stats4"),
+    ("frames.dissonance", 4, "stats4"),
+)
 
 
 def make_mock_pool(scalars=None, vectors_1d=None, vectors_2d=None, strings=None):
@@ -351,3 +378,364 @@ class TestAssertSchemaDimConsistent:
         )
         with pytest.raises(RuntimeError, match="lowlevel.average_loudness"):
             assert_schema_dim_consistent(None)
+
+
+class TestKeyScaleMappings:
+    def test_all_twelve_keys_exact_vectors(self):
+        keys = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+        for pitch_class, key in enumerate(keys):
+            out = _summarize_key_cyclic(key)
+            angle = 2 * np.pi * pitch_class / 12
+            np.testing.assert_allclose(out, [np.sin(angle), np.cos(angle)])
+            assert out.dtype == np.float32
+
+    def test_flat_aliases_match_sharp_equivalents(self):
+        for flat, sharp in _ALIAS_KEYS.items():
+            np.testing.assert_array_equal(
+                _summarize_key_cyclic(flat), _summarize_key_cyclic(sharp)
+            )
+
+    def test_b_c_cyclic_adjacency(self):
+        b = _summarize_key_cyclic("B")
+        c = _summarize_key_cyclic("C")
+        c_sharp = _summarize_key_cyclic("C#")
+        np.testing.assert_allclose(np.linalg.norm(b - c), np.linalg.norm(c - c_sharp))
+
+    def test_unknown_key_returns_neutral_without_raising(self, caplog):
+        with caplog.at_level(logging.WARNING, logger="audio.features"):
+            for bad in ("X", ""):
+                out = _summarize_key_cyclic(bad)
+                np.testing.assert_array_equal(out, np.zeros(2))
+                assert out.dtype == np.float32
+        assert any("Unknown key" in r.getMessage() for r in caplog.records)
+
+    def test_ndarray_scalar_input_handled(self):
+        np.testing.assert_array_equal(
+            _summarize_key_cyclic(np.asarray("C")), _summarize_key_cyclic("C")
+        )
+
+    def test_scale_major_minor(self):
+        np.testing.assert_array_equal(_summarize_scale_binary("major"), [1.0])
+        np.testing.assert_array_equal(_summarize_scale_binary("minor"), [0.0])
+        assert _summarize_scale_binary("minor").dtype == np.float32
+
+    def test_unknown_scale_returns_neutral_without_raising(self, caplog):
+        with caplog.at_level(logging.WARNING, logger="audio.features"):
+            out = _summarize_scale_binary("dorian")
+            np.testing.assert_array_equal(out, [0.5])
+            assert out.dtype == np.float32
+        assert any("Unknown scale" in r.getMessage() for r in caplog.records)
+
+
+class TestKeyScaleSchemaEntries:
+    def test_entries_in_real_schema(self):
+        by_name = {
+            name: (length, normalizer)
+            for name, length, normalizer in audio_features._DESCRIPTOR_SCHEMA
+        }
+        for name, length, normalizer in KEY_SCALE_SCHEMA_ENTRIES:
+            assert by_name.get(name) == (length, normalizer)
+
+    def test_entries_append_after_beats_position(self):
+        names = [name for name, _, _ in audio_features._DESCRIPTOR_SCHEMA]
+        idx = names.index("rhythm.beats_position")
+        assert names[idx + 1 : idx + 9] == [
+            name for name, _, _ in KEY_SCALE_SCHEMA_ENTRIES
+        ]
+        assert names[idx + 9 :] == [name for name, _, _ in FRAME_SCHEMA_ENTRIES]
+
+    def test_family_layout_covers_new_tonal_dims(self):
+        layout = audio_features.descriptor_family_layout()
+        schema_total = sum(length for _, length, _ in audio_features._DESCRIPTOR_SCHEMA)
+        assert sum(end - start for _, start, end in layout) == schema_total
+        assert layout[-2][0] == "tonal"
+        assert layout[-1] == ("frames", 4380, schema_total)
+
+    def test_end_to_end_pool_to_vector(self, monkeypatch):
+        monkeypatch.setattr(
+            audio_features, "_DESCRIPTOR_SCHEMA", KEY_SCALE_SCHEMA_ENTRIES
+        )
+        pool = make_mock_pool(
+            strings={
+                "tonal.chords_key": "C",
+                "tonal.chords_scale": "major",
+                "tonal.key_edma.key": "Db",
+                "tonal.key_edma.scale": "minor",
+                "tonal.key_krumhansl.key": "B",
+                "tonal.key_krumhansl.scale": "major",
+                "tonal.key_temperley.key": "X",
+                "tonal.key_temperley.scale": "phrygian",
+            }
+        )
+        result = _essentia_pool_to_vector(pool)
+        assert len(result) == 12
+        assert result.dtype == np.float32
+        np.testing.assert_allclose(result[0:2], [0.0, 1.0])
+        np.testing.assert_allclose(result[2:3], [1.0])
+        np.testing.assert_allclose(result[3:5], _summarize_key_cyclic("C#"))
+        np.testing.assert_allclose(result[5:6], [0.0])
+        np.testing.assert_allclose(result[6:8], _summarize_key_cyclic("B"))
+        np.testing.assert_allclose(result[8:9], [1.0])
+        np.testing.assert_allclose(result[9:11], [0.0, 0.0])
+        np.testing.assert_allclose(result[11:12], [0.5])
+
+
+@pytest.mark.skipif(not ESSENTIA_AVAILABLE, reason="Essentia not available")
+class TestKeyScaleRealEssentia:
+    def test_key_scale_descriptors_present_and_normalized(self, tmp_path):
+        y = np.random.default_rng(1).standard_normal(44100 * 3).astype(np.float32)
+        audio_path = tmp_path / "test.wav"
+        sf.write(audio_path, y, 44100)
+
+        extractor = es.MusicExtractor()
+        features, _frames = extractor(str(audio_path))
+
+        pool_names = set(features.descriptorNames())
+        for name, length, normalizer in KEY_SCALE_SCHEMA_ENTRIES:
+            assert name in pool_names
+            arr = audio_features._NORMALIZERS[normalizer](np.asarray(features[name]))
+            assert len(arr) == length
+
+
+class TestFrameValuesView:
+    def test_overlay_adds_frame_names_and_prefers_them(self):
+        pool = make_mock_pool(scalars={"lowlevel.average_loudness": 0.5})
+        frame_values = {
+            "frames.pitch": np.array([1.0, 2.0], dtype=np.float32),
+        }
+        view = audio_features._FrameValuesView(pool, frame_values)
+        names = set(view.descriptorNames())
+        assert "lowlevel.average_loudness" in names
+        assert "frames.pitch" in names
+        assert view["frames.pitch"].tolist() == [1.0, 2.0]
+        assert view["lowlevel.average_loudness"] == pytest.approx(0.5)
+
+    def test_missing_frame_name_not_in_descriptor_names(self):
+        pool = make_mock_pool(scalars={"lowlevel.average_loudness": 0.5})
+        view = audio_features._FrameValuesView(pool, {})
+        assert "frames.pitch" not in set(view.descriptorNames())
+
+    def test_pool_to_vector_zero_fills_absent_frame_entries(self, monkeypatch):
+        monkeypatch.setattr(
+            audio_features, "_DESCRIPTOR_SCHEMA", FRAME_SCHEMA_ENTRIES[:1]
+        )
+        pool = make_mock_pool(scalars={"lowlevel.average_loudness": 0.5})
+        view = audio_features._FrameValuesView(pool, {})
+        result = _essentia_pool_to_vector(view)
+        np.testing.assert_array_equal(result, np.zeros(4, dtype=np.float32))
+
+
+class TestFrameSchemaEntries:
+    def test_entries_in_real_schema(self):
+        tail = audio_features._DESCRIPTOR_SCHEMA[-len(FRAME_SCHEMA_ENTRIES) :]
+        assert tail == FRAME_SCHEMA_ENTRIES
+        assert sum(length for _, length, _ in audio_features._DESCRIPTOR_SCHEMA) == 4404
+
+    def test_frame_names_match_chain_output_names(self):
+        assert tuple(name for name, _, _ in FRAME_SCHEMA_ENTRIES) == (
+            audio_features._FRAME_DESCRIPTOR_NAMES
+        )
+
+    def test_end_to_end_stats4_summaries_via_overlay(self, monkeypatch):
+        monkeypatch.setattr(audio_features, "_DESCRIPTOR_SCHEMA", FRAME_SCHEMA_ENTRIES)
+        frame_values = {
+            "frames.pitch": np.array([440.0, 441.0, 439.0], dtype=np.float32),
+            "frames.pitch_instantaneous_confidence": np.array(
+                [0.9, 0.8], dtype=np.float32
+            ),
+            "frames.inharmonicity": np.array([0.1, 0.3], dtype=np.float32),
+            "frames.tristimulus": np.array(
+                [[0.2, 0.3, 0.5], [0.1, 0.4, 0.5]], dtype=np.float32
+            ),
+            "frames.oddtoevenharmonicenergyratio": np.array(
+                [1.0, 2.0], dtype=np.float32
+            ),
+            "frames.dissonance": np.array([0.05, 0.15], dtype=np.float32),
+        }
+        view = audio_features._FrameValuesView(make_mock_pool(), frame_values)
+        result = _essentia_pool_to_vector(view)
+        assert len(result) == 24
+        assert result.dtype == np.float32
+        np.testing.assert_allclose(
+            result[0:4], _summarize_stats4(frame_values["frames.pitch"])
+        )
+        np.testing.assert_allclose(
+            result[12:16], _summarize_stats4(frame_values["frames.tristimulus"])
+        )
+
+
+@pytest.mark.skipif(not ESSENTIA_AVAILABLE, reason="Essentia not available")
+class TestFrameChain:
+    def _harmonic_tone(self, seconds=2.0):
+        t = np.arange(int(44100 * seconds)) / 44100
+        tone = np.zeros_like(t)
+        for harmonic in range(1, 8):
+            tone += (1.0 / harmonic) * np.sin(2 * np.pi * 440 * harmonic * t)
+        return tone.astype(np.float32)
+
+    def test_shapes_and_names(self):
+        values = extract_frame_features(self._harmonic_tone())
+        assert set(values) == set(audio_features._FRAME_DESCRIPTOR_NAMES)
+        n_frames = len(values["frames.pitch"])
+        assert n_frames > 80
+        for name in (
+            "frames.pitch_instantaneous_confidence",
+            "frames.inharmonicity",
+            "frames.oddtoevenharmonicenergyratio",
+            "frames.dissonance",
+        ):
+            assert values[name].shape == (n_frames,)
+        assert values["frames.tristimulus"].shape == (n_frames, 3)
+
+    def test_pitch_of_harmonic_tone(self):
+        values = extract_frame_features(self._harmonic_tone())
+        assert np.mean(values["frames.pitch"]) == pytest.approx(440.0, abs=2.0)
+        assert np.mean(values["frames.pitch_instantaneous_confidence"]) > 0.5
+
+    def test_tristimulus_rows_sum_to_one(self):
+        values = extract_frame_features(self._harmonic_tone())
+        row_sums = values["frames.tristimulus"].sum(axis=1)
+        np.testing.assert_allclose(row_sums, 1.0, atol=1e-4)
+
+    def test_all_outputs_finite(self):
+        for audio in (
+            self._harmonic_tone(),
+            np.zeros(44100, dtype=np.float32),
+            np.random.default_rng(0).standard_normal(44100).astype(np.float32),
+        ):
+            values = extract_frame_features(audio)
+            for name, arr in values.items():
+                assert np.isfinite(arr).all(), name
+
+    def test_deterministic(self):
+        audio = self._harmonic_tone()
+        first = extract_frame_features(audio)
+        second = extract_frame_features(audio)
+        for name in first:
+            np.testing.assert_array_equal(first[name], second[name], err_msg=name)
+
+    def test_empty_audio_returns_empty_stacks(self):
+        values = extract_frame_features(np.zeros(0, dtype=np.float32))
+        assert set(values) == set(audio_features._FRAME_DESCRIPTOR_NAMES)
+        for name, arr in values.items():
+            assert arr.size == 0, name
+
+    def test_short_audio_does_not_raise(self):
+        values = extract_frame_features(
+            np.ones(audio_features._FRAME_CHAIN_FRAME_SIZE - 1, dtype=np.float32)
+        )
+        for name, arr in values.items():
+            assert np.isfinite(arr).all(), name
+
+    def test_non_finite_input_sanitized(self):
+        audio = self._harmonic_tone()
+        audio[10] = np.nan
+        values = extract_frame_features(audio)
+        for name, arr in values.items():
+            assert np.isfinite(arr).all(), name
+
+    def test_dc_offset_does_not_poison_pitch(self):
+        audio = self._harmonic_tone() + np.float32(0.5)
+        values = extract_frame_features(audio)
+        assert np.mean(values["frames.pitch"]) == pytest.approx(440.0, abs=2.0)
+        for name, arr in values.items():
+            assert np.isfinite(arr).all(), name
+
+
+@pytest.mark.skipif(not ESSENTIA_AVAILABLE, reason="Essentia not available")
+class TestFrameChainEssentiaEndToEnd:
+    def test_extract_essentia_features_full_width(self, tmp_path):
+        y = np.random.default_rng(1).standard_normal(44100 * 3).astype(np.float32)
+        audio_path = tmp_path / "test.wav"
+        sf.write(audio_path, y, 44100)
+
+        extractor = es.MusicExtractor()
+        result = extract_essentia_features(extractor, audio_path)
+
+        assert result.shape == (4404,)
+        assert result.dtype == np.float32
+        assert np.isfinite(result).all()
+        frame_values = extract_frame_features(
+            es.MonoLoader(filename=str(audio_path), sampleRate=44100)()
+        )
+        np.testing.assert_allclose(
+            result[-24:],
+            np.concatenate(
+                [
+                    _summarize_stats4(frame_values[name])
+                    for name in audio_features._FRAME_DESCRIPTOR_NAMES
+                ]
+            ),
+            rtol=1e-5,
+            atol=1e-5,
+        )
+
+    def test_extract_essentia_features_harmonic_tail(self, tmp_path):
+        t = np.arange(int(44100 * 2)) / 44100
+        tone = (
+            0.3 * sum((1.0 / h) * np.sin(2 * np.pi * 440 * h * t) for h in range(1, 8))
+        ).astype(np.float32)
+        audio_path = tmp_path / "tone.wav"
+        sf.write(audio_path, tone, 44100)
+
+        extractor = es.MusicExtractor()
+        result = extract_essentia_features(extractor, audio_path)
+
+        assert result.shape == (4404,)
+        assert result[-24] == pytest.approx(440.0, abs=2.0)
+        frame_values = extract_frame_features(
+            es.MonoLoader(filename=str(audio_path), sampleRate=44100)()
+        )
+        np.testing.assert_allclose(
+            result[-24:],
+            np.concatenate(
+                [
+                    _summarize_stats4(frame_values[name])
+                    for name in audio_features._FRAME_DESCRIPTOR_NAMES
+                ]
+            ),
+            rtol=1e-5,
+            atol=1e-5,
+        )
+
+    def test_pcm16_round_trip_preserves_pitch(self, tmp_path):
+        t = np.arange(int(44100 * 2)) / 44100
+        tone = (
+            0.3 * sum((1.0 / h) * np.sin(2 * np.pi * 440 * h * t) for h in range(1, 8))
+        ).astype(np.float32)
+        audio_path = tmp_path / "tone_dc.wav"
+        sf.write(audio_path, tone + np.float32(0.05), 44100)
+
+        values = extract_frame_features(
+            es.MonoLoader(filename=str(audio_path), sampleRate=44100)()
+        )
+
+        assert np.mean(values["frames.pitch"]) == pytest.approx(440.0, abs=2.0)
+        assert np.sum(values["frames.pitch"] == 0) == 0
+        for name, arr in values.items():
+            assert np.isfinite(arr).all(), name
+
+
+@pytest.mark.skipif(not ESSENTIA_AVAILABLE, reason="Essentia not available")
+class TestAssertSchemaDimConsistentFrames:
+    def test_missing_frame_entry_raises(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            audio_features,
+            "get_essentia_extractor",
+            lambda _: es.MusicExtractor(),
+        )
+        monkeypatch.setattr(
+            audio_features,
+            "_DESCRIPTOR_SCHEMA",
+            (("frames.bogus", 4, "stats4"),),
+        )
+        with pytest.raises(RuntimeError, match="frames.bogus"):
+            assert_schema_dim_consistent(None)
+
+    def test_real_schema_passes(self):
+        import pathlib
+
+        profile = pathlib.Path(__file__).resolve().parent.parent / (
+            "benchmark/essentia_profile.yaml"
+        )
+        assert_schema_dim_consistent(profile)

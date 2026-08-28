@@ -42,7 +42,13 @@ logger.setLevel(logging.DEBUG)
 
 atexit_handler_registered = False
 
-PANNS_FAMILY_QUOTA = {"lowlevel": 16, "tonal": 12, "rhythm": 12, "panns": 24}
+PANNS_FAMILY_QUOTA = {
+    "lowlevel": 16,
+    "tonal": 12,
+    "rhythm": 12,
+    "panns": 24,
+    "frames": 12,
+}
 
 
 def build_preprocessor(name: str, n_dims: int | None = None):

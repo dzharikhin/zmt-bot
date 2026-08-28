@@ -21,7 +21,8 @@ docker run --rm -v ./data:/app/data -v ./local_data:/app/local_data \
 - `client.py` — asyncio Telegram client, command handlers
 - `train.py` — ML train/estimate pipeline; `build_preprocessor()` registry: `noop`, `standardize_select`, `welch<N>`, `ridge_select<N>`, `quota<N>` (+ `PANNS_FAMILY_QUOTA`)
 - `core/` — `modeling.py` (`DualOneClassModel`, `OneClassSetModel`), `preprocessing.py` (`welch_scores`, `StandardizeSelect`/`RidgeSelect`/`QuotaSelect` preprocessor classes), `outliers.py`, `paths.py` (embed versioning), `storage.py` (FeatureStore + JobStore), `jobs.py`, `writer.py` (bulk extraction entry `start_extraction_job()`)
-- `audio/` — `features.py` (essentia + PANNs CNN14 engine, `_DESCRIPTOR_SCHEMA`, `descriptor_family_layout()`, `schema_fingerprint()`), `extractor.py` (`CombinedExtractor`, DI pattern), `segments.py`, `aggregation.py`
+- `audio/` — `features.py` (essentia + PANNs CNN14 engine, `_DESCRIPTOR_SCHEMA`, custom `frames.*` frame chain via `extract_frame_features()`, `descriptor_family_layout()`, `schema_fingerprint()`), `extractor.py` (`CombinedExtractor`, DI pattern), `segments.py`, `aggregation.py`
+- `scripts/` — remote operational entrypoints (`extract_corpus.py`: re-extract a corpus under a new embed_version from old cache parquets)
 - `benchmark/` — Optuna study tools (`compare.py`, `gates_study.py`, `dfa_gate_study.py`, `analyze_pareto.py`) — see `benchmark/README.md`
 - `audit/descriptor_shapes.py` — discover/verify `_DESCRIPTOR_SCHEMA` against a real corpus
 - `config.py` — env-based config with runtime override in `data/config.py` (bot_token/owner_user_id/data_path/local_data_path are locked)
@@ -39,10 +40,11 @@ docker run --rm -v ./data:/app/data -v ./local_data:/app/local_data \
 - **embed_version** = essentia version + profile hash + panns hash + schema fingerprint — any profile/schema change re-keys the whole cache. Models bundle the profile YAML at `model_workdir/essentia_profile.yaml`; estimation refuses to run on mismatch.
 
 ## Essentia gotchas
-- Runtime profile is `data/essentia_extractor_profile.yaml`; repo-root `essentia_profile.yaml` is an untracked dev copy.
+- Runtime profile is `data/essentia_extractor_profile.yaml`; dev/source copy tracked at `benchmark/essentia_profile.yaml`.
 - `_DESCRIPTOR_SCHEMA` families INTERLEAVE (rhythm/tonal runs repeat) — never assume family contiguity; use `descriptor_family_layout()` from `audio/features.py`.
-- String descriptors (e.g. `chords_scale`, `key`) cannot enter the numeric vector.
-- Descriptor-name validation needs no audio: construct `es.MusicExtractor(profile=...)` with a tmp profile — unsupported names fail at construction.
+- The profile is DECORATIVE for descriptor selection: `es.MusicExtractor(profile=...)` merges all YAML keys blindly with zero validation (bogus names construct fine; only missing/garbage files fail), and the frame chains are hardcoded — the extractor pool is fixed at 560. Only extraction-time pool diffs are meaningful. Extra frame descriptors (`frames.*`, 6×4=24 dims, schema 566 entries / 4404 dims) come from the custom in-code standard-mode chain, NOT the profile.
+- Custom frame chain gotchas: essentia branch algorithms RAISE on edge frames — `Inharmonicity` throws "fundamental frequency found at 0 Hz" on DC peaks. The chain uses SpectralPeaks `minFrequency=20` plus per-descriptor `_guarded()` isolation so one failing descriptor never zeroes valid ones. Also `sf.write` defaults to PCM_16 and CLAMPS |x|>1.0 — normalize test tones.
+- String descriptors (key/scale) DO enter the numeric vector via the `key_cyclic`/`scale_binary` normalizers in `_NORMALIZERS`; unknown values map to neutral encodings with a logged warning (never raise).
 
 ## Model code gotchas
 - `OneClassSetModel.score()` is single-row only (indexes `[0]` internally) — loop per point for batches.
@@ -53,7 +55,7 @@ Compare embedding variants with Optuna (config YAML schema documented in `benchm
 poetry run python -m benchmark.compare --config ... --objective-weights 0.5 0.5 \
     --output data/benchmark/report.json --user-id 123456789 --n-iterations 50
 ```
-Gates study (outlier method × budget × selection, NSGA-II on lfr@0.8 + dfa@0.775) over pre-extracted parquet shards — `benchmark/run_gates_study.sh [FEATURES_DIR] [N_ITERATIONS]`.
+Gates study (outlier method × budget × selection, NSGA-II on lfr@0.8 + dfa@0.775) over pre-extracted parquet shards — `benchmark/run_gates_study.sh [FEATURES_DIR] [N_ITERATIONS]`. Supports `--extra-cells` (prod baseline + ship candidate with verdicts at 0.8 AND 0.9), `--essentia-dims` (arm width; quota families adapt), `--slice-arms SRC` (column-sliced ablation copies `{src}_arm{4368,4380,4404}`).
 
 ## Audit tool
 ```bash

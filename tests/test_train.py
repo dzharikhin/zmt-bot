@@ -67,7 +67,12 @@ class TestBuildPreprocessor:
         prep.fit(X, y)
         assert prep.transform(X).shape == (60, 64)
         n_pan = sum(1 for i in prep.selected_ if i >= n_dims)
-        assert n_pan == 24  # panns quota
+        expected = round(
+            train.PANNS_FAMILY_QUOTA["panns"]
+            * 64
+            / sum(train.PANNS_FAMILY_QUOTA.values())
+        )
+        assert expected <= n_pan <= expected + 1  # quota + possible leftover pad
 
     def test_unknown_name_raises(self):
         with pytest.raises(ValueError, match="Unknown preprocessor"):
