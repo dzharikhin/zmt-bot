@@ -8,7 +8,7 @@ This answers the key question: **"does the includeLiked model work? does the exc
 
 - **Liked/disliked tracks**: `data/{user_id}/liked/*.mp3` and `data/{user_id}/disliked/*.mp3` (`config.py:313-322`). At least 10 liked AND at least 10 disliked tracks must be extracted after feature computation, otherwise the variant is skipped (`benchmark/compare.py:395`).
 - **PANNs weights**: Must exist at the path specified by `PANNS_WEIGHTS_PATH` env var or the default `data/panns_data/panns_cnn14.pth` (`config.py:69-71`).
-- **Recall targets**: Configured via environment variables: `MODEL_INCLUDE_LIKED_RECALL` (default `0.775`) and `MODEL_EXCLUDE_DISLIKED_RECALL` (default `0.90`) (`config.py:55-60`). These define the operating points for reporting.
+- **Recall targets**: Configured via environment variables: `MODEL_INCLUDE_LIKED_RECALL` (default `0.775`) and `MODEL_EXCLUDE_DISLIKED_RECALL` (default `0.80`) (`config.py:55-60`). These define the operating points for reporting.
 - **Essentia profile**: Used to compute feature cache keys via `get_embed_version()` (`core/paths.py:9-26`).
 
 ## Running in a Container
@@ -31,7 +31,7 @@ docker run ... tg-zmt-bot:$(poetry version --short) -m benchmark.compare ...
 
 - **`./data:/app/data`** — feature cache (`data/{user_id}/features/`) and PANNs weights (`data/panns_data/`). The container creates a symlink `/root/panns_data → /app/data/panns_data` at runtime.
 - **`./local_data:/app/local_data`** — training scratch space (merged parquet, job state).
-- **No Telegram env vars needed** — `API_ID`, `API_HASH`, `BOT_TOKEN`, `OWNER_USER_ID` are imported but unused by benchmark tools. Model config env vars use safe defaults (`MODEL_MIN_SET_SIZE=50`, `MODEL_EXCLUDE_DISLIKED_RECALL=0.90`, `MODEL_INCLUDE_LIKED_RECALL=0.775`).
+- **No Telegram env vars needed** — `API_ID`, `API_HASH`, `BOT_TOKEN`, `OWNER_USER_ID` are imported but unused by benchmark tools. Model config env vars use safe defaults (`MODEL_MIN_SET_SIZE=50`, `MODEL_EXCLUDE_DISLIKED_RECALL=0.80`, `MODEL_INCLUDE_LIKED_RECALL=0.775`).
 
 ### Smoke test (seconds, no data required)
 
@@ -208,7 +208,7 @@ The tool outputs a JSON report with the following structure:
     "auc_include": 0.5
   },
   "threshold_regime": {
-    "exclude_disliked_recall_target": 0.9,
+    "exclude_disliked_recall_target": 0.8,
     "include_liked_recall_target": 0.775,
     "cv_folds_in_benchmark": null
   },
@@ -244,7 +244,7 @@ The tool outputs a JSON report with the following structure:
           "disliked_false_accept": 0.18,
           "liked_false_reject": 0.28,
           "liked_recall": 0.775,
-          "disliked_recall": 0.90
+          "disliked_recall": 0.80
         },
         "metrics_top5_median": {
           "auc_include": 0.89,
@@ -252,7 +252,7 @@ The tool outputs a JSON report with the following structure:
           "disliked_false_accept": 0.21,
           "liked_false_reject": 0.32,
           "liked_recall": 0.775,
-          "disliked_recall": 0.90
+          "disliked_recall": 0.80
         },
         "n_trials": 50,
         "trial_history": [
@@ -296,8 +296,8 @@ The tool outputs a JSON report with the following structure:
 | `auc_exclude` | ROC-AUC of the dislike-score separating disliked (positive) from liked (negative). Indicates how well the model can reject tracks similar to disliked ones. | ≥ 0.85 | ≈ 0.50 |
 | `liked_recall` | At the include operating point (target 0.775), fraction of liked tracks that are correctly accepted (recommended). Pinned near 0.775 by the percentile threshold definition (`benchmark/compare.py:141-144`). | ~0.775 by construction | — |
 | `disliked_false_accept` | At the include operating point, fraction of **disliked** tracks that wrongly pass the "post it" gate. Lower is better. | < ~0.20 (strong) / < 0.40 (decent) | ≈ 0.775 (model does nothing) |
-| `disliked_recall` | At the exclude operating point (target 0.90), fraction of disliked tracks that are correctly rejected. Pinned near 0.90 by the percentile threshold definition (`benchmark/compare.py:147-150`). | ~0.90 by construction | — |
-| `liked_false_reject` | At the exclude operating point, fraction of **liked** tracks that are wrongly rejected (collateral damage). Lower is better. | < ~0.15 (strong) / < 0.35 (decent) | ≈ 0.90 (model nukes good tracks) |
+| `disliked_recall` | At the exclude operating point (target 0.80), fraction of disliked tracks that are correctly rejected. Pinned near 0.80 by the percentile threshold definition (`benchmark/compare.py:147-150`). | ~0.80 by construction | — |
+| `liked_false_reject` | At the exclude operating point, fraction of **liked** tracks that are wrongly rejected (collateral damage). Lower is better. | < ~0.15 (strong) / < 0.35 (decent) | ≈ 0.80 (model nukes good tracks) |
 
 **Key point:** `liked_recall` and `disliked_recall` are pinned near their targets by the threshold definition. They do **not** signal model quality; the quality signals are the other set's error rates at the same operating point (`disliked_false_accept` / `liked_false_reject`).
 
@@ -346,16 +346,16 @@ The excludeDisliked model answers "reject tracks similar to disliked ones." The 
 | Field | Meaning | Good | Useless |
 |-------|---------|------|---------|
 | `auc_exclude` | Can the dislike-score separate disliked from liked? | ≥ 0.85 | ≈ 0.50 |
-| `liked_false_reject` | At `disliked_recall`≈0.90, fraction of **liked** tracks wrongly rejected | < ~0.15 (strong) / < 0.35 (decent) | ≈ 0.90 (model nukes good tracks) |
+| `liked_false_reject` | At `disliked_recall`≈0.80, fraction of **liked** tracks wrongly rejected | < ~0.15 (strong) / < 0.35 (decent) | ≈ 0.80 (model nukes good tracks) |
 
-**Anchor**: If the model cannot discriminate (AUC 0.5), to reject 90% of disliked it must also reject ~90% of liked, so `liked_false_reject ≈ 0.90` means the model is doing nothing useful.
+**Anchor**: If the model cannot discriminate (AUC 0.5), to reject 80% of disliked it must also reject ~80% of liked, so `liked_false_reject ≈ 0.80` means the model is doing nothing useful.
 
 #### Verdict Buckets
 
 - **strong** (≥ 0.90 AUC AND < 0.15 `liked_false_reject`): catches most disliked, spares most liked.
 - **decent** (0.80–0.90 AUC AND < 0.35 `liked_false_reject`): usable, some collateral damage.
 - **weak** (0.70–0.80 AUC): rejects too much good music alongside the bad.
-- **broken** (≈ 0.50 AUC): cannot distinguish; at 90% dislike recall it rejects ~90% of liked too — effectively unusable.
+- **broken** (≈ 0.50 AUC): cannot distinguish; at 80% dislike recall it rejects ~80% of liked too — effectively unusable.
 
 ### Comparing Variants
 
@@ -383,9 +383,9 @@ Another variant:
 
 - `optimization.metrics_best.auc_exclude = 0.55`
 - `optimization.metrics_best.liked_false_reject = 0.82`
-- `optimization.metrics_best.disliked_recall = 0.90`
+- `optimization.metrics_best.disliked_recall = 0.80`
 
-**Interpretation**: excludeDisliked is effectively broken. To catch 90% of disliked it rejects 82% of liked too, confirming no discrimination (AUC 0.55). This variant should be ignored or fixed before deployment.
+**Interpretation**: excludeDisliked is effectively broken. To catch 80% of disliked it rejects 82% of liked too, confirming no discrimination (AUC 0.55). This variant should be ignored or fixed before deployment.
 
 ## Implementation Details
 

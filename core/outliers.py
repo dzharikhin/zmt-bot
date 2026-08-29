@@ -30,7 +30,8 @@ def detect_outliers(
     """
     if len(X) < min_set_size:
         logger.warning(
-            f"Set size {len(X)} < min_set_size {min_set_size}, skipping outlier detection"
+            f"Set size {len(X)} < min_set_size {min_set_size}, "
+            "skipping outlier detection"
         )
         return np.ones(len(X), dtype=bool), []
 

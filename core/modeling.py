@@ -237,7 +237,7 @@ class DualOneClassModel:
         gmm_components_max: int = 16,
         gmm_min_points_per_component: int = 40,
         cv_folds: int | None = None,
-        exclude_disliked_recall_target: float = 0.90,
+        exclude_disliked_recall_target: float = 0.80,
         include_liked_recall_target: float = 0.80,
         preprocessor: Preprocessor | None = None,
         liked_preprocessor: Preprocessor | None = None,

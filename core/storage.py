@@ -55,10 +55,14 @@ class FeatureStore:
         conn = duckdb.connect()
         try:
             conn.execute(
-                "CREATE TABLE temp (file_hash VARCHAR, source_path VARCHAR, set_name VARCHAR, bytes BIGINT, mtime DOUBLE, duration_s DOUBLE, sample_rate INTEGER, extracted_at TIMESTAMP, vector FLOAT[])"
+                "CREATE TABLE temp (file_hash VARCHAR, source_path VARCHAR, "
+                "set_name VARCHAR, bytes BIGINT, mtime DOUBLE, duration_s DOUBLE, "
+                "sample_rate INTEGER, extracted_at TIMESTAMP, vector FLOAT[])"
             )
             conn.execute(
-                f"INSERT INTO temp VALUES ('{file_hash}', '{source_path}', '{set_name}', {bytes_val}, {mtime_val}, {duration_s}, {sample_rate_val}, CURRENT_TIMESTAMP, {vector_sql})"
+                f"INSERT INTO temp VALUES ('{file_hash}', '{source_path}', "
+                f"'{set_name}', {bytes_val}, {mtime_val}, {duration_s}, "
+                f"{sample_rate_val}, CURRENT_TIMESTAMP, {vector_sql})"
             )
             conn.execute(
                 f"COPY temp TO '{tmp_path}' (FORMAT PARQUET, COMPRESSION ZSTD)"
@@ -87,10 +91,11 @@ class FeatureStore:
     def _materialize(self, set_name: str) -> Path:
         tmp_dir = config.get_training_tmp_dir(self.user_id)
         ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        local_path = (
-            tmp_dir
-            / f"merged_{set_name}_{self.embed_version}_{self.segment_policy}_{ts}.parquet"
+        name = (
+            f"merged_{set_name}_{self.embed_version}_"
+            f"{self.segment_policy}_{ts}.parquet"
         )
+        local_path = tmp_dir / name
 
         nas_dir = self.partition_dir(set_name)
         conn = duckdb.connect()
@@ -167,18 +172,26 @@ class JobStore:
         self.conn.execute(
             """
             INSERT INTO jobs (job_id, kind, status, progress_total, progress_done,
-                              started_at, last_heartbeat_at, finished_at, params_json, error_json)
+                              started_at, last_heartbeat_at, finished_at,
+                              params_json, error_json)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (job_id) DO UPDATE SET
-                kind            = COALESCE(excluded.kind, jobs.kind),
-                status          = COALESCE(excluded.status, jobs.status),
-                progress_total  = COALESCE(excluded.progress_total, jobs.progress_total),
-                progress_done   = COALESCE(excluded.progress_done, jobs.progress_done),
-                started_at      = COALESCE(excluded.started_at, jobs.started_at),
-                last_heartbeat_at = COALESCE(excluded.last_heartbeat_at, jobs.last_heartbeat_at),
-                finished_at     = COALESCE(excluded.finished_at, jobs.finished_at),
-                params_json     = COALESCE(excluded.params_json, jobs.params_json),
-                error_json      = COALESCE(excluded.error_json, jobs.error_json)
+                kind = COALESCE(excluded.kind, jobs.kind),
+                status = COALESCE(excluded.status, jobs.status),
+                progress_total = COALESCE(
+                    excluded.progress_total, jobs.progress_total),
+                progress_done = COALESCE(
+                    excluded.progress_done, jobs.progress_done),
+                started_at = COALESCE(
+                    excluded.started_at, jobs.started_at),
+                last_heartbeat_at = COALESCE(
+                    excluded.last_heartbeat_at, jobs.last_heartbeat_at),
+                finished_at = COALESCE(
+                    excluded.finished_at, jobs.finished_at),
+                params_json = COALESCE(
+                    excluded.params_json, jobs.params_json),
+                error_json = COALESCE(
+                    excluded.error_json, jobs.error_json)
             """,
             [
                 job_id,

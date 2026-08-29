@@ -13,7 +13,7 @@ feature-cache probe; rerun the same command to continue.
 
 import argparse
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 import duckdb
@@ -96,7 +96,7 @@ def main() -> None:
     logger.info(f"Target embed_version: {embed_version}")
 
     job_id = (
-        f"extract_corpus_{args.user_id}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+        f"extract_corpus_{args.user_id}_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
     )
     result = start_extraction_job(
         user_id=args.user_id,

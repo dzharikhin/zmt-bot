@@ -584,6 +584,7 @@ class TestOperatingMetrics:
             gmm_components_max=4,
             gmm_min_points_per_component=10,
             cv_folds=5,
+            exclude_disliked_recall_target=0.90,
         )
         model.fit(X_liked, X_disliked)
 

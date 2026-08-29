@@ -53,7 +53,7 @@ model_gmm_min_points_per_component = int(
 )
 model_outlier_threshold = float(os.getenv("MODEL_OUTLIER_THRESHOLD", "0.07"))
 model_exclude_disliked_recall_target = float(
-    os.getenv("MODEL_EXCLUDE_DISLIKED_RECALL", "0.90")
+    os.getenv("MODEL_EXCLUDE_DISLIKED_RECALL", "0.80")
 )
 model_include_liked_recall_target = float(
     os.getenv("MODEL_INCLUDE_LIKED_RECALL", "0.775")

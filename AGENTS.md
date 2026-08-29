@@ -33,6 +33,7 @@ docker run --rm -v ./data:/app/data -v ./local_data:/app/local_data \
 - **Two one-class models** per user (liked + disliked), NOT a binary classifier; binary probes are offline diagnostics only, never shipped
 - **Audio data only** — no artist, genre, or other metadata
 - **Per-model preprocessing**: liked and disliked models each get their own preprocessor (`MODEL_LIKE_PREPROCESSOR` default `quota64`, `MODEL_DISLIKE_PREPROCESSOR` default `ridge_select64`, `MODEL_OUTLIER_THRESHOLD` default `0.07`). Old pickles without per-model attrs must keep loading (getattr-safe helpers in `DualOneClassModel`)
+- **Gate anchors**: exclude gate recall target `MODEL_EXCLUDE_DISLIKED_RECALL` default `0.80` (flipped from 0.90 after the P5-B 3-arm study; include gate `MODEL_INCLUDE_LIKED_RECALL` default `0.775`). Thresholds are calibrated at fit time — old pickles keep their stored anchors until retrained.
 - **Static module-level imports only** — no function-level imports, no dynamic imports (`importlib.import_module()`, `exec()`, `eval()`)
 - **Process pools** use `multiprocessing.get_context("spawn")` via lazy accessors `get_training_executor()`/`get_estimation_executor()` in config.py
 - **PANNs CNN14 assets** user-provided under `data/panns_data/`: weights `panns_cnn14.pth` + labels `class_labels_indices.csv`; container symlinks `/root/panns_data` → `/app/data/panns_data`
