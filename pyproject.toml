@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "tg-zmt-bot"
-version = "2.4.16"
+version = "2.4.17"
 description = ""
 authors = ["Dmitriy Zharikhin <jorixxx@mail.ru>"]
 readme = "README.md"

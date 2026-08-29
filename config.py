@@ -65,6 +65,13 @@ model_preprocessor = os.getenv("MODEL_PREPROCESSOR", "standardize_select")
 model_select_n_features = int(os.getenv("MODEL_SELECT_N_FEATURES", "64"))
 model_like_preprocessor = os.getenv("MODEL_LIKE_PREPROCESSOR", "quota64")
 model_dislike_preprocessor = os.getenv("MODEL_DISLIKE_PREPROCESSOR", "ridge_select64")
+model_decision_mode = os.getenv("MODEL_DECISION_MODE", "fused_diff")
+model_fusion_weight = float(os.getenv("MODEL_FUSION_WEIGHT", "1.0"))
+if model_decision_mode not in ("single", "fused_diff"):
+    raise ValueError(
+        f"MODEL_DECISION_MODE must be 'single' or 'fused_diff', "
+        f"got {model_decision_mode!r}"
+    )
 
 model_knn_k = model_knn_k_max
 model_gmm_components = model_gmm_components_max

@@ -16,6 +16,8 @@ logger = logging.getLogger(__name__)
 
 _MODEL_SCHEMA_VERSION = 5
 
+DECISION_MODES = ("single", "fused_diff")
+
 _SHARED_MODEL_PARAMS = (
     "knn_k_min",
     "knn_k_max",
@@ -227,6 +229,12 @@ class DualOneClassModel:
     Thresholds are computed via k-fold cross-validated out-of-fold scoring
     when cv_folds >= 2, giving honest recall guarantees. Falls back to
     in-sample percentiles when cv_folds is None or < 2.
+
+    decision_mode: "single" — each gate uses only its own model's score
+    (historical behavior, and the old-pickle default); "fused_diff" — the
+    opposite model's calibrated score is subtracted (weighted by
+    fusion_weight) before threshold comparison, with thresholds calibrated
+    on the same fused OOF scores.
     """
 
     def __init__(
@@ -244,7 +252,14 @@ class DualOneClassModel:
         disliked_preprocessor: Preprocessor | None = None,
         liked_params: dict | None = None,
         disliked_params: dict | None = None,
+        decision_mode: str = "single",
+        fusion_weight: float = 1.0,
     ):
+        if decision_mode not in DECISION_MODES:
+            raise ValueError(
+                f"Unknown decision_mode: {decision_mode!r} "
+                f"(allowed: {DECISION_MODES})"
+            )
         self.knn_k_min = knn_k_min
         self.knn_k_max = knn_k_max
         self.knn_k_scale = knn_k_scale
@@ -256,6 +271,8 @@ class DualOneClassModel:
         self.preprocessor = preprocessor or NoOpPreprocessor()
         self.liked_preprocessor = liked_preprocessor
         self.disliked_preprocessor = disliked_preprocessor
+        self.decision_mode = decision_mode
+        self.fusion_weight = fusion_weight
 
         shared = {
             "knn_k_min": knn_k_min,
@@ -282,6 +299,14 @@ class DualOneClassModel:
     def _prep_dislike(self) -> Preprocessor:
         """Preprocessor for the disliked model's space (old-pickle safe)"""
         return getattr(self, "disliked_preprocessor", None) or self.preprocessor
+
+    def _decision_mode(self) -> str:
+        """Decision rule in use (old-pickle safe: pre-fusion pickles stay single)"""
+        return getattr(self, "decision_mode", "single")
+
+    def _fusion_weight(self) -> float:
+        """Weight of the opposite model's score in fused decisions"""
+        return getattr(self, "fusion_weight", 1.0)
 
     def fit(self, X_liked: np.ndarray, X_disliked: np.ndarray):
         """Fit both models and compute thresholds
@@ -335,6 +360,8 @@ class DualOneClassModel:
             "include_liked_recall_target": self.include_liked_recall_target,
             "liked_preprocessor": type(prep_like).__name__,
             "disliked_preprocessor": type(prep_dislike).__name__,
+            "decision_mode": self._decision_mode(),
+            "fusion_weight": self._fusion_weight(),
             **self.operating_metrics,
         }
         return self
@@ -404,6 +431,14 @@ class DualOneClassModel:
         benchmark/compare.py. Otherwise in-sample scores are used and
         metrics_source reflects the fallback.
 
+        When decision_mode == "fused_diff", both the threshold calibration
+        and the recorded error rates run on fused scores — exclude space:
+        dislike_cal - fusion_weight * like_cal (exclude iff >= threshold),
+        include space: like_cal - fusion_weight * dislike_cal (include iff
+        > threshold) — mirroring benchmark/fused_rule_study.fused_metrics.
+        "single" (also the old-pickle default) uses the raw per-model
+        scores exactly as before.
+
         Per-block per-class confusion rates are recorded:
         include_liked (positive = accepted as liked): tp/fn over liked
         tracks, fp/tn over disliked tracks; exclude_disliked (positive =
@@ -447,22 +482,42 @@ class DualOneClassModel:
             )
             metrics_source = "in_sample"
 
+        if self._decision_mode() == "fused_diff":
+            w = self._fusion_weight()
+            exclude_disliked_fused = dislike_scores - w * like_on_disliked
+            exclude_liked_fused = dislike_on_liked - w * like_scores
+            include_liked_fused = like_scores - w * dislike_on_liked
+            include_disliked_fused = like_on_disliked - w * dislike_scores
+        else:
+            exclude_disliked_fused = dislike_scores
+            exclude_liked_fused = dislike_on_liked
+            include_liked_fused = like_scores
+            include_disliked_fused = like_on_disliked
+
         self.thresholds["exclude_disliked"] = float(
             np.percentile(
-                dislike_scores, 100 * (1 - self.exclude_disliked_recall_target)
+                exclude_disliked_fused,
+                100 * (1 - self.exclude_disliked_recall_target),
             )
         )
         self.thresholds["include_liked"] = float(
-            np.percentile(like_scores, 100 * (1 - self.include_liked_recall_target))
+            np.percentile(
+                include_liked_fused,
+                100 * (1 - self.include_liked_recall_target),
+            )
         )
 
-        include_tp = float(np.mean(like_scores > self.thresholds["include_liked"]))
-        include_fp = float(np.mean(like_on_disliked > self.thresholds["include_liked"]))
+        include_tp = float(
+            np.mean(include_liked_fused > self.thresholds["include_liked"])
+        )
+        include_fp = float(
+            np.mean(include_disliked_fused > self.thresholds["include_liked"])
+        )
         exclude_tp = float(
-            np.mean(dislike_scores >= self.thresholds["exclude_disliked"])
+            np.mean(exclude_disliked_fused >= self.thresholds["exclude_disliked"])
         )
         exclude_fp = float(
-            np.mean(dislike_on_liked >= self.thresholds["exclude_disliked"])
+            np.mean(exclude_liked_fused >= self.thresholds["exclude_disliked"])
         )
 
         self.operating_metrics = {
@@ -486,13 +541,23 @@ class DualOneClassModel:
         }
 
     def decide(self, scores: dict, model_type: ModelType) -> bool:
-        """Apply decision logic based on model type"""
+        """Apply decision logic based on model type
+
+        fused_diff mode combines both one-class scores (exclude space:
+        dislike_cal - fusion_weight * like_cal; include space:
+        like_cal - fusion_weight * dislike_cal) before comparing to the
+        thresholds calibrated on the same fused scores.
+        """
+        like_cal = scores["like"]["calibrated"]
+        dislike_cal = scores["dislike"]["calibrated"]
+        fused = self._decision_mode() == "fused_diff"
+        w = self._fusion_weight()
         if model_type == ModelType.EXCLUDE_DISLIKED:
-            return bool(
-                scores["dislike"]["calibrated"] < self.thresholds["exclude_disliked"]
-            )
+            exclude_score = dislike_cal - w * like_cal if fused else dislike_cal
+            return bool(exclude_score < self.thresholds["exclude_disliked"])
         elif model_type == ModelType.INCLUDE_LIKED:
-            return bool(scores["like"]["calibrated"] > self.thresholds["include_liked"])
+            include_score = like_cal - w * dislike_cal if fused else like_cal
+            return bool(include_score > self.thresholds["include_liked"])
         else:
             raise ValueError(f"Unknown model_type: {model_type}")
 
@@ -519,6 +584,8 @@ class DualOneClassModel:
                 "cv_folds": self.cv_folds,
                 "exclude_disliked_recall_target": self.exclude_disliked_recall_target,
                 "include_liked_recall_target": self.include_liked_recall_target,
+                "decision_mode": self._decision_mode(),
+                "fusion_weight": self._fusion_weight(),
                 "preprocessor": {
                     "type": type(self.preprocessor).__name__,
                     "n_features": getattr(self.preprocessor, "n_features", None),

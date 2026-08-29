@@ -47,7 +47,6 @@ PANNS_FAMILY_QUOTA = {
     "tonal": 12,
     "rhythm": 12,
     "panns": 24,
-    "frames": 12,
 }
 
 
@@ -342,6 +341,8 @@ def _build_profile(user_id: int, model_id: int) -> config.Model:
         disliked_preprocessor=build_preprocessor(
             config.model_dislike_preprocessor, n_dims=n_dims
         ),
+        decision_mode=config.model_decision_mode,
+        fusion_weight=config.model_fusion_weight,
     )
     model.fit(X_liked, X_disliked)
     model.embed_version = embed_version

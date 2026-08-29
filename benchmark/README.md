@@ -431,12 +431,7 @@ Isolates data-cleaning and preprocessing levers on a **fixed** feature set (load
 Extra CLI flags:
 
 - `--extra-cells` — also evaluate the pinned parity cells: `prod_baseline` (welch64 + prod_fused @ shipped budget) and `ship_candidate` (per:quota64/ridge_select64 + prod_fused @ 0.07) with full metric dicts (all recall points) and verdicts at BOTH anchors (0.8 guideline and 0.9 prod operating point).
-- `--essentia-dims K` — essentia block width of the features dir (default 4404 = current schema). Used when running on a column-sliced arm so quota family layout adapts to the narrower essentia block.
-- `--slice-arms FEATURES_DIR` — write the 3-arm ablation copies `{src}_arm{4368,4380,4404}` (baseline / +keyscale / +frames; duckdb column slices, panns tail preserved) beside the source dir and exit. One extraction then serves all three arms:
-  ```bash
-  ./benchmark/run_gates_study.sh {src}_arm4404 60          # or python -m benchmark.gates_study ...
-  python -m benchmark.gates_study --features-dir {src}_arm4380 --essentia-dims 4380 ...
-  ```
+- `--essentia-dims K` — essentia block width of the features dir (default 4380 = current schema). Used when running on a column-sliced arm so quota family layout adapts to the narrower essentia block.
 
 Search space:
 
@@ -444,14 +439,30 @@ Search space:
 |-----------|--------|
 | `outlier_method` | `prod_fused` (shipped kNN+IF rank fusion, raw space) / `knn` / `iforest` / `std_fused` (fusion on standardized space) / `lof_std` |
 | `outlier_budget` | float 0.02–0.12 (prod_fused removes less than nominal: fusion behaves as a consensus rule) |
-| `selection` | `welch64` (shipped) / `ridge_select64` (\|logistic coef\| top-64) / `fused_welch_ridge64` (rank fusion) / `quota64` (family quota: 16 lowlevel, 12 tonal, 12 rhythm, 24 panns, 12 frames — quotas scale with n_features; Welch within family) / `pls_project64` (PLS projection) |
+| `selection` | `welch64` (shipped) / `ridge_select64` (\|logistic coef\| top-64) / `fused_welch_ridge64` (rank fusion) / `quota64` (family quota: 16 lowlevel, 12 tonal, 12 rhythm, 24 panns — quotas scale with n_features; Welch within family) / `pls_project64` (PLS projection) |
 
 Output JSON: `essentia_dims`, `baseline` (shipped config metrics + verdict at 0.8 and 0.9), `pareto_front` (params + full metric dicts + verdicts), `trial_history` (full metrics per trial, for plateau checks), `extra_cells` (when `--extra-cells`). Verdict labels vs owner guideline: `stretch` (lfr@0.8 ≤ 0.12 and dfa@0.775 ≤ 0.08), `guideline` (≤ 0.20 both), `fail`.
+
+## Fused decision-rule study
+
+`benchmark/fused_rule_study.py` evaluates score-level fusion of the two one-class gates on OOF scores from the gates_study CV protocol (5-fold × seeds, `run_cv(return_scores=True)`):
+
+```bash
+poetry run python -m benchmark.fused_rule_study --features-dir FEATURES_DIR \
+    --essentia-dims 4380 --cells ship_candidate prod_baseline --skip-probe \
+    --output data/benchmark/fused_rule_study.json
+```
+
+- Diff fusion: exclude iff `dislike_cal − w·like_cal ≥ t(w)` (t = percentile on OOF fused disliked scores, mirroring prod calibration); include side symmetric. w-grid 0–2; w=0 ≡ the shipped single-score rule.
+- Diagnostics: AND-rule (2D percentile grid, grid-selected per seed → OPTIMISTIC, reference only), supervised logistic probe ceiling (offline only, never shipped), shuffle placebo (destroys per-point pairing), clamp/pairing score diagnostics, verdicts vs the hard gate (lfr@0.85 ≤ 0.20 AND dfa@0.775 ≤ 0.20; stretch lfr@0.9 ≤ 0.20).
+- Cells: `prod_baseline` / `ship_candidate` carry single-rule PARITY_ANCHORS (arm4380) that must reproduce before any fused row is trusted; other cells (`per_welch64_ridge64`, `per_quota32_ridge64`, `quota64_shared`) are annotate-only.
+- Production counterpart: `DualOneClassModel(decision_mode="fused_diff", fusion_weight=w)` in `core/modeling.py` — same fusion math, thresholds calibrated on fused OOF scores at fit time.
 
 ## Files
 
 - `benchmark/compare.py` — Optuna benchmark tool and CLI.
 - `benchmark/dfa_gate_study.py` — include-gate operating-point study (mechanism A/B + liked-side search).
+- `benchmark/fused_rule_study.py` — Fused decision-rule study (diff fusion w-grid + diagnostics).
 - `benchmark/gates_study.py` — Gates study (outlier × selection, NSGA-II).
 - `benchmark/preprocessor.md` — Preprocessor implementation plan (executed).
 - `benchmark/segment_sweep.yaml` — Segment policy sweep configuration for benchmark.

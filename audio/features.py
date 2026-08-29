@@ -92,138 +92,6 @@ _NORMALIZERS: dict[str, Callable[[str | np.ndarray], np.ndarray]] = {
     "scale_binary": _summarize_scale_binary,
 }
 
-_FRAME_CHAIN_SAMPLE_RATE = 44100
-_FRAME_CHAIN_FRAME_SIZE = 2048
-_FRAME_CHAIN_HOP_SIZE = 1024
-_FRAME_DESCRIPTOR_NAMES = (
-    "frames.pitch",
-    "frames.pitch_instantaneous_confidence",
-    "frames.inharmonicity",
-    "frames.tristimulus",
-    "frames.oddtoevenharmonicenergyratio",
-    "frames.dissonance",
-)
-
-_frame_windowing = es.Windowing(type="hann")
-_frame_spectrum = es.Spectrum(size=_FRAME_CHAIN_FRAME_SIZE)
-_frame_spectral_peaks = es.SpectralPeaks(
-    sampleRate=_FRAME_CHAIN_SAMPLE_RATE,
-    maxPeaks=100,
-    minFrequency=20.0,
-    maxFrequency=5000.0,
-)
-_frame_pitch_yin = es.PitchYinFFT(
-    frameSize=_FRAME_CHAIN_FRAME_SIZE, sampleRate=_FRAME_CHAIN_SAMPLE_RATE
-)
-_frame_inharmonicity = es.Inharmonicity()
-_frame_tristimulus = es.Tristimulus()
-_frame_odd_to_even = es.OddToEvenHarmonicEnergyRatio()
-_frame_dissonance = es.Dissonance()
-
-
-def _finite_float32(value) -> np.ndarray:
-    return np.nan_to_num(
-        np.asarray(value, dtype=np.float32).reshape(-1),
-        nan=0.0,
-        posinf=0.0,
-        neginf=0.0,
-    )
-
-
-def _guarded(compute, default):
-    try:
-        return compute()
-    except Exception:
-        return default
-
-
-def _frame_values(frame) -> dict:
-    try:
-        spectrum = _frame_spectrum(_frame_windowing(frame))
-    except Exception:
-        spectrum = None
-    freqs, mags = _guarded(lambda: _frame_spectral_peaks(spectrum), (None, None))
-    pitch, confidence = _guarded(lambda: _frame_pitch_yin(spectrum), (0.0, 0.0))
-    return {
-        "frames.pitch": pitch,
-        "frames.pitch_instantaneous_confidence": confidence,
-        "frames.inharmonicity": _guarded(
-            lambda: _frame_inharmonicity(freqs, mags), 0.0
-        ),
-        "frames.tristimulus": _guarded(
-            lambda: _frame_tristimulus(freqs, mags),
-            np.zeros(3, dtype=np.float32),
-        ),
-        "frames.oddtoevenharmonicenergyratio": _guarded(
-            lambda: _frame_odd_to_even(freqs, mags), 0.0
-        ),
-        "frames.dissonance": _guarded(lambda: _frame_dissonance(freqs, mags), 0.0),
-    }
-
-
-def extract_frame_features(audio: np.ndarray) -> dict[str, np.ndarray]:
-    """Custom standard-mode frame chain over the approved descriptors.
-
-    Returns per-descriptor frame stacks (shape (n_frames,) or (n_frames, k));
-    empty stacks for empty/short audio zero-fill via the stats4 normalizer.
-    Never raises: a descriptor that fails on a frame (e.g. Inharmonicity on a
-    0 Hz fundamental) contributes neutral zeros without discarding the other
-    descriptors of that frame, and non-finite values are sanitized so bulk
-    extraction survives weird audio.
-    """
-    audio = _finite_float32(audio)
-    if audio.size == 0:
-        return {name: np.zeros(0, dtype=np.float32) for name in _FRAME_DESCRIPTOR_NAMES}
-    stacks: dict[str, list] = {name: [] for name in _FRAME_DESCRIPTOR_NAMES}
-    for frame in es.FrameGenerator(
-        audio, frameSize=_FRAME_CHAIN_FRAME_SIZE, hopSize=_FRAME_CHAIN_HOP_SIZE
-    ):
-        values = _frame_values(frame)
-        for name in _FRAME_DESCRIPTOR_NAMES:
-            stacks[name].append(values[name])
-    return {
-        name: np.nan_to_num(
-            np.asarray(values, dtype=np.float32),
-            nan=0.0,
-            posinf=0.0,
-            neginf=0.0,
-        )
-        for name, values in stacks.items()
-    }
-
-
-class _FrameValuesView:
-    def __init__(self, pool, frame_values: dict[str, np.ndarray]):
-        self._pool = pool
-        self._frame_values = frame_values
-
-    def descriptorNames(self) -> list[str]:
-        return list(self._pool.descriptorNames()) + list(self._frame_values)
-
-    def __getitem__(self, name):
-        if name in self._frame_values:
-            return self._frame_values[name]
-        return self._pool[name]
-
-
-def _load_frame_chain_audio(audio_path) -> np.ndarray:
-    try:
-        return es.MonoLoader(
-            filename=str(audio_path), sampleRate=_FRAME_CHAIN_SAMPLE_RATE
-        )()
-    except Exception:
-        logger.warning(
-            "Frame chain audio load failed for %s, zero-filling frame features",
-            audio_path,
-        )
-        return np.zeros(0, dtype=np.float32)
-
-
-def _pool_to_vector_with_frames(pool, audio_path) -> np.ndarray:
-    frame_values = extract_frame_features(_load_frame_chain_audio(audio_path))
-    return _essentia_pool_to_vector(_FrameValuesView(pool, frame_values))
-
-
 # Generated from audit of 10 tracks with audit/descriptor_shapes.py
 # Set A (deterministic shape): 551 descriptors
 # Set B (variable shape, normalized): 1 descriptors
@@ -788,12 +656,6 @@ _DESCRIPTOR_SCHEMA: tuple[tuple[str, int, str | None], ...] = (
     ("tonal.key_krumhansl.scale", 1, "scale_binary"),
     ("tonal.key_temperley.key", 2, "key_cyclic"),
     ("tonal.key_temperley.scale", 1, "scale_binary"),
-    ("frames.pitch", 4, "stats4"),
-    ("frames.pitch_instantaneous_confidence", 4, "stats4"),
-    ("frames.inharmonicity", 4, "stats4"),
-    ("frames.tristimulus", 4, "stats4"),
-    ("frames.oddtoevenharmonicenergyratio", 4, "stats4"),
-    ("frames.dissonance", 4, "stats4"),
 )
 
 
@@ -839,14 +701,9 @@ def assert_schema_dim_consistent(profile_path: pathlib.Path | None = None) -> No
         _synthesize_wav(wav_path)
         extractor = get_essentia_extractor(profile_path)
         features, _frames = extractor(str(wav_path))
-        frame_values = extract_frame_features(_load_frame_chain_audio(wav_path))
-    features = _FrameValuesView(features, frame_values)
     pool_names = set(features.descriptorNames())
     mismatches = []
     for name, expected_length, normalizer_key in _DESCRIPTOR_SCHEMA:
-        if name.startswith("frames.") and name not in pool_names:
-            mismatches.append(f"  {name}: not produced by the custom frame chain")
-            continue
         if name not in pool_names:
             continue
         raw = np.asarray(features[name])
@@ -917,7 +774,7 @@ def _essentia_pool_to_vector(pool) -> np.ndarray:
 
 def extract_essentia_features(extractor, audio_path) -> np.ndarray:
     features, _frames = extractor(str(audio_path))
-    return _pool_to_vector_with_frames(features, audio_path)
+    return _essentia_pool_to_vector(features)
 
 
 def extract_essentia_features_segment(
@@ -929,7 +786,7 @@ def extract_essentia_features_segment(
     cropped_path = _ffmpeg_crop_to_tempwav(audio_path, start, end)
     try:
         features, _frames = extractor(str(cropped_path))
-        return _pool_to_vector_with_frames(features, cropped_path)
+        return _essentia_pool_to_vector(features)
     finally:
         cropped_path.unlink(missing_ok=True)
 

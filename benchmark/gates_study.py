@@ -14,10 +14,8 @@ so this study isolates data-cleaning and preprocessing levers:
 Baseline row = shipped config (prod_fused @ 0.08721065119224632 + welch64).
 Guideline (owner): lfr@0.80 <= 0.20 AND dfa@0.775 <= 0.20; stretch ~0.12/0.08.
 
-Extra tooling for the Phase 5 feature ablation:
-  --slice-arms FEATURES_DIR  write column-sliced copies (baseline 4368 /
-                             +key-scale 4380 / full essentia block, panns
-                             tail kept) of an extracted features dir and exit
+Extra tooling for ablation-arm feature dirs (column-sliced corpora with a
+narrower essentia block):
   --essentia-dims K          run the study on a sliced arm dir (builds the
                              quota family layout for the arm's essentia width)
   --extra-cells              also evaluate the pinned parity cells (prod
@@ -78,10 +76,7 @@ FAMILY_QUOTA = {
     "tonal": 12,
     "rhythm": 12,
     "panns": 24,
-    "frames": 12,
 }
-BASELINE_ARM_ENTRY = "tonal.chords_key"
-KEYSCALE_ARM_ENTRY = "frames.pitch"
 
 
 def family_layout(essentia_dims: int | None = None) -> list[tuple[str, int, int]]:
@@ -279,11 +274,18 @@ def run_cv(
     model_params: dict | None = None,
     seeds: tuple[int, ...] = (42, 43, 44),
     essentia_dims: int | None = None,
+    return_scores: bool = False,
 ) -> dict | None:
-    """5-fold OOF x seeds; returns mean metrics or None for a degenerate trial"""
+    """5-fold OOF x seeds; returns mean metrics or None for a degenerate trial.
+
+    With return_scores=True the result additionally carries the four per-point
+    OOF score arrays per seed (like_on_liked, like_on_disliked,
+    dislike_on_disliked, dislike_on_liked) for decision-rule studies.
+    """
     params = dict(model_params or SHIPPED_MODEL_PARAMS)
     outlier_fn = OUTLIER_METHODS[outlier_method]
     per_seed: list[dict] = []
+    per_seed_scores: list[dict] = []
 
     for seed in seeds:
         n_splits = min(5, len(X_liked), len(X_disliked))
@@ -354,6 +356,7 @@ def run_cv(
             "dislike_on_liked": np.asarray(s_dislike_on_liked),
         }
         per_seed.append(compute_metrics(scores))
+        per_seed_scores.append(scores)
 
     metrics: dict = {}
     for key in per_seed[0]:
@@ -361,6 +364,8 @@ def run_cv(
         metrics[key] = float(vals.mean())
         if key in ("lfr_at_0.8", "dfa_at_0.775"):
             metrics[f"{key}_std"] = float(vals.std())
+    if return_scores:
+        return {"metrics": metrics, "scores": per_seed_scores}
     return metrics
 
 
@@ -456,80 +461,6 @@ EXTRA_CELLS = (
 )
 
 
-def _schema_offset(entry_name: str) -> int:
-    offset = 0
-    for name, length, _ in _DESCRIPTOR_SCHEMA:
-        if name == entry_name:
-            return offset
-        offset += length
-    raise KeyError(f"schema entry not found: {entry_name}")
-
-
-def ablation_arm_dims() -> dict[str, int]:
-    return {
-        "baseline": _schema_offset(BASELINE_ARM_ENTRY),
-        "keyscale": _schema_offset(KEYSCALE_ARM_ENTRY),
-        "full": ESSENTIA_DIMS,
-    }
-
-
-def _feature_width(features_dir: Path) -> int:
-    row = duckdb.sql(
-        f"SELECT len(vector) FROM read_parquet('{features_dir}/*/*.parquet') LIMIT 1"
-    ).fetchone()
-    if row is None:
-        raise RuntimeError(f"No parquet shards under {features_dir}")
-    return int(row[0])
-
-
-def write_ablation_arms(features_dir: str | Path) -> dict[str, str]:
-    """Column-slice a full-width features dir into the 3 ablation arms.
-
-    Each arm keeps the first essentia_dims essentia columns plus the tail
-    after the full essentia block (panns). Output dirs are named
-    {src}_arm{essentia_dims} beside the source dir; run gates_study on them
-    with --essentia-dims {essentia_dims}.
-    """
-    src = Path(features_dir)
-    width = _feature_width(src)
-    if width < ESSENTIA_DIMS:
-        raise ValueError(
-            f"features under {src} are {width} wide, expected >= {ESSENTIA_DIMS}"
-        )
-    set_names = sorted(
-        row[0]
-        for row in duckdb.sql(
-            f"SELECT DISTINCT set_name FROM read_parquet('{src}/*/*.parquet')"
-        ).fetchall()
-    )
-    if not set_names:
-        raise RuntimeError(f"No shards under {src}")
-    arms = {}
-    for arm, essentia_dims in ablation_arm_dims().items():
-        out_dir = src.parent / f"{src.name}_arm{essentia_dims}"
-        for set_name in set_names:
-            out_set = out_dir / set_name
-            out_set.mkdir(parents=True, exist_ok=True)
-            duckdb.sql(f"""
-                COPY (
-                    SELECT * REPLACE (
-                        list_slice(vector, 1, {essentia_dims})
-                        || list_slice(vector, {ESSENTIA_DIMS + 1}, len(vector))
-                        AS vector
-                    )
-                    FROM read_parquet('{src}/{set_name}/*.parquet')
-                )
-                TO '{out_set}/data.parquet'
-                (FORMAT PARQUET, COMPRESSION ZSTD)
-                """)
-        arms[arm] = str(out_dir)
-        logger.info(
-            f"Wrote ablation arm {arm} ({essentia_dims} essentia dims + "
-            f"{width - ESSENTIA_DIMS} tail dims) to {out_dir}"
-        )
-    return arms
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--features-dir", default="features")
@@ -552,24 +483,12 @@ def main():
         type=int,
         default=None,
         help="essentia block width of the features dir (for column-sliced "
-        "ablation arms); default: full schema width",
-    )
-    parser.add_argument(
-        "--slice-arms",
-        default=None,
-        metavar="FEATURES_DIR",
-        help="write column-sliced 3-arm ablation copies of FEATURES_DIR and exit",
+        "ablation arm dirs); default: full schema width",
     )
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
     optuna.logging.set_verbosity(optuna.logging.WARNING)
-
-    if args.slice_arms:
-        arms = write_ablation_arms(args.slice_arms)
-        for arm, out_dir in arms.items():
-            print(f"{arm}: {out_dir}")
-        return
 
     essentia_dims = args.essentia_dims
 

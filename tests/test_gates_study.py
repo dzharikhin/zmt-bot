@@ -1,4 +1,3 @@
-import duckdb
 import numpy as np
 import pytest
 
@@ -10,8 +9,6 @@ from benchmark.gates_study import (
     PER_MODEL_FOCUS,
     SELECTION_VARIANTS,
     _parse_selection,
-    _schema_offset,
-    ablation_arm_dims,
     compute_metrics,
     family_layout,
     load_features,
@@ -19,7 +16,6 @@ from benchmark.gates_study import (
     run_cv,
     verdict,
     verdict_at_0_9,
-    write_ablation_arms,
 )
 
 TINY_PARAMS = {
@@ -43,7 +39,7 @@ def make_sets(rng, n=60, d=80):
 
 
 def test_essentia_dims_constant():
-    assert ESSENTIA_DIMS == 4404
+    assert ESSENTIA_DIMS == 4380
 
 
 @pytest.mark.parametrize("method", sorted(OUTLIER_METHODS))
@@ -224,12 +220,6 @@ def test_extra_cells_registered():
         assert dis_sel in SELECTION_VARIANTS
 
 
-def test_schema_offsets_and_arm_dims():
-    assert _schema_offset("tonal.chords_key") == 4368
-    assert _schema_offset("frames.pitch") == 4380
-    assert ablation_arm_dims() == {"baseline": 4368, "keyscale": 4380, "full": 4404}
-
-
 def test_family_layout_full_and_arm():
     full = family_layout()
     assert full[-1] == ("panns", ESSENTIA_DIMS, -1)
@@ -251,59 +241,3 @@ def test_quota_preprocessor_with_arm_dims(rng):
     prep = make_preprocessor("quota64", arm)
     prep.fit(X, y)
     assert prep.transform(X).shape == (80, 64)
-
-
-def _write_feature_shards(root, set_name, vectors):
-    out_dir = root / set_name
-    out_dir.mkdir(parents=True)
-    rows = []
-    for i, vec in enumerate(vectors):
-        rows.append(f"('h{i}', [{','.join(str(v) for v in vec)}], '{set_name}')")
-    duckdb.sql(f"""
-        COPY (
-            SELECT * FROM (VALUES {', '.join(rows)})
-            t(file_hash, vector, set_name)
-        )
-        TO '{out_dir}/h0.parquet' (FORMAT PARQUET)
-        """)
-
-
-def _read_vectors(features_dir, set_name):
-    rows = duckdb.sql(f"""
-        SELECT vector FROM read_parquet('{features_dir}/{set_name}/*.parquet')
-        ORDER BY file_hash
-        """).fetchall()
-    return [np.asarray(r[0], dtype=np.float64) for r in rows]
-
-
-def test_write_ablation_arms(tmp_path):
-    tail = 8
-    src = tmp_path / "full"
-    vec_like = list(range(ESSENTIA_DIMS + tail))
-    vec_dis = [float(v) + 0.5 for v in range(ESSENTIA_DIMS + tail)]
-    _write_feature_shards(src, "like", [vec_like, vec_like])
-    _write_feature_shards(src, "dislike", [vec_dis])
-
-    arms = write_ablation_arms(src)
-
-    assert arms == {
-        "baseline": str(tmp_path / "full_arm4368"),
-        "keyscale": str(tmp_path / "full_arm4380"),
-        "full": str(tmp_path / "full_arm4404"),
-    }
-    expected_tail = np.asarray(vec_like[ESSENTIA_DIMS:], dtype=np.float64)
-    for arm, essentia_dims in ablation_arm_dims().items():
-        vectors = _read_vectors(arms[arm], "like")
-        assert len(vectors) == 2
-        assert vectors[0].shape == (essentia_dims + tail,)
-        np.testing.assert_allclose(vectors[0][:essentia_dims], vec_like[:essentia_dims])
-        np.testing.assert_allclose(vectors[0][essentia_dims:], expected_tail)
-    full_vectors = _read_vectors(arms["full"], "dislike")
-    np.testing.assert_allclose(full_vectors[0], vec_dis)
-
-
-def test_write_ablation_arms_rejects_narrow_input(tmp_path):
-    src = tmp_path / "narrow"
-    _write_feature_shards(src, "like", [list(range(100))])
-    with pytest.raises(ValueError, match="100 wide"):
-        write_ablation_arms(src)

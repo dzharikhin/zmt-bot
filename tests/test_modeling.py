@@ -884,3 +884,196 @@ class TestDualOneClassModelPerModelPreprocessors:
             model.predict(sample)["dislike"]["calibrated"],
             loaded.predict(sample)["dislike"]["calibrated"],
         )
+
+
+class TestFusedDecisionRule:
+    def test_invalid_decision_mode_raises(self):
+        with pytest.raises(ValueError, match="Unknown decision_mode"):
+            DualOneClassModel(decision_mode="banana")
+
+    def test_fused_threshold_calibration_math(self, liked_data, disliked_data):
+        model = DualOneClassModel(
+            knn_k_min=3,
+            knn_k_max=3,
+            gmm_components_max=4,
+            gmm_min_points_per_component=10,
+            cv_folds=None,
+            decision_mode="fused_diff",
+            fusion_weight=1.0,
+            exclude_disliked_recall_target=0.80,
+            include_liked_recall_target=0.775,
+        )
+        model.fit(liked_data, disliked_data)
+
+        d_on_d = np.array(
+            [
+                model.dislike_model.score(x.reshape(1, -1))["calibrated"]
+                for x in disliked_data
+            ]
+        )
+        l_on_d = np.array(
+            [
+                model.liked_model.score(x.reshape(1, -1))["calibrated"]
+                for x in disliked_data
+            ]
+        )
+        l_on_l = np.array(
+            [
+                model.liked_model.score(x.reshape(1, -1))["calibrated"]
+                for x in liked_data
+            ]
+        )
+        d_on_l = np.array(
+            [
+                model.dislike_model.score(x.reshape(1, -1))["calibrated"]
+                for x in liked_data
+            ]
+        )
+        assert model.thresholds["exclude_disliked"] == pytest.approx(
+            np.percentile(d_on_d - 1.0 * l_on_d, 100 * (1 - 0.80))
+        )
+        assert model.thresholds["include_liked"] == pytest.approx(
+            np.percentile(l_on_l - 1.0 * d_on_l, 100 * (1 - 0.775))
+        )
+        assert model.operating_metrics["exclude_disliked_fp"] == pytest.approx(
+            np.mean(d_on_l - 1.0 * l_on_l >= model.thresholds["exclude_disliked"])
+        )
+        assert model.operating_metrics["include_liked_fp"] == pytest.approx(
+            np.mean(l_on_d - 1.0 * d_on_d > model.thresholds["include_liked"])
+        )
+
+    def test_decide_fused_path_rescues_liked_victim(self, liked_data, disliked_data):
+        model = DualOneClassModel(
+            knn_k_min=3,
+            knn_k_max=3,
+            gmm_components_max=4,
+            gmm_min_points_per_component=10,
+            cv_folds=None,
+            decision_mode="fused_diff",
+            fusion_weight=1.0,
+        )
+        model.fit(liked_data, disliked_data)
+        model.thresholds["exclude_disliked"] = 0.3
+        victim = {"like": {"calibrated": 0.9}, "dislike": {"calibrated": 0.95}}
+        disliked_point = {"like": {"calibrated": 0.1}, "dislike": {"calibrated": 0.9}}
+        # fused exclude scores: victim 0.95 - 0.9 = 0.05 < 0.3 (kept);
+        # disliked 0.9 - 0.1 = 0.8 >= 0.3 (excluded)
+        assert model.decide(victim, ModelType.EXCLUDE_DISLIKED) is True
+        assert model.decide(disliked_point, ModelType.EXCLUDE_DISLIKED) is False
+
+    def test_decide_single_path_excludes_same_victim(self, liked_data, disliked_data):
+        model = DualOneClassModel(
+            knn_k_min=3,
+            knn_k_max=3,
+            gmm_components_max=4,
+            gmm_min_points_per_component=10,
+            cv_folds=None,
+            decision_mode="single",
+        )
+        model.fit(liked_data, disliked_data)
+        model.thresholds["exclude_disliked"] = 0.3
+        victim = {"like": {"calibrated": 0.9}, "dislike": {"calibrated": 0.95}}
+        assert model.decide(victim, ModelType.EXCLUDE_DISLIKED) is False
+
+    def test_decide_fused_include_path(self, liked_data, disliked_data):
+        model = DualOneClassModel(
+            knn_k_min=3,
+            knn_k_max=3,
+            gmm_components_max=4,
+            gmm_min_points_per_component=10,
+            cv_folds=None,
+            decision_mode="fused_diff",
+            fusion_weight=1.0,
+        )
+        model.fit(liked_data, disliked_data)
+        model.thresholds["include_liked"] = 0.3
+        liked_point = {"like": {"calibrated": 0.9}, "dislike": {"calibrated": 0.2}}
+        disliked_point = {"like": {"calibrated": 0.2}, "dislike": {"calibrated": 0.9}}
+        # fused include scores: 0.9 - 0.2 = 0.7 > 0.3 (accepted);
+        # 0.2 - 0.9 = -0.7 <= 0.3 (rejected)
+        assert model.decide(liked_point, ModelType.INCLUDE_LIKED) is True
+        assert model.decide(disliked_point, ModelType.INCLUDE_LIKED) is False
+
+    def test_decision_mode_and_weight_recorded_in_stats(
+        self, liked_data, disliked_data
+    ):
+        model = DualOneClassModel(
+            knn_k_min=3,
+            knn_k_max=3,
+            gmm_components_max=4,
+            gmm_min_points_per_component=10,
+            cv_folds=None,
+            decision_mode="fused_diff",
+            fusion_weight=1.0,
+        )
+        model.fit(liked_data, disliked_data)
+        assert model.stats["decision_mode"] == "fused_diff"
+        assert model.stats["fusion_weight"] == 1.0
+
+    def test_old_pickle_without_decision_attrs_stays_single(
+        self, liked_data, disliked_data
+    ):
+        model = DualOneClassModel(
+            knn_k_min=3,
+            knn_k_max=3,
+            gmm_components_max=4,
+            gmm_min_points_per_component=10,
+            cv_folds=None,
+            decision_mode="single",
+        )
+        model.fit(liked_data, disliked_data)
+        scores = model.predict(liked_data[0].reshape(1, -1))
+        reference = model.decide(scores, ModelType.EXCLUDE_DISLIKED)
+        # simulate a model pickled before the fused rule existed
+        del model.decision_mode
+        del model.fusion_weight
+        assert model._decision_mode() == "single"
+        assert model._fusion_weight() == 1.0
+        assert model.decide(scores, ModelType.EXCLUDE_DISLIKED) == reference
+        restored = pickle.loads(pickle.dumps(model))
+        assert restored._decision_mode() == "single"
+
+    def test_save_load_round_trip_fused(self, tmp_path, liked_data, disliked_data):
+        model = DualOneClassModel(
+            knn_k_min=3,
+            knn_k_max=3,
+            gmm_components_max=4,
+            gmm_min_points_per_component=10,
+            cv_folds=5,
+            decision_mode="fused_diff",
+            fusion_weight=1.0,
+        )
+        model.fit(liked_data, disliked_data)
+        model.save(tmp_path / "dual")
+        loaded = DualOneClassModel.load(tmp_path / "dual")
+        assert loaded.decision_mode == "fused_diff"
+        assert loaded.fusion_weight == 1.0
+        assert loaded.thresholds == model.thresholds
+        sample = liked_data[0].reshape(1, -1)
+        scores = model.predict(sample)
+        assert loaded.decide(scores, ModelType.EXCLUDE_DISLIKED) == model.decide(
+            scores, ModelType.EXCLUDE_DISLIKED
+        )
+        assert loaded.decide(scores, ModelType.INCLUDE_LIKED) == model.decide(
+            scores, ModelType.INCLUDE_LIKED
+        )
+
+    def test_fused_mode_shifts_thresholds_vs_single(self, rng):
+        # overlapping clusters keep the opposite-model scores away from the
+        # 0-clamp, so the fused percentile genuinely differs from the single
+        X_liked = rng.normal(loc=0.0, scale=1.0, size=(60, 5))
+        X_disliked = rng.normal(loc=1.5, scale=1.0, size=(60, 5))
+        kwargs = dict(
+            knn_k_min=3,
+            knn_k_max=3,
+            gmm_components_max=4,
+            gmm_min_points_per_component=10,
+            cv_folds=None,
+        )
+        single = DualOneClassModel(decision_mode="single", **kwargs)
+        fused = DualOneClassModel(
+            decision_mode="fused_diff", fusion_weight=1.0, **kwargs
+        )
+        single.fit(X_liked, X_disliked)
+        fused.fit(X_liked, X_disliked)
+        assert single.thresholds != fused.thresholds
