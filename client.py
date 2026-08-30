@@ -223,21 +223,24 @@ async def handle_estimate_queue_tasks(
                     else:
                         await bot_client.forward_messages(user_id, message)
                 else:
-                    if message.forward:
-                        reply_message = (
-                            f"[{channel_name}] channel erases forward info, so "
-                            f"provide <https://t.me> link explicitly when forwarding "
-                            f"to estimation channel"
-                        )
-                    elif m := re.match("https://t.me/\\S+", message.message):
+                    if m := re.match("https://t.me/\\S+", message.message):
                         reply_message = (
                             f"[{channel_name}] Rated as not recommended: {m.group(0)}"
                         )
                     else:
-                        reply_message = (
-                            f"[{channel_name}] Rated as not recommended: "
-                            f"https://t.me/c/{message.input_chat.channel_id}/{message.id}"
-                        )
+                        if message.forward:
+                            reply_message = (
+                                f"[{channel_name}] Rated as not recommended: "
+                                f"https://t.me/c/{message.input_chat.channel_id}/{message.id}"
+                                f"channel erases forward info, so provide "
+                                f"<https://t.me> link explicitly when forwarding "
+                                f"to estimation channel"
+                            )
+                        else:
+                            reply_message = (
+                                f"[{channel_name}] Rated as not recommended: "
+                                f"https://t.me/c/{message.input_chat.channel_id}/{message.id}"
+                            )
 
                     await bot_client.send_message(user_id, reply_message)
             else:
