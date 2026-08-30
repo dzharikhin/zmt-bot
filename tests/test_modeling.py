@@ -408,7 +408,7 @@ class TestDualOneClassModelBasic:
         dislike_scores = model.predict(dislike_sample)
         assert model.decide(dislike_scores, ModelType.INCLUDE_LIKED) is False
 
-    def test_decide_exclude_disliked_positive_on_disliked(
+    def test_decide_exclude_disliked_filters_on_disliked(
         self, liked_data, disliked_data
     ):
         model = DualOneClassModel(
@@ -420,9 +420,14 @@ class TestDualOneClassModelBasic:
         )
         model.fit(liked_data, disliked_data)
 
-        dislike_sample = disliked_data[0].reshape(1, -1)
+        scores = [
+            model.predict(x.reshape(1, -1))["dislike"]["calibrated"]
+            for x in disliked_data
+        ]
+        median_idx = int(np.argsort(scores)[len(scores) // 2])
+        dislike_sample = disliked_data[median_idx].reshape(1, -1)
         dislike_scores = model.predict(dislike_sample)
-        assert model.decide(dislike_scores, ModelType.EXCLUDE_DISLIKED) is True
+        assert model.decide(dislike_scores, ModelType.EXCLUDE_DISLIKED) is False
 
 
 class TestDualOneClassModelSchemaVersion:
