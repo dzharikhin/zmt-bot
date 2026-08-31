@@ -1,607 +1,40 @@
-import dataclasses
-import functools
+import hashlib
+import logging
 import pathlib
-import re
+import subprocess
 import tempfile
-import textwrap
-import time
-import typing
-from typing import Callable, Literal
+import wave
+from typing import Callable
 
+import librosa
+import numpy as np
+from panns_inference import AudioTagging
+
+import config
 import essentia
 import essentia.standard as es
-import numpy
-import yaml
-
-from audio.model_utils import (
-    get_model_name,
-    ml_model_links,
-    get_meta_and_embedding_model,
-    get_or_create_model,
-    get_classes_for_model,
-    get_model_params,
-)
+from audio.extractor import CombinedExtractor
 
 essentia.EssentiaLogger().warningActive = False
 
-
-# generated with audio.features.__generate_dto_class
-@dataclasses.dataclass
-class AudioFeatures:
-    lowlevel______average_loudness: float
-    lowlevel______barkbands_crest______max: float
-    lowlevel______barkbands_crest______mean: float
-    lowlevel______barkbands_crest______min: float
-    lowlevel______barkbands_crest______var: float
-    lowlevel______barkbands_flatness_db______max: float
-    lowlevel______barkbands_flatness_db______mean: float
-    lowlevel______barkbands_flatness_db______min: float
-    lowlevel______barkbands_flatness_db______var: float
-    lowlevel______barkbands_kurtosis______max: float
-    lowlevel______barkbands_kurtosis______mean: float
-    lowlevel______barkbands_kurtosis______min: float
-    lowlevel______barkbands_kurtosis______var: float
-    lowlevel______barkbands_skewness______max: float
-    lowlevel______barkbands_skewness______mean: float
-    lowlevel______barkbands_skewness______min: float
-    lowlevel______barkbands_skewness______var: float
-    lowlevel______barkbands_spread______max: float
-    lowlevel______barkbands_spread______mean: float
-    lowlevel______barkbands_spread______min: float
-    lowlevel______barkbands_spread______var: float
-    lowlevel______dissonance______max: float
-    lowlevel______dissonance______mean: float
-    lowlevel______dissonance______min: float
-    lowlevel______dissonance______var: float
-    lowlevel______dynamic_complexity: float
-    lowlevel______erbbands_crest______max: float
-    lowlevel______erbbands_crest______mean: float
-    lowlevel______erbbands_crest______min: float
-    lowlevel______erbbands_crest______var: float
-    lowlevel______erbbands_flatness_db______max: float
-    lowlevel______erbbands_flatness_db______mean: float
-    lowlevel______erbbands_flatness_db______min: float
-    lowlevel______erbbands_flatness_db______var: float
-    lowlevel______erbbands_kurtosis______max: float
-    lowlevel______erbbands_kurtosis______mean: float
-    lowlevel______erbbands_kurtosis______min: float
-    lowlevel______erbbands_kurtosis______var: float
-    lowlevel______erbbands_skewness______max: float
-    lowlevel______erbbands_skewness______mean: float
-    lowlevel______erbbands_skewness______min: float
-    lowlevel______erbbands_skewness______var: float
-    lowlevel______erbbands_spread______max: float
-    lowlevel______erbbands_spread______mean: float
-    lowlevel______erbbands_spread______min: float
-    lowlevel______erbbands_spread______var: float
-    lowlevel______hfc______max: float
-    lowlevel______hfc______mean: float
-    lowlevel______hfc______min: float
-    lowlevel______hfc______var: float
-    lowlevel______loudness_ebu128______integrated: float
-    lowlevel______loudness_ebu128______loudness_range: float
-    lowlevel______loudness_ebu128______momentary______max: float
-    lowlevel______loudness_ebu128______momentary______mean: float
-    lowlevel______loudness_ebu128______momentary______min: float
-    lowlevel______loudness_ebu128______momentary______var: float
-    lowlevel______loudness_ebu128______short_term______max: float
-    lowlevel______loudness_ebu128______short_term______mean: float
-    lowlevel______loudness_ebu128______short_term______min: float
-    lowlevel______loudness_ebu128______short_term______var: float
-    lowlevel______melbands_crest______max: float
-    lowlevel______melbands_crest______mean: float
-    lowlevel______melbands_crest______min: float
-    lowlevel______melbands_crest______var: float
-    lowlevel______melbands_flatness_db______max: float
-    lowlevel______melbands_flatness_db______mean: float
-    lowlevel______melbands_flatness_db______min: float
-    lowlevel______melbands_flatness_db______var: float
-    lowlevel______melbands_kurtosis______max: float
-    lowlevel______melbands_kurtosis______mean: float
-    lowlevel______melbands_kurtosis______min: float
-    lowlevel______melbands_kurtosis______var: float
-    lowlevel______melbands_skewness______max: float
-    lowlevel______melbands_skewness______mean: float
-    lowlevel______melbands_skewness______min: float
-    lowlevel______melbands_skewness______var: float
-    lowlevel______melbands_spread______max: float
-    lowlevel______melbands_spread______mean: float
-    lowlevel______melbands_spread______min: float
-    lowlevel______melbands_spread______var: float
-    lowlevel______pitch_salience______max: float
-    lowlevel______pitch_salience______mean: float
-    lowlevel______pitch_salience______min: float
-    lowlevel______pitch_salience______var: float
-    lowlevel______silence_rate_20dB______max: float
-    lowlevel______silence_rate_20dB______mean: float
-    lowlevel______silence_rate_20dB______min: float
-    lowlevel______silence_rate_20dB______var: float
-    lowlevel______silence_rate_30dB______max: float
-    lowlevel______silence_rate_30dB______mean: float
-    lowlevel______silence_rate_30dB______min: float
-    lowlevel______silence_rate_30dB______var: float
-    lowlevel______silence_rate_60dB______max: float
-    lowlevel______silence_rate_60dB______mean: float
-    lowlevel______silence_rate_60dB______min: float
-    lowlevel______silence_rate_60dB______var: float
-    lowlevel______spectral_centroid______max: float
-    lowlevel______spectral_centroid______mean: float
-    lowlevel______spectral_centroid______min: float
-    lowlevel______spectral_centroid______var: float
-    lowlevel______spectral_complexity______max: float
-    lowlevel______spectral_complexity______mean: float
-    lowlevel______spectral_complexity______min: float
-    lowlevel______spectral_complexity______var: float
-    lowlevel______spectral_decrease______max: float
-    lowlevel______spectral_decrease______mean: float
-    lowlevel______spectral_decrease______min: float
-    lowlevel______spectral_decrease______var: float
-    lowlevel______spectral_energy______max: float
-    lowlevel______spectral_energy______mean: float
-    lowlevel______spectral_energy______min: float
-    lowlevel______spectral_energy______var: float
-    lowlevel______spectral_energyband_high______max: float
-    lowlevel______spectral_energyband_high______mean: float
-    lowlevel______spectral_energyband_high______min: float
-    lowlevel______spectral_energyband_high______var: float
-    lowlevel______spectral_energyband_low______max: float
-    lowlevel______spectral_energyband_low______mean: float
-    lowlevel______spectral_energyband_low______min: float
-    lowlevel______spectral_energyband_low______var: float
-    lowlevel______spectral_energyband_middle_high______max: float
-    lowlevel______spectral_energyband_middle_high______mean: float
-    lowlevel______spectral_energyband_middle_high______min: float
-    lowlevel______spectral_energyband_middle_high______var: float
-    lowlevel______spectral_energyband_middle_low______max: float
-    lowlevel______spectral_energyband_middle_low______mean: float
-    lowlevel______spectral_energyband_middle_low______min: float
-    lowlevel______spectral_energyband_middle_low______var: float
-    lowlevel______spectral_entropy______max: float
-    lowlevel______spectral_entropy______mean: float
-    lowlevel______spectral_entropy______min: float
-    lowlevel______spectral_entropy______var: float
-    lowlevel______spectral_flux______max: float
-    lowlevel______spectral_flux______mean: float
-    lowlevel______spectral_flux______min: float
-    lowlevel______spectral_flux______var: float
-    lowlevel______spectral_kurtosis______max: float
-    lowlevel______spectral_kurtosis______mean: float
-    lowlevel______spectral_kurtosis______min: float
-    lowlevel______spectral_kurtosis______var: float
-    lowlevel______spectral_rms______max: float
-    lowlevel______spectral_rms______mean: float
-    lowlevel______spectral_rms______min: float
-    lowlevel______spectral_rms______var: float
-    lowlevel______spectral_rolloff______max: float
-    lowlevel______spectral_rolloff______mean: float
-    lowlevel______spectral_rolloff______min: float
-    lowlevel______spectral_rolloff______var: float
-    lowlevel______spectral_skewness______max: float
-    lowlevel______spectral_skewness______mean: float
-    lowlevel______spectral_skewness______min: float
-    lowlevel______spectral_skewness______var: float
-    lowlevel______spectral_spread______max: float
-    lowlevel______spectral_spread______mean: float
-    lowlevel______spectral_spread______min: float
-    lowlevel______spectral_spread______var: float
-    lowlevel______spectral_strongpeak______max: float
-    lowlevel______spectral_strongpeak______mean: float
-    lowlevel______spectral_strongpeak______min: float
-    lowlevel______spectral_strongpeak______var: float
-    lowlevel______zerocrossingrate______max: float
-    lowlevel______zerocrossingrate______mean: float
-    lowlevel______zerocrossingrate______min: float
-    lowlevel______zerocrossingrate______var: float
-    metadata______audio_properties______analysis______equal_loudness: float
-    metadata______audio_properties______analysis______length: float
-    metadata______audio_properties______analysis______sample_rate: float
-    metadata______audio_properties______analysis______start_time: float
-    metadata______audio_properties______bit_rate: float
-    metadata______audio_properties______length: float
-    metadata______audio_properties______lossless: float
-    metadata______audio_properties______number_channels: float
-    metadata______audio_properties______replay_gain: float
-    metadata______audio_properties______sample_rate: float
-    rhythm______beats_count: float
-    rhythm______beats_loudness______dmean: float
-    rhythm______beats_loudness______dmean2: float
-    rhythm______beats_loudness______dvar: float
-    rhythm______beats_loudness______dvar2: float
-    rhythm______beats_loudness______max: float
-    rhythm______beats_loudness______mean: float
-    rhythm______beats_loudness______median: float
-    rhythm______beats_loudness______min: float
-    rhythm______beats_loudness______stdev: float
-    rhythm______beats_loudness______var: float
-    rhythm______bpm: float
-    rhythm______bpm_histogram_first_peak_bpm: float
-    rhythm______bpm_histogram_first_peak_weight: float
-    rhythm______bpm_histogram_second_peak_bpm: float
-    rhythm______bpm_histogram_second_peak_spread: float
-    rhythm______bpm_histogram_second_peak_weight: float
-    rhythm______danceability: float
-    rhythm______onset_rate: float
-    tonal______chords_changes_rate: float
-    tonal______chords_number_rate: float
-    tonal______chords_strength______dmean: float
-    tonal______chords_strength______dmean2: float
-    tonal______chords_strength______dvar: float
-    tonal______chords_strength______dvar2: float
-    tonal______chords_strength______max: float
-    tonal______chords_strength______mean: float
-    tonal______chords_strength______median: float
-    tonal______chords_strength______min: float
-    tonal______chords_strength______stdev: float
-    tonal______chords_strength______var: float
-    tonal______hpcp_crest______dmean: float
-    tonal______hpcp_crest______dmean2: float
-    tonal______hpcp_crest______dvar: float
-    tonal______hpcp_crest______dvar2: float
-    tonal______hpcp_crest______max: float
-    tonal______hpcp_crest______mean: float
-    tonal______hpcp_crest______median: float
-    tonal______hpcp_crest______min: float
-    tonal______hpcp_crest______stdev: float
-    tonal______hpcp_crest______var: float
-    tonal______hpcp_entropy______dmean: float
-    tonal______hpcp_entropy______dmean2: float
-    tonal______hpcp_entropy______dvar: float
-    tonal______hpcp_entropy______dvar2: float
-    tonal______hpcp_entropy______max: float
-    tonal______hpcp_entropy______mean: float
-    tonal______hpcp_entropy______median: float
-    tonal______hpcp_entropy______min: float
-    tonal______hpcp_entropy______stdev: float
-    tonal______hpcp_entropy______var: float
-    tonal______key_edma______strength: float
-    tonal______key_krumhansl______strength: float
-    tonal______key_temperley______strength: float
-    tonal______tuning_diatonic_strength: float
-    tonal______tuning_equal_tempered_deviation: float
-    tonal______tuning_frequency: float
-    tonal______tuning_nontempered_energy_ratio: float
-    lowlevel______barkbands______max: numpy.ndarray[tuple[Literal[27]], numpy.float32]
-    lowlevel______barkbands______mean: numpy.ndarray[tuple[Literal[27]], numpy.float32]
-    lowlevel______barkbands______min: numpy.ndarray[tuple[Literal[27]], numpy.float32]
-    lowlevel______barkbands______var: numpy.ndarray[tuple[Literal[27]], numpy.float32]
-    lowlevel______erbbands______max: numpy.ndarray[tuple[Literal[40]], numpy.float32]
-    lowlevel______erbbands______mean: numpy.ndarray[tuple[Literal[40]], numpy.float32]
-    lowlevel______erbbands______min: numpy.ndarray[tuple[Literal[40]], numpy.float32]
-    lowlevel______erbbands______var: numpy.ndarray[tuple[Literal[40]], numpy.float32]
-    lowlevel______gfcc______mean: numpy.ndarray[tuple[Literal[13]], numpy.float32]
-    lowlevel______melbands______max: numpy.ndarray[tuple[Literal[40]], numpy.float32]
-    lowlevel______melbands______mean: numpy.ndarray[tuple[Literal[40]], numpy.float32]
-    lowlevel______melbands______min: numpy.ndarray[tuple[Literal[40]], numpy.float32]
-    lowlevel______melbands______var: numpy.ndarray[tuple[Literal[40]], numpy.float32]
-    lowlevel______melbands128______max: numpy.ndarray[
-        tuple[Literal[128]], numpy.float32
-    ]
-    lowlevel______melbands128______mean: numpy.ndarray[
-        tuple[Literal[128]], numpy.float32
-    ]
-    lowlevel______melbands128______min: numpy.ndarray[
-        tuple[Literal[128]], numpy.float32
-    ]
-    lowlevel______melbands128______var: numpy.ndarray[
-        tuple[Literal[128]], numpy.float32
-    ]
-    lowlevel______mfcc______mean: numpy.ndarray[tuple[Literal[13]], numpy.float32]
-    lowlevel______spectral_contrast_coeffs______max: numpy.ndarray[
-        tuple[Literal[6]], numpy.float32
-    ]
-    lowlevel______spectral_contrast_coeffs______mean: numpy.ndarray[
-        tuple[Literal[6]], numpy.float32
-    ]
-    lowlevel______spectral_contrast_coeffs______min: numpy.ndarray[
-        tuple[Literal[6]], numpy.float32
-    ]
-    lowlevel______spectral_contrast_coeffs______var: numpy.ndarray[
-        tuple[Literal[6]], numpy.float32
-    ]
-    lowlevel______spectral_contrast_valleys______max: numpy.ndarray[
-        tuple[Literal[6]], numpy.float32
-    ]
-    lowlevel______spectral_contrast_valleys______mean: numpy.ndarray[
-        tuple[Literal[6]], numpy.float32
-    ]
-    lowlevel______spectral_contrast_valleys______min: numpy.ndarray[
-        tuple[Literal[6]], numpy.float32
-    ]
-    lowlevel______spectral_contrast_valleys______var: numpy.ndarray[
-        tuple[Literal[6]], numpy.float32
-    ]
-    rhythm______beats_loudness_band_ratio______dmean: numpy.ndarray[
-        tuple[Literal[6]], numpy.float32
-    ]
-    rhythm______beats_loudness_band_ratio______dmean2: numpy.ndarray[
-        tuple[Literal[6]], numpy.float32
-    ]
-    rhythm______beats_loudness_band_ratio______dvar: numpy.ndarray[
-        tuple[Literal[6]], numpy.float32
-    ]
-    rhythm______beats_loudness_band_ratio______dvar2: numpy.ndarray[
-        tuple[Literal[6]], numpy.float32
-    ]
-    rhythm______beats_loudness_band_ratio______max: numpy.ndarray[
-        tuple[Literal[6]], numpy.float32
-    ]
-    rhythm______beats_loudness_band_ratio______mean: numpy.ndarray[
-        tuple[Literal[6]], numpy.float32
-    ]
-    rhythm______beats_loudness_band_ratio______median: numpy.ndarray[
-        tuple[Literal[6]], numpy.float32
-    ]
-    rhythm______beats_loudness_band_ratio______min: numpy.ndarray[
-        tuple[Literal[6]], numpy.float32
-    ]
-    rhythm______beats_loudness_band_ratio______stdev: numpy.ndarray[
-        tuple[Literal[6]], numpy.float32
-    ]
-    rhythm______beats_loudness_band_ratio______var: numpy.ndarray[
-        tuple[Literal[6]], numpy.float32
-    ]
-    tonal______hpcp______dmean: numpy.ndarray[tuple[Literal[36]], numpy.float32]
-    tonal______hpcp______dmean2: numpy.ndarray[tuple[Literal[36]], numpy.float32]
-    tonal______hpcp______dvar: numpy.ndarray[tuple[Literal[36]], numpy.float32]
-    tonal______hpcp______dvar2: numpy.ndarray[tuple[Literal[36]], numpy.float32]
-    tonal______hpcp______max: numpy.ndarray[tuple[Literal[36]], numpy.float32]
-    tonal______hpcp______mean: numpy.ndarray[tuple[Literal[36]], numpy.float32]
-    tonal______hpcp______median: numpy.ndarray[tuple[Literal[36]], numpy.float32]
-    tonal______hpcp______min: numpy.ndarray[tuple[Literal[36]], numpy.float32]
-    tonal______hpcp______stdev: numpy.ndarray[tuple[Literal[36]], numpy.float32]
-    tonal______hpcp______var: numpy.ndarray[tuple[Literal[36]], numpy.float32]
-    rhythm______bpm_histogram: numpy.ndarray[tuple[Literal[250]], numpy.float32]
-    tonal______chords_histogram: numpy.ndarray[tuple[Literal[24]], numpy.float32]
-    tonal______thpcp: numpy.ndarray[tuple[Literal[36]], numpy.float32]
-    tonal______chords_key: str
-    tonal______chords_scale: str
-    tonal______key_edma______key: str
-    tonal______key_edma______scale: str
-    tonal______key_krumhansl______key: str
-    tonal______key_krumhansl______scale: str
-    tonal______key_temperley______key: str
-    tonal______key_temperley______scale: str
-    danceability___msd___musicnn___1______danceable: numpy.float32
-    engagement_regression___discogs___effnet___1______engagement: numpy.float32
-    deam___msd___musicnn___2______valence: numpy.float32
-    emomusic___msd___musicnn___2______valence: numpy.float32
-    engagement_regression___discogs___effnet___1______engagement: numpy.float32
-    mood_acoustic___msd___musicnn___1______acoustic: numpy.float32
-    mood_aggressive___msd___musicnn___1______aggressive: numpy.float32
-    mood_electronic___msd___musicnn___1______electronic: numpy.float32
-    mood_happy___msd___musicnn___1______happy: numpy.float32
-    mood_party___msd___musicnn___1______non_party: numpy.float32
-    mood_relaxed___msd___musicnn___1______non_relaxed: numpy.float32
-    mood_sad___msd___musicnn___1______non_sad: numpy.float32
-    moods_mirex___msd___musicnn___1______passionate_rousing_confident_boisterous_rowdy: (
-        numpy.float32
-    )
-    moods_mirex___msd___musicnn___1______rollicking_cheerful_fun_sweet_amiable_good_natured: (
-        numpy.float32
-    )
-    moods_mirex___msd___musicnn___1______literate_poignant_wistful_bittersweet_autumnal_brooding: (
-        numpy.float32
-    )
-    moods_mirex___msd___musicnn___1______humorous_silly_campy_quirky_whimsical_witty_wry: (
-        numpy.float32
-    )
-    moods_mirex___msd___musicnn___1______aggressive_fiery_tense_anxious_intense_volatile_visceral: (
-        numpy.float32
-    )
-    muse___msd___musicnn___2______valence: numpy.float32
-    nsynth_acoustic_electronic___discogs___effnet___1______acoustic: numpy.float32
-    nsynth_bright_dark___discogs___effnet___1______bright: numpy.float32
-    timbre___discogs___effnet___1______bright: numpy.float32
-    tonal_atonal___msd___musicnn___1______atonal: numpy.float32
-    voice_instrumental___msd___musicnn___1______instrumental: numpy.float32
+logger = logging.getLogger(__name__)
 
 
-key_columns = [
-    field.name
-    for field in dataclasses.fields(AudioFeatures)
-    if field.type == str and field.name.endswith("_key")
-]
-
-scale_columns = [
-    field.name
-    for field in dataclasses.fields(AudioFeatures)
-    if field.type == str and field.name.endswith("_scale")
-]
+def _summarize_stats4(arr: np.ndarray) -> np.ndarray:
+    if arr.size == 0:
+        return np.zeros(4, dtype=np.float32)
+    a = arr.astype(np.float32).reshape(-1)
+    return np.array([a.mean(), a.std(), a.min(), a.max()], dtype=np.float32)
 
 
-def extract_features_for_mp3(
-    mp3_path: pathlib.Path,
-    extractor_from_path,
-) -> AudioFeatures:
-
-    @functools.cache
-    def get_or_create_audio_data(sample_rate: int):
-        return es.MonoLoader(sampleRate=sample_rate, filename=str(mp3_path))()
-
-    def get_audio_data(model_params: dict) -> numpy.ndarray[tuple[int], numpy.float32]:
-        return get_or_create_audio_data(model_params["inference"]["sample_rate"])
-
-    ml_features = functools.reduce(
-        lambda a, b: a | b,
-        (
-            model_features
-            for model_name in [get_model_name(link) for link in ml_model_links]
-            if (model_features := _get_features_from_model(model_name, get_audio_data))
-        ),
-    )
-
-    raw_features = extractor_from_path(mp3_path)
-    features = raw_features | ml_features
-    feature_mapping = {
-        field.name: features[_build_key_from_property(field.name)]
-        for field in dataclasses.fields(AudioFeatures)
-    }
-    return AudioFeatures(**feature_mapping)
+def _summarize_matrix_rowstats(arr: np.ndarray) -> np.ndarray:
+    if arr.size == 0:
+        return np.zeros(0, dtype=np.float32)
+    m = np.atleast_2d(arr).astype(np.float32)
+    return np.concatenate([m.mean(axis=1), m.std(axis=1), m.min(axis=1), m.max(axis=1)])
 
 
-def prepare_extractor() -> (
-    Callable[[pathlib.Path], dict[str, str | float | int | list | numpy.ndarray]]
-):
-    with tempfile.TemporaryDirectory() as tmp:
-        # extractor = es.Extractor(rhythm=False)
-        # raw_features = extractor(get_audio_data({"inference": {"sample_rate": sr}}))
-        # aggregationPool = es.PoolAggregator(
-        #     defaultStats = [ "mean", "stdev" ],
-        #     # exceptions={},
-        # )(features)
-        tmp_path = pathlib.Path(tmp)
-        options_file = tmp_path.joinpath("options.yaml")
-        options_file.write_text(yaml.dump(_music_extractor_profile))
-        func = es.MusicExtractor(
-            lowlevelStats=["mean", "var", "min", "max"], profile=str(options_file)
-        )
-
-    def extract_dict(audio_path: pathlib.Path):
-        result = func(str(audio_path))[0]
-        return {name: result[name] for name in result.descriptorNames()}
-
-    return extract_dict
-
-
-def _get_features_from_model(
-    model_name: str,
-    audio_parser: Callable[[dict], numpy.ndarray[tuple[int], numpy.float32]],
-) -> typing.Optional[dict]:
-    model_metadata, embedding_model = get_meta_and_embedding_model(model_name)
-    if not embedding_model:
-        return None
-
-    embeddings = embedding_model(audio_parser(model_metadata))
-
-    model = get_or_create_model(
-        model_name,
-        get_model_params(model_metadata),
-    )
-
-    activations = model(embeddings)
-    classes_ = [
-        _build_key_for_ml_class(model_name, c) for c in model_metadata["classes"]
-    ]
-    mean_value = activations.mean(axis=0)
-    return (
-        dict(zip(classes_, mean_value))
-        if len(classes_) > 2
-        else {classes_[0]: mean_value[0]}
-    )
-
-
-_music_extractor_profile = {
-    "lowlevel": {
-        "frameSize": 2048,
-        "hopSize": 1024,
-        "zeroPadding": 0,
-        "silentFrames": "keep",
-        "windowType": "blackmanharris62",
-    },
-}
-
-_property_separator = "___"
-
-
-def _build_property_from_key(key: str):
-    return key.replace(".", _property_separator * 2).replace("-", _property_separator)
-
-
-def _build_key_from_property(property_name: str):
-    return property_name.replace(_property_separator * 2, ".").replace(
-        _property_separator, "-"
-    )
-
-
-def _build_key_for_ml_class(model_name: str, ml_class: str):
-    return f"{model_name}.{re.sub("[^A-z0-9_]+", "_", ml_class)}"
-
-
-def __generate_dto_class(numpy_prefix: str):
-
-    model_names = [
-        m_name
-        for link in ml_model_links
-        if get_meta_and_embedding_model((m_name := get_model_name(link)))[1]
-    ]
-    ml_keys = [
-        _build_key_for_ml_class(model_name, cls_)
-        for model_name in model_names
-        for cls_ in get_classes_for_model(model_name)
-    ]
-
-    excluded_extractor_keys = [
-        "metadata.tags.album",
-        "metadata.tags.albumartist",
-        "metadata.tags.artist",
-        "metadata.tags.copyright",
-        "metadata.tags.date",
-        "metadata.tags.encoding",
-        "metadata.tags.genre",
-        "metadata.tags.label",
-        "metadata.tags.title",
-        "metadata.tags.tracknumber",
-        "metadata.audio_properties.md5_encoded",
-        "metadata.tags.file_name",
-        "metadata.version.essentia",
-        "metadata.version.essentia_git_sha",
-        "metadata.version.extractor",
-        "rhythm.beats_position",
-        "lowlevel.gfcc.cov",
-        "lowlevel.gfcc.icov",
-        "lowlevel.mfcc.cov",
-        "lowlevel.mfcc.icov",
-        "metadata.audio_properties.analysis.downmix",
-        "metadata.audio_properties.codec",
-    ]
-    extractor = prepare_extractor()
-    features = extractor(
-        pathlib.Path("../data/118517468/liked/CQADAgAD0AIAAlbXeUr25_ycgx2WEgI.mp3")
-    )
-
-    if diff := (
-        set(k for k in set(features.keys()) - set(excluded_extractor_keys))
-        | set(ml_keys)
-    ) - set(
-        _build_key_from_property(field.name)
-        for field in dataclasses.fields(AudioFeatures)
-    ):
-        print(f"diff size is: {len(diff)}")
-        raise Exception(f"Fields {diff} are not processed, exiting")
-
-    def print_type(v, t: type):
-        if t == numpy.ndarray:
-            return f"{numpy_prefix}.ndarray[tuple[{", ".join([f"Literal[{axis_size}]" for axis_size in v.shape])}], {numpy_prefix}.{v.dtype}]"
-        else:
-            return t.__name__
-
-    print(
-        textwrap.dedent(
-            """\
-        @dataclasses.dataclass
-        class AudioFeatures:\
-        """
-        ),
-        "\n".join(
-            [
-                f"    {_build_property_from_key(feature_name)}: {print_type(feature_value, type(feature_value))}"
-                for feature_name, feature_value in features.items()
-                if feature_name not in excluded_extractor_keys
-            ]
-            + [
-                f"    {_build_property_from_key(ml_key)}: {numpy_prefix}.{print_type(None, numpy.float32)}"
-                for ml_key in ml_keys
-            ]
-        ),
-        sep="\n",
-    )
-
-
-scale_mapping = {
-    "major": 1,
-    "minor": 0,
-}
-keys = {
+_KEY_MAPPING = {
     "C": 0,
     "C#": 1,
     "D": 2,
@@ -615,31 +48,814 @@ keys = {
     "A#": 10,
     "B": 11,
 }
-alias_keys = {
-    "Db": keys["C#"],
-    "Eb": keys["D#"],
-    "Gb": keys["F#"],
-    "Ab": keys["G#"],
-    "Bb": keys["A#"],
-    "Cb": keys["B"],
-}
-key_mapping = {
-    k: {
-        "sin": numpy.sin(2 * numpy.pi * v / len(keys)),
-        "cos": numpy.cos(2 * numpy.pi * v / len(keys)),
-    }
-    for k, v in (keys | alias_keys).items()
+
+_ALIAS_KEYS = {
+    "Db": "C#",
+    "Eb": "D#",
+    "Gb": "F#",
+    "Ab": "G#",
+    "Bb": "A#",
+    "Cb": "B",
 }
 
-if __name__ == "__main__":
-    # __generate_dto_class("numpy")
+_SCALE_MAPPING = {
+    "major": 1.0,
+    "minor": 0.0,
+}
 
-    track = pathlib.Path("../data/118517468/liked/CQADAgAD0AIAAlbXeUr25_ycgx2WEgI.mp3")
-    start = time.perf_counter()
-    data = extract_features_for_mp3(track, prepare_extractor())
-    first_attempt = time.perf_counter() - start
-    start = time.perf_counter()
-    data = extract_features_for_mp3(track, prepare_extractor())
-    second_attempt = time.perf_counter() - start
-    print(f"processed in: {first_attempt=} seconds, {second_attempt=} seconds")
-    print(f"{data=}")
+
+def _summarize_key_cyclic(value: str | np.ndarray) -> np.ndarray:
+    if isinstance(value, np.ndarray):
+        value = value.item()
+    pitch_class = _KEY_MAPPING.get(_ALIAS_KEYS.get(value, value))
+    if pitch_class is None:
+        logger.warning("Unknown key %r, using neutral cyclic encoding", value)
+        return np.zeros(2, dtype=np.float32)
+    angle = 2 * np.pi * pitch_class / 12
+    return np.array([np.sin(angle), np.cos(angle)], dtype=np.float32)
+
+
+def _summarize_scale_binary(value: str | np.ndarray) -> np.ndarray:
+    if isinstance(value, np.ndarray):
+        value = value.item()
+    scale = _SCALE_MAPPING.get(value)
+    if scale is None:
+        logger.warning("Unknown scale %r, using neutral binary encoding", value)
+        return np.array([0.5], dtype=np.float32)
+    return np.array([scale], dtype=np.float32)
+
+
+_NORMALIZERS: dict[str, Callable[[str | np.ndarray], np.ndarray]] = {
+    "stats4": _summarize_stats4,
+    "matrix_rowstats": _summarize_matrix_rowstats,
+    "key_cyclic": _summarize_key_cyclic,
+    "scale_binary": _summarize_scale_binary,
+}
+
+# Generated from audit of 10 tracks with audit/descriptor_shapes.py
+# Set A (deterministic shape): 551 descriptors
+# Set B (variable shape, normalized): 1 descriptors
+_DESCRIPTOR_SCHEMA: tuple[tuple[str, int, str | None], ...] = (
+    ("lowlevel.average_loudness", 1, None),
+    ("lowlevel.barkbands.dmean", 27, None),
+    ("lowlevel.barkbands.dmean2", 27, None),
+    ("lowlevel.barkbands.dvar", 27, None),
+    ("lowlevel.barkbands.dvar2", 27, None),
+    ("lowlevel.barkbands.max", 27, None),
+    ("lowlevel.barkbands.mean", 27, None),
+    ("lowlevel.barkbands.median", 27, None),
+    ("lowlevel.barkbands.min", 27, None),
+    ("lowlevel.barkbands.stdev", 27, None),
+    ("lowlevel.barkbands.var", 27, None),
+    ("lowlevel.barkbands_crest.dmean", 1, None),
+    ("lowlevel.barkbands_crest.dmean2", 1, None),
+    ("lowlevel.barkbands_crest.dvar", 1, None),
+    ("lowlevel.barkbands_crest.dvar2", 1, None),
+    ("lowlevel.barkbands_crest.max", 1, None),
+    ("lowlevel.barkbands_crest.mean", 1, None),
+    ("lowlevel.barkbands_crest.median", 1, None),
+    ("lowlevel.barkbands_crest.min", 1, None),
+    ("lowlevel.barkbands_crest.stdev", 1, None),
+    ("lowlevel.barkbands_crest.var", 1, None),
+    ("lowlevel.barkbands_flatness_db.dmean", 1, None),
+    ("lowlevel.barkbands_flatness_db.dmean2", 1, None),
+    ("lowlevel.barkbands_flatness_db.dvar", 1, None),
+    ("lowlevel.barkbands_flatness_db.dvar2", 1, None),
+    ("lowlevel.barkbands_flatness_db.max", 1, None),
+    ("lowlevel.barkbands_flatness_db.mean", 1, None),
+    ("lowlevel.barkbands_flatness_db.median", 1, None),
+    ("lowlevel.barkbands_flatness_db.min", 1, None),
+    ("lowlevel.barkbands_flatness_db.stdev", 1, None),
+    ("lowlevel.barkbands_flatness_db.var", 1, None),
+    ("lowlevel.barkbands_kurtosis.dmean", 1, None),
+    ("lowlevel.barkbands_kurtosis.dmean2", 1, None),
+    ("lowlevel.barkbands_kurtosis.dvar", 1, None),
+    ("lowlevel.barkbands_kurtosis.dvar2", 1, None),
+    ("lowlevel.barkbands_kurtosis.max", 1, None),
+    ("lowlevel.barkbands_kurtosis.mean", 1, None),
+    ("lowlevel.barkbands_kurtosis.median", 1, None),
+    ("lowlevel.barkbands_kurtosis.min", 1, None),
+    ("lowlevel.barkbands_kurtosis.stdev", 1, None),
+    ("lowlevel.barkbands_kurtosis.var", 1, None),
+    ("lowlevel.barkbands_skewness.dmean", 1, None),
+    ("lowlevel.barkbands_skewness.dmean2", 1, None),
+    ("lowlevel.barkbands_skewness.dvar", 1, None),
+    ("lowlevel.barkbands_skewness.dvar2", 1, None),
+    ("lowlevel.barkbands_skewness.max", 1, None),
+    ("lowlevel.barkbands_skewness.mean", 1, None),
+    ("lowlevel.barkbands_skewness.median", 1, None),
+    ("lowlevel.barkbands_skewness.min", 1, None),
+    ("lowlevel.barkbands_skewness.stdev", 1, None),
+    ("lowlevel.barkbands_skewness.var", 1, None),
+    ("lowlevel.barkbands_spread.dmean", 1, None),
+    ("lowlevel.barkbands_spread.dmean2", 1, None),
+    ("lowlevel.barkbands_spread.dvar", 1, None),
+    ("lowlevel.barkbands_spread.dvar2", 1, None),
+    ("lowlevel.barkbands_spread.max", 1, None),
+    ("lowlevel.barkbands_spread.mean", 1, None),
+    ("lowlevel.barkbands_spread.median", 1, None),
+    ("lowlevel.barkbands_spread.min", 1, None),
+    ("lowlevel.barkbands_spread.stdev", 1, None),
+    ("lowlevel.barkbands_spread.var", 1, None),
+    ("lowlevel.dissonance.dmean", 1, None),
+    ("lowlevel.dissonance.dmean2", 1, None),
+    ("lowlevel.dissonance.dvar", 1, None),
+    ("lowlevel.dissonance.dvar2", 1, None),
+    ("lowlevel.dissonance.max", 1, None),
+    ("lowlevel.dissonance.mean", 1, None),
+    ("lowlevel.dissonance.median", 1, None),
+    ("lowlevel.dissonance.min", 1, None),
+    ("lowlevel.dissonance.stdev", 1, None),
+    ("lowlevel.dissonance.var", 1, None),
+    ("lowlevel.dynamic_complexity", 1, None),
+    ("lowlevel.erbbands.dmean", 40, None),
+    ("lowlevel.erbbands.dmean2", 40, None),
+    ("lowlevel.erbbands.dvar", 40, None),
+    ("lowlevel.erbbands.dvar2", 40, None),
+    ("lowlevel.erbbands.max", 40, None),
+    ("lowlevel.erbbands.mean", 40, None),
+    ("lowlevel.erbbands.median", 40, None),
+    ("lowlevel.erbbands.min", 40, None),
+    ("lowlevel.erbbands.stdev", 40, None),
+    ("lowlevel.erbbands.var", 40, None),
+    ("lowlevel.erbbands_crest.dmean", 1, None),
+    ("lowlevel.erbbands_crest.dmean2", 1, None),
+    ("lowlevel.erbbands_crest.dvar", 1, None),
+    ("lowlevel.erbbands_crest.dvar2", 1, None),
+    ("lowlevel.erbbands_crest.max", 1, None),
+    ("lowlevel.erbbands_crest.mean", 1, None),
+    ("lowlevel.erbbands_crest.median", 1, None),
+    ("lowlevel.erbbands_crest.min", 1, None),
+    ("lowlevel.erbbands_crest.stdev", 1, None),
+    ("lowlevel.erbbands_crest.var", 1, None),
+    ("lowlevel.erbbands_flatness_db.dmean", 1, None),
+    ("lowlevel.erbbands_flatness_db.dmean2", 1, None),
+    ("lowlevel.erbbands_flatness_db.dvar", 1, None),
+    ("lowlevel.erbbands_flatness_db.dvar2", 1, None),
+    ("lowlevel.erbbands_flatness_db.max", 1, None),
+    ("lowlevel.erbbands_flatness_db.mean", 1, None),
+    ("lowlevel.erbbands_flatness_db.median", 1, None),
+    ("lowlevel.erbbands_flatness_db.min", 1, None),
+    ("lowlevel.erbbands_flatness_db.stdev", 1, None),
+    ("lowlevel.erbbands_flatness_db.var", 1, None),
+    ("lowlevel.erbbands_kurtosis.dmean", 1, None),
+    ("lowlevel.erbbands_kurtosis.dmean2", 1, None),
+    ("lowlevel.erbbands_kurtosis.dvar", 1, None),
+    ("lowlevel.erbbands_kurtosis.dvar2", 1, None),
+    ("lowlevel.erbbands_kurtosis.max", 1, None),
+    ("lowlevel.erbbands_kurtosis.mean", 1, None),
+    ("lowlevel.erbbands_kurtosis.median", 1, None),
+    ("lowlevel.erbbands_kurtosis.min", 1, None),
+    ("lowlevel.erbbands_kurtosis.stdev", 1, None),
+    ("lowlevel.erbbands_kurtosis.var", 1, None),
+    ("lowlevel.erbbands_skewness.dmean", 1, None),
+    ("lowlevel.erbbands_skewness.dmean2", 1, None),
+    ("lowlevel.erbbands_skewness.dvar", 1, None),
+    ("lowlevel.erbbands_skewness.dvar2", 1, None),
+    ("lowlevel.erbbands_skewness.max", 1, None),
+    ("lowlevel.erbbands_skewness.mean", 1, None),
+    ("lowlevel.erbbands_skewness.median", 1, None),
+    ("lowlevel.erbbands_skewness.min", 1, None),
+    ("lowlevel.erbbands_skewness.stdev", 1, None),
+    ("lowlevel.erbbands_skewness.var", 1, None),
+    ("lowlevel.erbbands_spread.dmean", 1, None),
+    ("lowlevel.erbbands_spread.dmean2", 1, None),
+    ("lowlevel.erbbands_spread.dvar", 1, None),
+    ("lowlevel.erbbands_spread.dvar2", 1, None),
+    ("lowlevel.erbbands_spread.max", 1, None),
+    ("lowlevel.erbbands_spread.mean", 1, None),
+    ("lowlevel.erbbands_spread.median", 1, None),
+    ("lowlevel.erbbands_spread.min", 1, None),
+    ("lowlevel.erbbands_spread.stdev", 1, None),
+    ("lowlevel.erbbands_spread.var", 1, None),
+    ("lowlevel.gfcc.cov", 169, None),
+    ("lowlevel.gfcc.icov", 169, None),
+    ("lowlevel.gfcc.mean", 13, None),
+    ("lowlevel.hfc.dmean", 1, None),
+    ("lowlevel.hfc.dmean2", 1, None),
+    ("lowlevel.hfc.dvar", 1, None),
+    ("lowlevel.hfc.dvar2", 1, None),
+    ("lowlevel.hfc.max", 1, None),
+    ("lowlevel.hfc.mean", 1, None),
+    ("lowlevel.hfc.median", 1, None),
+    ("lowlevel.hfc.min", 1, None),
+    ("lowlevel.hfc.stdev", 1, None),
+    ("lowlevel.hfc.var", 1, None),
+    ("lowlevel.loudness_ebu128.integrated", 1, None),
+    ("lowlevel.loudness_ebu128.loudness_range", 1, None),
+    ("lowlevel.loudness_ebu128.momentary.dmean", 1, None),
+    ("lowlevel.loudness_ebu128.momentary.dmean2", 1, None),
+    ("lowlevel.loudness_ebu128.momentary.dvar", 1, None),
+    ("lowlevel.loudness_ebu128.momentary.dvar2", 1, None),
+    ("lowlevel.loudness_ebu128.momentary.max", 1, None),
+    ("lowlevel.loudness_ebu128.momentary.mean", 1, None),
+    ("lowlevel.loudness_ebu128.momentary.median", 1, None),
+    ("lowlevel.loudness_ebu128.momentary.min", 1, None),
+    ("lowlevel.loudness_ebu128.momentary.stdev", 1, None),
+    ("lowlevel.loudness_ebu128.momentary.var", 1, None),
+    ("lowlevel.loudness_ebu128.short_term.dmean", 1, None),
+    ("lowlevel.loudness_ebu128.short_term.dmean2", 1, None),
+    ("lowlevel.loudness_ebu128.short_term.dvar", 1, None),
+    ("lowlevel.loudness_ebu128.short_term.dvar2", 1, None),
+    ("lowlevel.loudness_ebu128.short_term.max", 1, None),
+    ("lowlevel.loudness_ebu128.short_term.mean", 1, None),
+    ("lowlevel.loudness_ebu128.short_term.median", 1, None),
+    ("lowlevel.loudness_ebu128.short_term.min", 1, None),
+    ("lowlevel.loudness_ebu128.short_term.stdev", 1, None),
+    ("lowlevel.loudness_ebu128.short_term.var", 1, None),
+    ("lowlevel.melbands.dmean", 40, None),
+    ("lowlevel.melbands.dmean2", 40, None),
+    ("lowlevel.melbands.dvar", 40, None),
+    ("lowlevel.melbands.dvar2", 40, None),
+    ("lowlevel.melbands.max", 40, None),
+    ("lowlevel.melbands.mean", 40, None),
+    ("lowlevel.melbands.median", 40, None),
+    ("lowlevel.melbands.min", 40, None),
+    ("lowlevel.melbands.stdev", 40, None),
+    ("lowlevel.melbands.var", 40, None),
+    ("lowlevel.melbands128.dmean", 128, None),
+    ("lowlevel.melbands128.dmean2", 128, None),
+    ("lowlevel.melbands128.dvar", 128, None),
+    ("lowlevel.melbands128.dvar2", 128, None),
+    ("lowlevel.melbands128.max", 128, None),
+    ("lowlevel.melbands128.mean", 128, None),
+    ("lowlevel.melbands128.median", 128, None),
+    ("lowlevel.melbands128.min", 128, None),
+    ("lowlevel.melbands128.stdev", 128, None),
+    ("lowlevel.melbands128.var", 128, None),
+    ("lowlevel.melbands_crest.dmean", 1, None),
+    ("lowlevel.melbands_crest.dmean2", 1, None),
+    ("lowlevel.melbands_crest.dvar", 1, None),
+    ("lowlevel.melbands_crest.dvar2", 1, None),
+    ("lowlevel.melbands_crest.max", 1, None),
+    ("lowlevel.melbands_crest.mean", 1, None),
+    ("lowlevel.melbands_crest.median", 1, None),
+    ("lowlevel.melbands_crest.min", 1, None),
+    ("lowlevel.melbands_crest.stdev", 1, None),
+    ("lowlevel.melbands_crest.var", 1, None),
+    ("lowlevel.melbands_flatness_db.dmean", 1, None),
+    ("lowlevel.melbands_flatness_db.dmean2", 1, None),
+    ("lowlevel.melbands_flatness_db.dvar", 1, None),
+    ("lowlevel.melbands_flatness_db.dvar2", 1, None),
+    ("lowlevel.melbands_flatness_db.max", 1, None),
+    ("lowlevel.melbands_flatness_db.mean", 1, None),
+    ("lowlevel.melbands_flatness_db.median", 1, None),
+    ("lowlevel.melbands_flatness_db.min", 1, None),
+    ("lowlevel.melbands_flatness_db.stdev", 1, None),
+    ("lowlevel.melbands_flatness_db.var", 1, None),
+    ("lowlevel.melbands_kurtosis.dmean", 1, None),
+    ("lowlevel.melbands_kurtosis.dmean2", 1, None),
+    ("lowlevel.melbands_kurtosis.dvar", 1, None),
+    ("lowlevel.melbands_kurtosis.dvar2", 1, None),
+    ("lowlevel.melbands_kurtosis.max", 1, None),
+    ("lowlevel.melbands_kurtosis.mean", 1, None),
+    ("lowlevel.melbands_kurtosis.median", 1, None),
+    ("lowlevel.melbands_kurtosis.min", 1, None),
+    ("lowlevel.melbands_kurtosis.stdev", 1, None),
+    ("lowlevel.melbands_kurtosis.var", 1, None),
+    ("lowlevel.melbands_skewness.dmean", 1, None),
+    ("lowlevel.melbands_skewness.dmean2", 1, None),
+    ("lowlevel.melbands_skewness.dvar", 1, None),
+    ("lowlevel.melbands_skewness.dvar2", 1, None),
+    ("lowlevel.melbands_skewness.max", 1, None),
+    ("lowlevel.melbands_skewness.mean", 1, None),
+    ("lowlevel.melbands_skewness.median", 1, None),
+    ("lowlevel.melbands_skewness.min", 1, None),
+    ("lowlevel.melbands_skewness.stdev", 1, None),
+    ("lowlevel.melbands_skewness.var", 1, None),
+    ("lowlevel.melbands_spread.dmean", 1, None),
+    ("lowlevel.melbands_spread.dmean2", 1, None),
+    ("lowlevel.melbands_spread.dvar", 1, None),
+    ("lowlevel.melbands_spread.dvar2", 1, None),
+    ("lowlevel.melbands_spread.max", 1, None),
+    ("lowlevel.melbands_spread.mean", 1, None),
+    ("lowlevel.melbands_spread.median", 1, None),
+    ("lowlevel.melbands_spread.min", 1, None),
+    ("lowlevel.melbands_spread.stdev", 1, None),
+    ("lowlevel.melbands_spread.var", 1, None),
+    ("lowlevel.mfcc.cov", 169, None),
+    ("lowlevel.mfcc.icov", 169, None),
+    ("lowlevel.mfcc.mean", 13, None),
+    ("lowlevel.pitch_salience.dmean", 1, None),
+    ("lowlevel.pitch_salience.dmean2", 1, None),
+    ("lowlevel.pitch_salience.dvar", 1, None),
+    ("lowlevel.pitch_salience.dvar2", 1, None),
+    ("lowlevel.pitch_salience.max", 1, None),
+    ("lowlevel.pitch_salience.mean", 1, None),
+    ("lowlevel.pitch_salience.median", 1, None),
+    ("lowlevel.pitch_salience.min", 1, None),
+    ("lowlevel.pitch_salience.stdev", 1, None),
+    ("lowlevel.pitch_salience.var", 1, None),
+    ("lowlevel.silence_rate_20dB.dmean", 1, None),
+    ("lowlevel.silence_rate_20dB.dmean2", 1, None),
+    ("lowlevel.silence_rate_20dB.dvar", 1, None),
+    ("lowlevel.silence_rate_20dB.dvar2", 1, None),
+    ("lowlevel.silence_rate_20dB.max", 1, None),
+    ("lowlevel.silence_rate_20dB.mean", 1, None),
+    ("lowlevel.silence_rate_20dB.median", 1, None),
+    ("lowlevel.silence_rate_20dB.min", 1, None),
+    ("lowlevel.silence_rate_20dB.stdev", 1, None),
+    ("lowlevel.silence_rate_20dB.var", 1, None),
+    ("lowlevel.silence_rate_30dB.dmean", 1, None),
+    ("lowlevel.silence_rate_30dB.dmean2", 1, None),
+    ("lowlevel.silence_rate_30dB.dvar", 1, None),
+    ("lowlevel.silence_rate_30dB.dvar2", 1, None),
+    ("lowlevel.silence_rate_30dB.max", 1, None),
+    ("lowlevel.silence_rate_30dB.mean", 1, None),
+    ("lowlevel.silence_rate_30dB.median", 1, None),
+    ("lowlevel.silence_rate_30dB.min", 1, None),
+    ("lowlevel.silence_rate_30dB.stdev", 1, None),
+    ("lowlevel.silence_rate_30dB.var", 1, None),
+    ("lowlevel.silence_rate_60dB.dmean", 1, None),
+    ("lowlevel.silence_rate_60dB.dmean2", 1, None),
+    ("lowlevel.silence_rate_60dB.dvar", 1, None),
+    ("lowlevel.silence_rate_60dB.dvar2", 1, None),
+    ("lowlevel.silence_rate_60dB.max", 1, None),
+    ("lowlevel.silence_rate_60dB.mean", 1, None),
+    ("lowlevel.silence_rate_60dB.median", 1, None),
+    ("lowlevel.silence_rate_60dB.min", 1, None),
+    ("lowlevel.silence_rate_60dB.stdev", 1, None),
+    ("lowlevel.silence_rate_60dB.var", 1, None),
+    ("lowlevel.spectral_centroid.dmean", 1, None),
+    ("lowlevel.spectral_centroid.dmean2", 1, None),
+    ("lowlevel.spectral_centroid.dvar", 1, None),
+    ("lowlevel.spectral_centroid.dvar2", 1, None),
+    ("lowlevel.spectral_centroid.max", 1, None),
+    ("lowlevel.spectral_centroid.mean", 1, None),
+    ("lowlevel.spectral_centroid.median", 1, None),
+    ("lowlevel.spectral_centroid.min", 1, None),
+    ("lowlevel.spectral_centroid.stdev", 1, None),
+    ("lowlevel.spectral_centroid.var", 1, None),
+    ("lowlevel.spectral_complexity.dmean", 1, None),
+    ("lowlevel.spectral_complexity.dmean2", 1, None),
+    ("lowlevel.spectral_complexity.dvar", 1, None),
+    ("lowlevel.spectral_complexity.dvar2", 1, None),
+    ("lowlevel.spectral_complexity.max", 1, None),
+    ("lowlevel.spectral_complexity.mean", 1, None),
+    ("lowlevel.spectral_complexity.median", 1, None),
+    ("lowlevel.spectral_complexity.min", 1, None),
+    ("lowlevel.spectral_complexity.stdev", 1, None),
+    ("lowlevel.spectral_complexity.var", 1, None),
+    ("lowlevel.spectral_contrast_coeffs.dmean", 6, None),
+    ("lowlevel.spectral_contrast_coeffs.dmean2", 6, None),
+    ("lowlevel.spectral_contrast_coeffs.dvar", 6, None),
+    ("lowlevel.spectral_contrast_coeffs.dvar2", 6, None),
+    ("lowlevel.spectral_contrast_coeffs.max", 6, None),
+    ("lowlevel.spectral_contrast_coeffs.mean", 6, None),
+    ("lowlevel.spectral_contrast_coeffs.median", 6, None),
+    ("lowlevel.spectral_contrast_coeffs.min", 6, None),
+    ("lowlevel.spectral_contrast_coeffs.stdev", 6, None),
+    ("lowlevel.spectral_contrast_coeffs.var", 6, None),
+    ("lowlevel.spectral_contrast_valleys.dmean", 6, None),
+    ("lowlevel.spectral_contrast_valleys.dmean2", 6, None),
+    ("lowlevel.spectral_contrast_valleys.dvar", 6, None),
+    ("lowlevel.spectral_contrast_valleys.dvar2", 6, None),
+    ("lowlevel.spectral_contrast_valleys.max", 6, None),
+    ("lowlevel.spectral_contrast_valleys.mean", 6, None),
+    ("lowlevel.spectral_contrast_valleys.median", 6, None),
+    ("lowlevel.spectral_contrast_valleys.min", 6, None),
+    ("lowlevel.spectral_contrast_valleys.stdev", 6, None),
+    ("lowlevel.spectral_contrast_valleys.var", 6, None),
+    ("lowlevel.spectral_decrease.dmean", 1, None),
+    ("lowlevel.spectral_decrease.dmean2", 1, None),
+    ("lowlevel.spectral_decrease.dvar", 1, None),
+    ("lowlevel.spectral_decrease.dvar2", 1, None),
+    ("lowlevel.spectral_decrease.max", 1, None),
+    ("lowlevel.spectral_decrease.mean", 1, None),
+    ("lowlevel.spectral_decrease.median", 1, None),
+    ("lowlevel.spectral_decrease.min", 1, None),
+    ("lowlevel.spectral_decrease.stdev", 1, None),
+    ("lowlevel.spectral_decrease.var", 1, None),
+    ("lowlevel.spectral_energy.dmean", 1, None),
+    ("lowlevel.spectral_energy.dmean2", 1, None),
+    ("lowlevel.spectral_energy.dvar", 1, None),
+    ("lowlevel.spectral_energy.dvar2", 1, None),
+    ("lowlevel.spectral_energy.max", 1, None),
+    ("lowlevel.spectral_energy.mean", 1, None),
+    ("lowlevel.spectral_energy.median", 1, None),
+    ("lowlevel.spectral_energy.min", 1, None),
+    ("lowlevel.spectral_energy.stdev", 1, None),
+    ("lowlevel.spectral_energy.var", 1, None),
+    ("lowlevel.spectral_energyband_high.dmean", 1, None),
+    ("lowlevel.spectral_energyband_high.dmean2", 1, None),
+    ("lowlevel.spectral_energyband_high.dvar", 1, None),
+    ("lowlevel.spectral_energyband_high.dvar2", 1, None),
+    ("lowlevel.spectral_energyband_high.max", 1, None),
+    ("lowlevel.spectral_energyband_high.mean", 1, None),
+    ("lowlevel.spectral_energyband_high.median", 1, None),
+    ("lowlevel.spectral_energyband_high.min", 1, None),
+    ("lowlevel.spectral_energyband_high.stdev", 1, None),
+    ("lowlevel.spectral_energyband_high.var", 1, None),
+    ("lowlevel.spectral_energyband_low.dmean", 1, None),
+    ("lowlevel.spectral_energyband_low.dmean2", 1, None),
+    ("lowlevel.spectral_energyband_low.dvar", 1, None),
+    ("lowlevel.spectral_energyband_low.dvar2", 1, None),
+    ("lowlevel.spectral_energyband_low.max", 1, None),
+    ("lowlevel.spectral_energyband_low.mean", 1, None),
+    ("lowlevel.spectral_energyband_low.median", 1, None),
+    ("lowlevel.spectral_energyband_low.min", 1, None),
+    ("lowlevel.spectral_energyband_low.stdev", 1, None),
+    ("lowlevel.spectral_energyband_low.var", 1, None),
+    ("lowlevel.spectral_energyband_middle_high.dmean", 1, None),
+    ("lowlevel.spectral_energyband_middle_high.dmean2", 1, None),
+    ("lowlevel.spectral_energyband_middle_high.dvar", 1, None),
+    ("lowlevel.spectral_energyband_middle_high.dvar2", 1, None),
+    ("lowlevel.spectral_energyband_middle_high.max", 1, None),
+    ("lowlevel.spectral_energyband_middle_high.mean", 1, None),
+    ("lowlevel.spectral_energyband_middle_high.median", 1, None),
+    ("lowlevel.spectral_energyband_middle_high.min", 1, None),
+    ("lowlevel.spectral_energyband_middle_high.stdev", 1, None),
+    ("lowlevel.spectral_energyband_middle_high.var", 1, None),
+    ("lowlevel.spectral_energyband_middle_low.dmean", 1, None),
+    ("lowlevel.spectral_energyband_middle_low.dmean2", 1, None),
+    ("lowlevel.spectral_energyband_middle_low.dvar", 1, None),
+    ("lowlevel.spectral_energyband_middle_low.dvar2", 1, None),
+    ("lowlevel.spectral_energyband_middle_low.max", 1, None),
+    ("lowlevel.spectral_energyband_middle_low.mean", 1, None),
+    ("lowlevel.spectral_energyband_middle_low.median", 1, None),
+    ("lowlevel.spectral_energyband_middle_low.min", 1, None),
+    ("lowlevel.spectral_energyband_middle_low.stdev", 1, None),
+    ("lowlevel.spectral_energyband_middle_low.var", 1, None),
+    ("lowlevel.spectral_entropy.dmean", 1, None),
+    ("lowlevel.spectral_entropy.dmean2", 1, None),
+    ("lowlevel.spectral_entropy.dvar", 1, None),
+    ("lowlevel.spectral_entropy.dvar2", 1, None),
+    ("lowlevel.spectral_entropy.max", 1, None),
+    ("lowlevel.spectral_entropy.mean", 1, None),
+    ("lowlevel.spectral_entropy.median", 1, None),
+    ("lowlevel.spectral_entropy.min", 1, None),
+    ("lowlevel.spectral_entropy.stdev", 1, None),
+    ("lowlevel.spectral_entropy.var", 1, None),
+    ("lowlevel.spectral_flux.dmean", 1, None),
+    ("lowlevel.spectral_flux.dmean2", 1, None),
+    ("lowlevel.spectral_flux.dvar", 1, None),
+    ("lowlevel.spectral_flux.dvar2", 1, None),
+    ("lowlevel.spectral_flux.max", 1, None),
+    ("lowlevel.spectral_flux.mean", 1, None),
+    ("lowlevel.spectral_flux.median", 1, None),
+    ("lowlevel.spectral_flux.min", 1, None),
+    ("lowlevel.spectral_flux.stdev", 1, None),
+    ("lowlevel.spectral_flux.var", 1, None),
+    ("lowlevel.spectral_kurtosis.dmean", 1, None),
+    ("lowlevel.spectral_kurtosis.dmean2", 1, None),
+    ("lowlevel.spectral_kurtosis.dvar", 1, None),
+    ("lowlevel.spectral_kurtosis.dvar2", 1, None),
+    ("lowlevel.spectral_kurtosis.max", 1, None),
+    ("lowlevel.spectral_kurtosis.mean", 1, None),
+    ("lowlevel.spectral_kurtosis.median", 1, None),
+    ("lowlevel.spectral_kurtosis.min", 1, None),
+    ("lowlevel.spectral_kurtosis.stdev", 1, None),
+    ("lowlevel.spectral_kurtosis.var", 1, None),
+    ("lowlevel.spectral_rms.dmean", 1, None),
+    ("lowlevel.spectral_rms.dmean2", 1, None),
+    ("lowlevel.spectral_rms.dvar", 1, None),
+    ("lowlevel.spectral_rms.dvar2", 1, None),
+    ("lowlevel.spectral_rms.max", 1, None),
+    ("lowlevel.spectral_rms.mean", 1, None),
+    ("lowlevel.spectral_rms.median", 1, None),
+    ("lowlevel.spectral_rms.min", 1, None),
+    ("lowlevel.spectral_rms.stdev", 1, None),
+    ("lowlevel.spectral_rms.var", 1, None),
+    ("lowlevel.spectral_rolloff.dmean", 1, None),
+    ("lowlevel.spectral_rolloff.dmean2", 1, None),
+    ("lowlevel.spectral_rolloff.dvar", 1, None),
+    ("lowlevel.spectral_rolloff.dvar2", 1, None),
+    ("lowlevel.spectral_rolloff.max", 1, None),
+    ("lowlevel.spectral_rolloff.mean", 1, None),
+    ("lowlevel.spectral_rolloff.median", 1, None),
+    ("lowlevel.spectral_rolloff.min", 1, None),
+    ("lowlevel.spectral_rolloff.stdev", 1, None),
+    ("lowlevel.spectral_rolloff.var", 1, None),
+    ("lowlevel.spectral_skewness.dmean", 1, None),
+    ("lowlevel.spectral_skewness.dmean2", 1, None),
+    ("lowlevel.spectral_skewness.dvar", 1, None),
+    ("lowlevel.spectral_skewness.dvar2", 1, None),
+    ("lowlevel.spectral_skewness.max", 1, None),
+    ("lowlevel.spectral_skewness.mean", 1, None),
+    ("lowlevel.spectral_skewness.median", 1, None),
+    ("lowlevel.spectral_skewness.min", 1, None),
+    ("lowlevel.spectral_skewness.stdev", 1, None),
+    ("lowlevel.spectral_skewness.var", 1, None),
+    ("lowlevel.spectral_spread.dmean", 1, None),
+    ("lowlevel.spectral_spread.dmean2", 1, None),
+    ("lowlevel.spectral_spread.dvar", 1, None),
+    ("lowlevel.spectral_spread.dvar2", 1, None),
+    ("lowlevel.spectral_spread.max", 1, None),
+    ("lowlevel.spectral_spread.mean", 1, None),
+    ("lowlevel.spectral_spread.median", 1, None),
+    ("lowlevel.spectral_spread.min", 1, None),
+    ("lowlevel.spectral_spread.stdev", 1, None),
+    ("lowlevel.spectral_spread.var", 1, None),
+    ("lowlevel.spectral_strongpeak.dmean", 1, None),
+    ("lowlevel.spectral_strongpeak.dmean2", 1, None),
+    ("lowlevel.spectral_strongpeak.dvar", 1, None),
+    ("lowlevel.spectral_strongpeak.dvar2", 1, None),
+    ("lowlevel.spectral_strongpeak.max", 1, None),
+    ("lowlevel.spectral_strongpeak.mean", 1, None),
+    ("lowlevel.spectral_strongpeak.median", 1, None),
+    ("lowlevel.spectral_strongpeak.min", 1, None),
+    ("lowlevel.spectral_strongpeak.stdev", 1, None),
+    ("lowlevel.spectral_strongpeak.var", 1, None),
+    ("lowlevel.zerocrossingrate.dmean", 1, None),
+    ("lowlevel.zerocrossingrate.dmean2", 1, None),
+    ("lowlevel.zerocrossingrate.dvar", 1, None),
+    ("lowlevel.zerocrossingrate.dvar2", 1, None),
+    ("lowlevel.zerocrossingrate.max", 1, None),
+    ("lowlevel.zerocrossingrate.mean", 1, None),
+    ("lowlevel.zerocrossingrate.median", 1, None),
+    ("lowlevel.zerocrossingrate.min", 1, None),
+    ("lowlevel.zerocrossingrate.stdev", 1, None),
+    ("lowlevel.zerocrossingrate.var", 1, None),
+    ("rhythm.beats_count", 1, None),
+    ("rhythm.beats_loudness.dmean", 1, None),
+    ("rhythm.beats_loudness.dmean2", 1, None),
+    ("rhythm.beats_loudness.dvar", 1, None),
+    ("rhythm.beats_loudness.dvar2", 1, None),
+    ("rhythm.beats_loudness.max", 1, None),
+    ("rhythm.beats_loudness.mean", 1, None),
+    ("rhythm.beats_loudness.median", 1, None),
+    ("rhythm.beats_loudness.min", 1, None),
+    ("rhythm.beats_loudness.stdev", 1, None),
+    ("rhythm.beats_loudness.var", 1, None),
+    ("rhythm.beats_loudness_band_ratio.dmean", 6, None),
+    ("rhythm.beats_loudness_band_ratio.dmean2", 6, None),
+    ("rhythm.beats_loudness_band_ratio.dvar", 6, None),
+    ("rhythm.beats_loudness_band_ratio.dvar2", 6, None),
+    ("rhythm.beats_loudness_band_ratio.max", 6, None),
+    ("rhythm.beats_loudness_band_ratio.mean", 6, None),
+    ("rhythm.beats_loudness_band_ratio.median", 6, None),
+    ("rhythm.beats_loudness_band_ratio.min", 6, None),
+    ("rhythm.beats_loudness_band_ratio.stdev", 6, None),
+    ("rhythm.beats_loudness_band_ratio.var", 6, None),
+    ("rhythm.bpm", 1, None),
+    ("rhythm.bpm_histogram", 250, None),
+    ("rhythm.bpm_histogram_first_peak_bpm", 1, None),
+    ("rhythm.bpm_histogram_first_peak_weight", 1, None),
+    ("rhythm.bpm_histogram_second_peak_bpm", 1, None),
+    ("rhythm.bpm_histogram_second_peak_spread", 1, None),
+    ("rhythm.bpm_histogram_second_peak_weight", 1, None),
+    ("rhythm.danceability", 1, None),
+    ("rhythm.onset_rate", 1, None),
+    ("tonal.chords_changes_rate", 1, None),
+    ("tonal.chords_histogram", 24, None),
+    ("tonal.chords_number_rate", 1, None),
+    ("tonal.chords_strength.dmean", 1, None),
+    ("tonal.chords_strength.dmean2", 1, None),
+    ("tonal.chords_strength.dvar", 1, None),
+    ("tonal.chords_strength.dvar2", 1, None),
+    ("tonal.chords_strength.max", 1, None),
+    ("tonal.chords_strength.mean", 1, None),
+    ("tonal.chords_strength.median", 1, None),
+    ("tonal.chords_strength.min", 1, None),
+    ("tonal.chords_strength.stdev", 1, None),
+    ("tonal.chords_strength.var", 1, None),
+    ("tonal.hpcp.dmean", 36, None),
+    ("tonal.hpcp.dmean2", 36, None),
+    ("tonal.hpcp.dvar", 36, None),
+    ("tonal.hpcp.dvar2", 36, None),
+    ("tonal.hpcp.max", 36, None),
+    ("tonal.hpcp.mean", 36, None),
+    ("tonal.hpcp.median", 36, None),
+    ("tonal.hpcp.min", 36, None),
+    ("tonal.hpcp.stdev", 36, None),
+    ("tonal.hpcp.var", 36, None),
+    ("tonal.hpcp_crest.dmean", 1, None),
+    ("tonal.hpcp_crest.dmean2", 1, None),
+    ("tonal.hpcp_crest.dvar", 1, None),
+    ("tonal.hpcp_crest.dvar2", 1, None),
+    ("tonal.hpcp_crest.max", 1, None),
+    ("tonal.hpcp_crest.mean", 1, None),
+    ("tonal.hpcp_crest.median", 1, None),
+    ("tonal.hpcp_crest.min", 1, None),
+    ("tonal.hpcp_crest.stdev", 1, None),
+    ("tonal.hpcp_crest.var", 1, None),
+    ("tonal.hpcp_entropy.dmean", 1, None),
+    ("tonal.hpcp_entropy.dmean2", 1, None),
+    ("tonal.hpcp_entropy.dvar", 1, None),
+    ("tonal.hpcp_entropy.dvar2", 1, None),
+    ("tonal.hpcp_entropy.max", 1, None),
+    ("tonal.hpcp_entropy.mean", 1, None),
+    ("tonal.hpcp_entropy.median", 1, None),
+    ("tonal.hpcp_entropy.min", 1, None),
+    ("tonal.hpcp_entropy.stdev", 1, None),
+    ("tonal.hpcp_entropy.var", 1, None),
+    ("tonal.key_edma.strength", 1, None),
+    ("tonal.key_krumhansl.strength", 1, None),
+    ("tonal.key_temperley.strength", 1, None),
+    ("tonal.thpcp", 36, None),
+    ("tonal.tuning_diatonic_strength", 1, None),
+    ("tonal.tuning_equal_tempered_deviation", 1, None),
+    ("tonal.tuning_frequency", 1, None),
+    ("tonal.tuning_nontempered_energy_ratio", 1, None),
+    ("rhythm.beats_position", 4, "stats4"),
+    ("tonal.chords_key", 2, "key_cyclic"),
+    ("tonal.chords_scale", 1, "scale_binary"),
+    ("tonal.key_edma.key", 2, "key_cyclic"),
+    ("tonal.key_edma.scale", 1, "scale_binary"),
+    ("tonal.key_krumhansl.key", 2, "key_cyclic"),
+    ("tonal.key_krumhansl.scale", 1, "scale_binary"),
+    ("tonal.key_temperley.key", 2, "key_cyclic"),
+    ("tonal.key_temperley.scale", 1, "scale_binary"),
+)
+
+
+def schema_fingerprint() -> str:
+    return hashlib.sha256(repr(_DESCRIPTOR_SCHEMA).encode()).hexdigest()[:16]
+
+
+def descriptor_family_layout() -> list[tuple[str, int, int]]:
+    """Merge adjacent same-family descriptors into (family, start, end) slices.
+
+    The returned layout covers the essentia part of the vector only (panns is
+    appended after and must be added by the caller).
+    """
+    layout: list[tuple[str, int, int]] = []
+    offset = 0
+    for name, length, _ in _DESCRIPTOR_SCHEMA:
+        family = name.split(".")[0]
+        if layout and layout[-1][0] == family:
+            layout[-1] = (family, layout[-1][1], offset + length)
+        else:
+            layout.append((family, offset, offset + length))
+        offset += length
+    return layout
+
+
+def _synthesize_wav(
+    path: pathlib.Path, duration_s: float = 3.0, sr: int = 44100
+) -> None:
+    rng = np.random.default_rng(0)
+    samples = (rng.standard_normal(int(sr * duration_s)) * 32767).astype(np.int16)
+    with wave.open(str(path), "w") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sr)
+        wf.writeframes(samples.tobytes())
+
+
+def assert_schema_dim_consistent(profile_path: pathlib.Path | None = None) -> None:
+    if not _DESCRIPTOR_SCHEMA:
+        return
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        wav_path = pathlib.Path(tmp_dir) / "dim_check_noise.wav"
+        _synthesize_wav(wav_path)
+        extractor = get_essentia_extractor(profile_path)
+        features, _frames = extractor(str(wav_path))
+    pool_names = set(features.descriptorNames())
+    mismatches = []
+    for name, expected_length, normalizer_key in _DESCRIPTOR_SCHEMA:
+        if name not in pool_names:
+            continue
+        raw = np.asarray(features[name])
+        if normalizer_key is not None:
+            arr = _NORMALIZERS[normalizer_key](raw)
+        else:
+            arr = raw.astype(np.float32).reshape(-1)
+        if len(arr) != expected_length:
+            mismatches.append(
+                f"  {name}: schema declares length {expected_length}, "
+                f"got {len(arr)} (raw shape {raw.shape})"
+            )
+    if mismatches:
+        bullet_list = "\n".join(mismatches)
+        raise RuntimeError(
+            f"Schema dimension mismatch:\n{bullet_list}\n"
+            f"Update _DESCRIPTOR_SCHEMA or re-run: "
+            f"poetry run python -m audit.descriptor_shapes discover ..."
+        )
+
+
+def decode_audio(audio_path: pathlib.Path, sample_rate: int = 16000) -> bytes:
+    cmd = [
+        "ffmpeg",
+        "-i",
+        str(audio_path),
+        "-ac",
+        "1",
+        "-ar",
+        str(sample_rate),
+        "-f",
+        "wav",
+        "-",
+    ]
+    result = subprocess.run(cmd, capture_output=True, check=True)
+    return result.stdout[44:]
+
+
+def get_essentia_extractor(profile_path: pathlib.Path | None = None):
+    if profile_path is None:
+        profile_path = config.data_path / "essentia_extractor_profile.yaml"
+    if not profile_path.exists():
+        raise FileNotFoundError(f"Essentia profile not found: {profile_path}")
+    return es.MusicExtractor(profile=str(profile_path))
+
+
+def _essentia_pool_to_vector(pool) -> np.ndarray:
+    pool_names = set(pool.descriptorNames())
+    parts = []
+    for name, expected_length, normalizer_key in _DESCRIPTOR_SCHEMA:
+        if name not in pool_names:
+            parts.append(np.zeros(expected_length, dtype=np.float32))
+            continue
+        raw = np.asarray(pool[name])
+        if normalizer_key is not None:
+            arr = _NORMALIZERS[normalizer_key](raw)
+        else:
+            arr = raw.astype(np.float32).reshape(-1)
+        if len(arr) < expected_length:
+            arr = np.concatenate(
+                [arr, np.zeros(expected_length - len(arr), dtype=np.float32)]
+            )
+        elif len(arr) > expected_length:
+            arr = arr[:expected_length]
+        parts.append(arr)
+    return np.concatenate(parts) if parts else np.zeros(0, dtype=np.float32)
+
+
+def extract_essentia_features(extractor, audio_path) -> np.ndarray:
+    features, _frames = extractor(str(audio_path))
+    return _essentia_pool_to_vector(features)
+
+
+def extract_essentia_features_segment(
+    extractor,
+    audio_path,
+    start: float,
+    end: float,
+) -> np.ndarray:
+    cropped_path = _ffmpeg_crop_to_tempwav(audio_path, start, end)
+    try:
+        features, _frames = extractor(str(cropped_path))
+        return _essentia_pool_to_vector(features)
+    finally:
+        cropped_path.unlink(missing_ok=True)
+
+
+class PANNsCNN14:
+    def __init__(self, weights_path: pathlib.Path):
+        self.tagger = AudioTagging(
+            checkpoint_path=str(weights_path),
+            device="cpu",
+        )
+
+    def extract(self, audio_path: pathlib.Path) -> np.ndarray:
+        waveform, _sr = librosa.load(str(audio_path), sr=32000, mono=True)
+        _clipwise_output, embedding = self.tagger.inference(waveform[None, :])
+        return embedding.reshape(-1)
+
+    def extract_segment(
+        self, audio_path: pathlib.Path, start_s: float, end_s: float
+    ) -> np.ndarray:
+        waveform, _sr = librosa.load(
+            str(audio_path),
+            sr=32000,
+            mono=True,
+            offset=start_s,
+            duration=end_s - start_s,
+        )
+        if len(waveform) == 0:
+            return np.zeros(2048, dtype=np.float32)
+        _clipwise_output, embedding = self.tagger.inference(waveform[None, :])
+        return embedding.reshape(-1)
+
+
+def _ffmpeg_crop_to_tempwav(
+    audio_path: pathlib.Path, start_s: float, end_s: float
+) -> pathlib.Path:
+    tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+    tmp.close()
+    duration = end_s - start_s
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-ss",
+        str(start_s),
+        "-i",
+        str(audio_path),
+        "-t",
+        str(duration),
+        "-ac",
+        "1",
+        "-ar",
+        "16000",
+        tmp.name,
+    ]
+    subprocess.run(cmd, capture_output=True, check=True)
+    return pathlib.Path(tmp.name)
+
+
+def prepare_extractor(
+    profile_path: pathlib.Path | None = None,
+    panns_weights_path: pathlib.Path | None = None,
+    use_panns: bool = True,
+) -> CombinedExtractor:
+    if use_panns and panns_weights_path is None:
+        panns_weights_path = config.panns_weights_path
+    essentia_extractor = get_essentia_extractor(profile_path)
+    panns_model = PANNsCNN14(panns_weights_path) if use_panns else None
+    return CombinedExtractor(
+        essentia_extractor=essentia_extractor,
+        panns_model=panns_model,
+        essentia_extract_fn=extract_essentia_features,
+        essentia_extract_segment_fn=extract_essentia_features_segment,
+    )

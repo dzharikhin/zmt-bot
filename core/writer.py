@@ -1,0 +1,308 @@
+import logging
+import queue
+from dataclasses import dataclass
+from multiprocessing import get_context
+from pathlib import Path
+from typing import Optional
+
+import config
+from audio.features import assert_schema_dim_consistent, prepare_extractor
+from audio.segments import SegmentSpec
+from core.jobs import JobManager
+from core.logging import setup_logging
+from core.paths import compute_file_hash
+from core.storage import FeatureStore, JobStore
+
+logger = logging.getLogger(__name__)
+
+_WORKER_FATAL = object()
+_POLL_TIMEOUT_S = 15.0
+
+
+@dataclass
+class ExtractionResult:
+    ok: int
+    failed: int
+    skipped: int
+
+
+def _worker_loop(
+    worker_id: int,
+    tasks: list[tuple[Path, str, str, dict]],
+    panns_weights_path: Path,
+    user_id: int,
+    embed_version: str,
+    segment_policy: str,
+    result_queue,
+    profile_path: Optional[Path],
+    segment_spec: Optional[SegmentSpec],
+    use_panns: bool = True,
+):
+    """Per-process extraction loop.
+
+    A fatal failure during setup (e.g. ``prepare_extractor`` raising) is caught
+    and a ``_WORKER_FATAL`` sentinel is queued so the coordinator never blocks
+    waiting for results this worker will never produce. Hard kills (OOM/SIGKILL,
+    native segfaults) cannot run Python and are detected by the coordinator's
+    liveness check instead.
+    """
+    setup_logging(
+        level=10,
+        format="%(asctime)s.%(msecs)03d %(levelname)s %(funcName)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    try:
+        logger.info(f"Worker {worker_id}: Starting with {len(tasks)} tasks")
+        extractor = prepare_extractor(
+            panns_weights_path=panns_weights_path,
+            profile_path=profile_path,
+            use_panns=use_panns,
+        )
+        store = FeatureStore(user_id, embed_version, segment_policy)
+
+        for idx, (track_path, file_hash, set_name, metadata) in enumerate(tasks):
+            try:
+                vector = extractor(track_path, segment_spec=segment_spec)
+                store.insert_track(
+                    file_hash=file_hash,
+                    vector=vector.tolist(),
+                    source_path=str(track_path),
+                    set_name=set_name,
+                    duration_s=metadata.get("duration_s", 0.0),
+                    bytes_=metadata.get("bytes_"),
+                    mtime=metadata.get("mtime"),
+                    sample_rate=metadata.get("sample_rate", 16000),
+                )
+                logger.info(f"Worker {worker_id}: OK {track_path.name}")
+                result_queue.put((file_hash, True, None))
+                if (idx + 1) % 10 == 0:
+                    logger.info(
+                        f"Worker {worker_id}: Completed {idx + 1}/{len(tasks)} tracks"
+                    )
+            except Exception as e:
+                logger.error(f"Worker {worker_id}: FAILED {track_path.name}: {e}")
+                result_queue.put((file_hash, False, str(e)))
+
+        logger.info(f"Worker {worker_id}: Finished, processed {len(tasks)} tracks")
+    except Exception as e:
+        logger.error(f"Worker {worker_id}: FATAL: {e}", exc_info=True)
+        result_queue.put((_WORKER_FATAL, worker_id, str(e)))
+
+
+def _describe_worker_failure(workers, received, expected, fatal):
+    parts = [f"completed {received}/{expected} extractions"]
+    if fatal:
+        parts.append(f"fatal startup error: {fatal}")
+    oom = False
+    exit_details = []
+    for w in workers:
+        ec = w.exitcode
+        if ec is not None:
+            exit_details.append(f"pid {w.pid} exitcode={ec}")
+            if ec == -9:
+                oom = True
+    if exit_details:
+        parts.append("worker exits: " + "; ".join(exit_details))
+    if oom:
+        parts.append(
+            "A worker was terminated by SIGKILL (exitcode -9), typically an OOM "
+            "kill. Retry with a lower --n-workers or raise the container memory."
+        )
+    return "; ".join(parts)
+
+
+def start_extraction_job(
+    user_id: int,
+    tracks: list[tuple[Path, str]],
+    embed_version: str,
+    segment_policy: str,
+    job_id: str,
+    n_workers: int = 2,
+    panns_weights_path: Optional[Path] = None,
+    profile_path: Optional[Path] = None,
+    segment_spec: Optional[SegmentSpec] = None,
+    use_panns: bool = True,
+    progress_callback=None,
+) -> ExtractionResult:
+    if panns_weights_path is None:
+        panns_weights_path = config.panns_weights_path
+    if segment_spec is None and segment_policy != "full":
+        segment_spec = SegmentSpec.parse(segment_policy)
+
+    store = FeatureStore(user_id, embed_version, segment_policy)
+
+    # Probe phase
+    to_extract = []
+    skipped = 0
+    for track_path, set_name in tracks:
+        file_hash = compute_file_hash(track_path)
+        if store.has(file_hash, set_name):
+            skipped += 1
+            logger.debug(f"Cache hit: {track_path.name}")
+        else:
+            stat = track_path.stat()
+            metadata = {
+                "source_path": str(track_path),
+                "set_name": set_name,
+                "duration_s": 0.0,
+                "segment_policy": segment_policy,
+                "embed_version": embed_version,
+                "bytes_": stat.st_size,
+                "mtime": stat.st_mtime,
+                "sample_rate": 16000,
+            }
+            to_extract.append((track_path, file_hash, set_name, metadata))
+
+    total = skipped + len(to_extract)
+    logger.info(
+        f"Job {job_id}: Cache probe complete - {skipped} cached, "
+        f"{len(to_extract)} to extract, {total} total"
+    )
+
+    job_store = JobStore(user_id)
+    job_mgr = JobManager(job_store)
+    job_mgr.start_job(
+        job_id, "extraction", {"total": total, "to_extract": len(to_extract)}
+    )
+
+    if progress_callback:
+        progress_callback(job_id, 0, total, "starting")
+
+    if not to_extract:
+        job_mgr.update_progress(job_id, progress_done=skipped, progress_total=total)
+        job_mgr.complete_job(job_id)
+        job_store.close()
+        if progress_callback:
+            progress_callback(job_id, total, total, "complete")
+        return ExtractionResult(ok=0, failed=0, skipped=skipped)
+
+    assert_schema_dim_consistent(profile_path)
+
+    job_store.close()
+
+    result_queue = get_context("spawn").Queue()
+
+    workers = []
+    for i in range(n_workers):
+        p = get_context("spawn").Process(
+            target=_worker_loop,
+            args=(
+                i,
+                to_extract[i::n_workers],
+                panns_weights_path,
+                user_id,
+                embed_version,
+                segment_policy,
+                result_queue,
+                profile_path,
+                segment_spec,
+                use_panns,
+            ),
+            daemon=True,
+        )
+        p.start()
+        workers.append(p)
+        logger.info(f"Job {job_id}: Worker {i} started (PID: {p.pid})")
+
+    ok = 0
+    failed = 0
+    expected = len(to_extract)
+    last_progress = 0
+    received = 0
+    fatal = None
+
+    logger.info(f"Job {job_id}: Processing {expected} tracks with {n_workers} workers")
+
+    job_store = JobStore(user_id)
+    job_mgr = JobManager(job_store)
+
+    try:
+        while received < expected:
+            try:
+                item = result_queue.get(timeout=_POLL_TIMEOUT_S)
+            except queue.Empty:
+                if not any(w.is_alive() for w in workers):
+                    logger.error(
+                        f"Job {job_id}: all workers exited after "
+                        f"{received}/{expected} results"
+                    )
+                    break
+                continue
+
+            if item[0] is _WORKER_FATAL:
+                _, wid, err = item
+                logger.error(f"Job {job_id}: Worker {wid} fatal: {err}")
+                if fatal is None:
+                    fatal = err
+                continue
+
+            file_hash, success, error_msg = item
+            received += 1
+            if success:
+                ok += 1
+                logger.info(f"Job {job_id}: {file_hash} — OK")
+            else:
+                failed += 1
+                logger.error(f"Job {job_id}: {file_hash} — FAILED: {error_msg}")
+
+            current_done = ok + failed + skipped
+            if current_done - last_progress >= 10 or current_done == total:
+                job_mgr.update_progress(
+                    job_id, progress_done=current_done, progress_total=total
+                )
+                if progress_callback:
+                    progress_callback(
+                        job_id,
+                        current_done,
+                        total,
+                        "running",
+                        ok=ok,
+                        failed=failed,
+                        skipped=skipped,
+                    )
+                last_progress = current_done
+
+        shortfall = expected - received
+        if shortfall > 0 or fatal is not None:
+            detail = _describe_worker_failure(workers, received, expected, fatal)
+            job_mgr.fail_job(job_id, detail)
+            if progress_callback:
+                progress_callback(
+                    job_id,
+                    received + skipped,
+                    total,
+                    "failed",
+                    ok=ok,
+                    failed=failed,
+                    skipped=skipped,
+                )
+            logger.error(f"Job {job_id}: FAILED - {detail}")
+            raise RuntimeError(f"Extraction job {job_id} failed: {detail}")
+
+        logger.info(f"Job {job_id}: All workers finished - ok={ok}, failed={failed}")
+        job_mgr.complete_job(job_id)
+        if progress_callback:
+            progress_callback(
+                job_id,
+                total,
+                total,
+                "complete",
+                ok=ok,
+                failed=failed,
+                skipped=skipped,
+            )
+
+        logger.info(
+            f"Job {job_id}: Completed - total={total}, ok={ok}, failed={failed}, "
+            f"skipped={skipped}"
+        )
+    finally:
+        for w in workers:
+            if w.is_alive():
+                w.terminate()
+        for w in workers:
+            w.join(timeout=10)
+        job_store.close()
+
+    return ExtractionResult(ok=ok, failed=failed, skipped=skipped)

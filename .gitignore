@@ -2,3 +2,6 @@
 /.idea
 *.iml
 **/snippets
+/data
+.opencode
+/benchmark/essentia-*
