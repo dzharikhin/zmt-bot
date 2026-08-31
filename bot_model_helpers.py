@@ -83,16 +83,20 @@ async def format_model_response(
     for model in items:
         subs = subscription_names.get(model.model_id, [])
         subs_str = ",".join(subs) if subs else ""
-        metrics_summary = (
-            f"fa={model.include_liked_fp:.2f},fr={model.exclude_disliked_fp:.2f}"
-            if model.include_liked_fp is not None
-            and model.exclude_disliked_fp is not None
-            else "n/a"
-        )
         line = (
             f"* [{subs_str}] model `{model.model_id}`: "
-            f"{metrics_summary}(track stats: "
-            f"{model.disliked_tracks_count}disliked / {model.liked_tracks_count}liked)"
+            f"liked: {model.liked_tracks_count} "
+            f"(outliers removed: {model.outliers_removed_liked}), "
+            f"disliked: {model.disliked_tracks_count} "
+            f"(outliers removed: {model.outliers_removed_disliked}), "
+            f"include_liked: tp={model.include_liked_tp:.2f} "
+            f"tn={model.include_liked_tn:.2f} "
+            f"fp={model.include_liked_fp:.2f} "
+            f"fn={model.include_liked_fn:.2f}, "
+            f"exclude_disliked: tp={model.exclude_disliked_tp:.2f} "
+            f"tn={model.exclude_disliked_tn:.2f} "
+            f"fp={model.exclude_disliked_fp:.2f} "
+            f"fn={model.exclude_disliked_fn:.2f}"
         )
         models_lines.append(line)
     models_formatted = "\n".join(models_lines)
