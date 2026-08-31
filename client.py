@@ -231,7 +231,7 @@ async def handle_estimate_queue_tasks(
                         if message.forward:
                             reply_message = (
                                 f"[{channel_name}] Rated as not recommended: "
-                                f"https://t.me/c/{message.input_chat.channel_id}/{message.id}"
+                                f"https://t.me/c/{message.input_chat.channel_id}/{message.id}\n"
                                 f"channel erases forward info, so provide "
                                 f"<https://t.me> link explicitly when forwarding "
                                 f"to estimation channel"
