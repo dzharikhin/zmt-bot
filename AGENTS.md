@@ -19,14 +19,15 @@ docker run --rm -v ./data:/app/data -v ./local_data:/app/local_data \
 
 ## Architecture
 - `client.py` — asyncio Telegram client, command handlers
+- `bot_utils.py`, `bot_model_helpers.py` — Telegram helpers (chats/messages, model-list pagination); `models.py` — `ModelType` enum
 - `train.py` — ML train/estimate pipeline; `build_preprocessor()` registry: `noop`, `standardize_select`, `welch<N>`, `ridge_select<N>`, `quota<N>` (+ `PANNS_FAMILY_QUOTA`)
-- `core/` — `modeling.py` (`DualOneClassModel`, `OneClassSetModel`), `preprocessing.py` (`welch_scores`, `StandardizeSelect`/`RidgeSelect`/`QuotaSelect` preprocessor classes), `outliers.py`, `paths.py` (embed versioning), `storage.py` (FeatureStore + JobStore), `jobs.py`, `writer.py` (bulk extraction entry `start_extraction_job()`)
+- `core/` — `modeling.py` (`DualOneClassModel`, `OneClassSetModel`), `preprocessing.py` (`welch_scores`, `StandardizeSelect`/`RidgeSelect`/`QuotaSelect` preprocessor classes), `outliers.py`, `paths.py` (embed versioning), `storage.py` (FeatureStore + JobStore), `jobs.py`, `writer.py` (bulk extraction entry `start_extraction_job()`), `logging.py`
 - `audio/` — `features.py` (essentia + PANNs CNN14 engine, `_DESCRIPTOR_SCHEMA` 560 entries / 4380 dims, `descriptor_family_layout()`, `schema_fingerprint()`), `extractor.py` (`CombinedExtractor`, DI pattern), `segments.py`, `aggregation.py`
-- `scripts/` — remote operational entrypoints (`extract_corpus.py`: re-extract a corpus under a new embed_version from old cache parquets (`--from-embed`) or from the on-disk audio store (`--from-dirs`); `train_probe.py`: headless `_build_profile` + `_execute_estimation` end-to-end check with PASS/FAIL bands)
-- `benchmark/` — Optuna study tools (`compare.py`, `gates_study.py`, `fused_rule_study.py`, `dfa_gate_study.py`, `analyze_pareto.py`) — see `benchmark/README.md`
+- `essentia/download_models.py` — one-off downloader for essentia classification-head models (into `essentia/models/`); NOT imported by the pipeline
+- `scripts/` — remote operational entrypoints (`extract_corpus.py`: re-extract a corpus under a new embed_version from old cache parquets (`--from-embed`) or from the on-disk audio store (`--from-dirs`); `train_probe.py`: headless `_build_profile` + `_execute_estimation` end-to-end check with PASS/FAIL bands; `fetch_panns_assets.py`: download CNN14 weights + labels into `data/panns_data/`)
+- `benchmark/` — Optuna study tools (`compare.py`, `gates_study.py`, `fused_rule_study.py`) — see `benchmark/README.md`
 - `audit/descriptor_shapes.py` — discover/verify `_DESCRIPTOR_SCHEMA` against a real corpus
 - `config.py` — env-based config with runtime override in `data/config.py` (bot_token/owner_user_id/data_path/local_data_path are locked)
-- `distinction_improvement.md` (untracked) — active plan + results log for the gate-quality project
 
 ## Key conventions
 - **snake case for bot commands** using argparse
@@ -71,4 +72,4 @@ poetry run python -m audit.descriptor_shapes verify \
 `discover` stratified-samples `--k` tracks (default 10) from the corpus.
 
 ## Tests
-`poetry run pytest` — full suite ≈5 min; focus with `poetry run pytest tests/test_modeling.py -q`.
+`poetry run pytest` — full suite ≈5 min; focus with `poetry run pytest tests/test_modeling.py -q`. No conftest; heavy essentia/torch imports make even `--collect-only` take a few seconds — not a hang.

@@ -461,11 +461,10 @@ poetry run python -m benchmark.fused_rule_study --features-dir FEATURES_DIR \
 ## Files
 
 - `benchmark/compare.py` — Optuna benchmark tool and CLI.
-- `benchmark/dfa_gate_study.py` — include-gate operating-point study (mechanism A/B + liked-side search).
 - `benchmark/fused_rule_study.py` — Fused decision-rule study (diff fusion w-grid + diagnostics).
 - `benchmark/gates_study.py` — Gates study (outlier × selection, NSGA-II).
-- `benchmark/preprocessor.md` — Preprocessor implementation plan (executed).
-- `benchmark/segment_sweep.yaml` — Segment policy sweep configuration for benchmark.
+- `benchmark/run_gates_study.sh` — Gates study wrapper.
+- `benchmark/essentia_profile.yaml` — Dev/source copy of the runtime extraction profile.
 - `benchmark/README.md` — This file.
 - `audio/segments.py` — Segment extraction policies and canonical string generation.
 - `core/paths.py` — `get_embed_version()` and feature cache key computation.
