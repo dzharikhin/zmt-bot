@@ -1,9 +1,12 @@
 import asyncio
 from concurrent.futures.process import BrokenProcessPool
+from types import SimpleNamespace
 
 import persistqueue
 from telethon.errors import BotMethodInvalidError
+from telethon.tl.types import DocumentAttributeAudio
 
+import bot_utils
 import client
 
 
@@ -346,3 +349,118 @@ def test_estimate_queue_marks_bot_method_invalid_as_failed(monkeypatch, tmp_path
     assert queue.calls["ack_failed"] == 1
     assert queue.calls["nack"] == 0
     assert len(bot.messages) == 1
+
+
+def make_audio_attr(performer=None, title=None, duration=120):
+    return DocumentAttributeAudio(duration=duration, title=title, performer=performer)
+
+
+def make_estimate_message(text="new track", attributes=(), channel_id=2439736204):
+    return SimpleNamespace(
+        message=text,
+        forward=None,
+        id=555,
+        input_chat=SimpleNamespace(channel_id=channel_id),
+        media=SimpleNamespace(document=SimpleNamespace(attributes=list(attributes))),
+    )
+
+
+def patch_not_recommended(monkeypatch, message):
+    async def fake_estimate(*args, **kwargs):
+        return False
+
+    async def fake_get_message(chat_id, msg_id, bot_client):
+        return message
+
+    monkeypatch.setattr(client, "estimate", fake_estimate)
+    monkeypatch.setattr(client, "get_message", fake_get_message)
+
+
+def test_get_track_label_with_both_tags():
+    message = make_estimate_message(
+        attributes=[make_audio_attr(performer="Boards of Canada", title="Roygbiv")]
+    )
+    assert bot_utils.get_track_label(message) == "Boards of Canada - Roygbiv"
+
+
+def test_get_track_label_partial_tags():
+    message = make_estimate_message(attributes=[make_audio_attr(title="OnlyTitle")])
+    assert bot_utils.get_track_label(message) == "OnlyTitle"
+    message = make_estimate_message(attributes=[make_audio_attr(performer="OnlyAct")])
+    assert bot_utils.get_track_label(message) == "OnlyAct"
+
+
+def test_get_track_label_missing_or_empty():
+    assert bot_utils.get_track_label(make_estimate_message()) is None
+    message = make_estimate_message(
+        attributes=[make_audio_attr(title="", performer=" ")]
+    )
+    assert bot_utils.get_track_label(message) is None
+    assert bot_utils.get_track_label(None) is None
+    assert bot_utils.get_track_label(SimpleNamespace(media=None)) is None
+
+
+def _estimate_cmd():
+    return {
+        "chat_id": -1002439736204,
+        "message_id": 555,
+        "model_id": 6177,
+        "model_type": "INCLUDE_LIKED",
+        "channel_name": "estimation",
+    }
+
+
+def test_estimate_queue_not_recommended_includes_track_label(monkeypatch, tmp_path):
+    queue = FakeQueue(_estimate_cmd())
+    patch_estimate_queue(monkeypatch, tmp_path, queue)
+    bot = FakeBot()
+    message = make_estimate_message(
+        attributes=[make_audio_attr(performer="Artist", title="Track")]
+    )
+    patch_not_recommended(monkeypatch, message)
+
+    run_handler_for(client.handle_estimate_queue_tasks(42, bot), seconds=0.2)
+
+    assert bot.messages == [
+        (
+            42,
+            "[estimation] Rated as not recommended: Artist - Track\n"
+            "https://t.me/c/2439736204/555",
+        )
+    ]
+    assert queue.calls["ack"] == 1
+
+
+def test_estimate_queue_not_recommended_link_caption_with_label(monkeypatch, tmp_path):
+    queue = FakeQueue(_estimate_cmd())
+    patch_estimate_queue(monkeypatch, tmp_path, queue)
+    bot = FakeBot()
+    message = make_estimate_message(
+        text="https://t.me/some_channel/12",
+        attributes=[make_audio_attr(performer="Artist", title="Track")],
+    )
+    patch_not_recommended(monkeypatch, message)
+
+    run_handler_for(client.handle_estimate_queue_tasks(42, bot), seconds=0.2)
+
+    assert bot.messages == [
+        (
+            42,
+            "[estimation] Rated as not recommended: Artist - Track\n"
+            "https://t.me/some_channel/12",
+        )
+    ]
+
+
+def test_estimate_queue_not_recommended_without_label_unchanged(monkeypatch, tmp_path):
+    queue = FakeQueue(_estimate_cmd())
+    patch_estimate_queue(monkeypatch, tmp_path, queue)
+    bot = FakeBot()
+    message = make_estimate_message()
+    patch_not_recommended(monkeypatch, message)
+
+    run_handler_for(client.handle_estimate_queue_tasks(42, bot), seconds=0.2)
+
+    assert bot.messages == [
+        (42, "[estimation] Rated as not recommended: https://t.me/c/2439736204/555")
+    ]

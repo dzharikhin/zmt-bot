@@ -5,7 +5,7 @@ from typing import Optional
 from telethon import TelegramClient
 from telethon.tl.custom import Message
 from telethon.tl.functions.channels import GetChannelsRequest
-from telethon.tl.types import Channel, Chat
+from telethon.tl.types import Channel, Chat, DocumentAttributeAudio
 from telethon.tl.types.messages import Chats
 
 import config
@@ -29,6 +29,25 @@ async def get_message(
 ) -> Optional[Message]:
     msgs = await bot_client.get_messages(channel, ids=[msg_id])
     return msgs[0] if msgs and msgs[0] else None
+
+
+def get_track_label(message: Optional[Message]) -> Optional[str]:
+    """Return "performer - title" from audio document attributes, if tagged."""
+    if not message:
+        return None
+    document = getattr(getattr(message, "media", None), "document", None)
+    attributes = getattr(document, "attributes", None) or []
+    audio_attr = next(
+        (attr for attr in attributes if isinstance(attr, DocumentAttributeAudio)),
+        None,
+    )
+    if not audio_attr:
+        return None
+    performer = (audio_attr.performer or "").strip()
+    title = (audio_attr.title or "").strip()
+    if performer and title:
+        return f"{performer} - {title}"
+    return performer or title or None
 
 
 def is_allowed_user(user_id: int) -> bool:

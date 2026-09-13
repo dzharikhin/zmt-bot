@@ -20,7 +20,13 @@ from telethon.events import CallbackQuery, NewMessage
 
 import config
 from bot_model_helpers import build_model_page_response
-from bot_utils import get_channel_name, get_channel_names, get_message, is_allowed_user
+from bot_utils import (
+    get_channel_name,
+    get_channel_names,
+    get_message,
+    get_track_label,
+    is_allowed_user,
+)
 from core.logging import setup_logging
 from models import ModelType
 from train import FILTER, estimate, prepare_model
@@ -223,14 +229,18 @@ async def handle_estimate_queue_tasks(
                     else:
                         await bot_client.forward_messages(user_id, message)
                 else:
+                    track_label = get_track_label(message)
+                    label_part = f"{track_label}\n" if track_label else ""
                     if m := re.match("https://t.me/\\S+", message.message):
                         reply_message = (
-                            f"[{channel_name}] Rated as not recommended: {m.group(0)}"
+                            f"[{channel_name}] Rated as not recommended: "
+                            f"{label_part}{m.group(0)}"
                         )
                     else:
                         if message.forward:
                             reply_message = (
                                 f"[{channel_name}] Rated as not recommended: "
+                                f"{label_part}"
                                 f"https://t.me/c/{message.input_chat.channel_id}/{message.id}\n"
                                 f"channel erases forward info, so provide "
                                 f"<https://t.me> link explicitly when forwarding "
@@ -239,6 +249,7 @@ async def handle_estimate_queue_tasks(
                         else:
                             reply_message = (
                                 f"[{channel_name}] Rated as not recommended: "
+                                f"{label_part}"
                                 f"https://t.me/c/{message.input_chat.channel_id}/{message.id}"
                             )
 
