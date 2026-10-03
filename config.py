@@ -39,6 +39,15 @@ user_client_check_period_seconds = int(
 dialog_list_page_size = int(os.getenv("DIALOG_LIST_PAGE_SIZE", "10"))
 estimation_post_way = os.getenv("ESTIMATION_POST_WAY", "reply")
 
+_LOG_LEVEL_NAMES = logging.getLevelNamesMapping()
+_log_level_name = os.getenv("LOG_LEVEL", "INFO").upper()
+if _log_level_name not in _LOG_LEVEL_NAMES:
+    raise ValueError(
+        f"LOG_LEVEL must be one of {sorted(_LOG_LEVEL_NAMES)}, "
+        f"got {os.getenv('LOG_LEVEL')!r}"
+    )
+log_level = _LOG_LEVEL_NAMES[_log_level_name]
+
 max_training_workers = int(os.getenv("MAX_TRAINING_WORKERS", "2"))
 max_estimation_workers = int(os.getenv("MAX_ESTIMATION_WORKERS", "2"))
 min_track_length_seconds = int(os.getenv("MIN_TRACK_LENGTH_SECONDS", "90"))
@@ -100,7 +109,7 @@ def _setup_worker_logging():
     from core.logging import setup_logging
 
     setup_logging(
-        level=logging.INFO,
+        level=log_level,
         format="%(asctime)s.%(msecs)03d %(levelname)s %(funcName)s: %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )

@@ -4,6 +4,7 @@
 - **Entrypoint**: `client.py` — Telegram bot using Telethon (asyncio)
 - **Build**: `VER=$(poetry version --short) docker buildx bake --progress=plain tg-zmt-bot`
 - **Run**: Docker with env vars `API_HASH`, `API_ID`, `BOT_TOKEN`, `OWNER_USER_ID`; mounts `./data:/app/data` and `./local_data:/app/local_data`
+- **Logging**: `LOG_LEVEL` env (default `INFO`) applies to the main process and spawned workers; `DEBUG` enables per-message/per-track detail
 - **Format**: `poetry run black . && poetry run ruff check --fix .`
 - **Python**: 3.14, Poetry; PyTorch CPU-only via explicit `pytorch_cpu` source in pyproject.toml
 

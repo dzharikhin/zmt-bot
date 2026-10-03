@@ -38,7 +38,6 @@ from core.writer import start_extraction_job
 from models import ModelType
 
 logger = logging.getLogger(__file__)
-logger.setLevel(logging.DEBUG)
 
 atexit_handler_registered = False
 
@@ -461,7 +460,7 @@ def _execute_estimation(
 
         is_recommended = model.decide(scores, model_type)
 
-        logger.debug(
+        logger.info(
             f"Scores: like={scores['like']}, dislike={scores['dislike']}, "
             f"decision={is_recommended}"
         )

@@ -32,12 +32,11 @@ from models import ModelType
 from train import FILTER, estimate, prepare_model
 
 setup_logging(
-    level=logging.WARN,
+    level=config.log_level,
     format="%(asctime)s.%(msecs)03d %(levelname)s %(funcName)s: %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger(__file__)
-logger.setLevel(logging.DEBUG)
 
 TRANSIENT_ERRORS = (RPCError, ConnectionError, TimeoutError, BrokenProcessPool)
 
@@ -114,7 +113,7 @@ async def handle_train_queue_tasks(
         cmd = None
         try:
             cmd = queue.get_nowait()
-            logger.debug(f"Handling train cmd={cmd}")
+            logger.info(f"Handling train cmd={cmd}")
             await prepare_model(
                 user_id,
                 bot_client,
@@ -200,7 +199,7 @@ async def handle_estimate_queue_tasks(
         cmd = None
         try:
             cmd = queue.get_nowait()
-            logger.debug(f"Handling estimation cmd={cmd}")
+            logger.info(f"Handling estimation cmd={cmd}")
             model_type = (
                 ModelType.from_string(cmd["model_type"])
                 if isinstance(cmd.get("model_type"), str)
@@ -475,7 +474,12 @@ def get_or_create_estimate_queue(user_id: int) -> persistqueue.SQLiteAckQueue:
 async def check_queue_handlers(
     tasks: dict[str, dict[str, Task]], bot_client: TelegramClient
 ):
+    was_connected = bot_client.is_connected()
     while True:
+        is_connected = bot_client.is_connected()
+        if is_connected != was_connected:
+            logger.info(f"Telegram connection state changed: connected={is_connected}")
+            was_connected = is_connected
         for user_id in config.get_existing_users():
             current_user_tasks = tasks.get(str(user_id), {})
             train_queue_task = current_user_tasks.get("handle_train_queue_tasks")
@@ -515,7 +519,7 @@ async def main():
     tasks = {}
     async with bot_client:
         bot_client: TelegramClient
-        logger.debug(f"Started bot {await bot_client.get_me()}")
+        logger.info(f"Started bot {await bot_client.get_me()}")
 
         def filter_not_mapped(event: NewMessage.Event):
             return not event.is_channel and _not_matched_command(event.message.message)
@@ -809,7 +813,9 @@ async def main():
             "check": asyncio.create_task(check_queue_handlers(tasks, bot_client))
         }
         await bot_client.run_until_disconnected()
+        logger.info("Telegram client disconnected")
 
+    logger.info("Shutting down, cancelling background tasks")
     for task_group in tasks.values():
         for task in task_group.values():
             task.cancel("shutdown")
