@@ -10,7 +10,7 @@ dynamic = ["dependencies"]
 
 [dependency-groups]
 dev = [
-    "black >=26.5.1,<27.0.0",
+    "black >=26.10.1,<27.0.0",
     "ruff >=0.16.10,<0.17.0",
     "pytest >=9.1.1,<10.0.0",
 ]
